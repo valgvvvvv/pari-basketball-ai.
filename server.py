@@ -1697,6 +1697,29 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             if quarter_match:
                                 period_value = int(quarter_match.group(1))
                                 break
+                    def event_factors(source_row):
+                        combined = []
+                        for candidate_list in (
+                            factor_map.get(str(source_row.get("id")), []),
+                            source_row.get("factors", []),
+                            source_row.get("markets", []),
+                        ):
+                            if isinstance(candidate_list, list):
+                                combined.extend(item for item in candidate_list if isinstance(item, dict))
+                        unique, seen = [], set()
+                        for factor in combined:
+                            marker = (str(factor.get("f")), str(factor.get("pt")),
+                                      str(factor.get("p")), str(factor.get("v")))
+                            if marker not in seen:
+                                seen.add(marker)
+                                unique.append(factor)
+                        return unique
+
+                    root_factors = event_factors(event)
+                    related_factor_rows = [
+                        (child, event_factors(child))
+                        for child in collect_related_event_rows(event_id)
+                    ]
                     basketball.append({
                         "id": str(event_id) if event_id is not None else "",
                         "team1": repair_team_encoding(event.get("team1") or event.get("team1Name") or ""),
@@ -1723,11 +1746,10 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         # Keep source hierarchy, repairing only text encoding; numeric source values remain untouched.
                         "raw": repaired_raw,
                         "related_events": repaired_related_rows,
-                        "factors": factor_map.get(str(event_id), []),
+                        "factors": root_factors,
                         "related_factors": [
-                            factor
-                            for child in collect_related_event_rows(event_id)
-                            for factor in factor_map.get(str(child.get("id")), [])
+                            factor for _child, child_factors in related_factor_rows
+                            for factor in child_factors
                         ],
                         "related_factor_groups": [
                             {
@@ -1736,14 +1758,14 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 "level": child.get("level"),
                                 "kind": child.get("kind"),
                                 "root_kind": child.get("rootKind"),
-                                "factors": factor_map.get(str(child.get("id")), []),
+                                "factors": child_factors,
                             }
-                            for child in collect_related_event_rows(event_id)
-                            if factor_map.get(str(child.get("id")), [])
+                            for child, child_factors in related_factor_rows
+                            if child_factors
                         ],
                         "match_total_candidates": [
-                            factor for factor in factor_map.get(str(event_id), [])
-                            if isinstance(factor, dict) and str(factor.get("f")) in ("930", "931")
+                            factor for factor in root_factors
+                            if str(factor.get("f")) in ("930", "931")
                         ],
                     })
                 attempts.append({
