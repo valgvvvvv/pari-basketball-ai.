@@ -960,7 +960,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "factors": factor_map.get(str(event_id), []),
                         "related_factors": [
                             factor
-                            for child in events_by_parent.get(str(event_id), [])
+                            for child in collect_related_event_rows(event_id)
                             for factor in factor_map.get(str(child.get("id")), [])
                         ],
                         "match_total_candidates": [
