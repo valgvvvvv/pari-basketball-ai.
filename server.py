@@ -505,8 +505,8 @@ async def pari_discover():
                         for chunk_id in ("43010", "5793", "50480"):
                             # Common webpack filename maps: {43010:"hash"} or ["hash"].
                             patterns = [
-                                rf"(?:^|[{{,])\\s*{chunk_id}\\s*:\\s*[\"']([a-f0-9]{{5,80}})[\"']",
-                                rf"(?:^|[\\[,])\\s*[\"']?{chunk_id}[\"']?\\s*[,:]\\s*[\"']([a-f0-9]{{5,80}})[\"']"
+                                rf"(?:^|[{{,])\s*{chunk_id}\s*:\s*[\"']([a-f0-9]{{5,80}})[\"']",
+                                rf"(?:^|[\[,])\s*[\"']?{chunk_id}[\"']?\s*[,:]\s*[\"']([a-f0-9]{{5,80}})[\"']"
                             ]
                             hashes = []
                             for pattern in patterns:
@@ -523,7 +523,7 @@ async def pari_discover():
                                               "content_type": cr.headers.get("content-type"), "bytes": len(cr.content)}
                                 if cr.status_code == 200 and ("javascript" in (cr.headers.get("content-type") or "").lower() or cr.text.lstrip().startswith(("!", "(", "var ", "(()=>", "webpack"))):
                                     chunk_source = cr.text[:4000000]
-                                    chunk_item["host_hints"] = list(dict.fromkeys(re.findall(r"(?i)(?:[a-z0-9-]+\\.)+pb06e2-resources\\.(?:ru|com)", chunk_source)))[:60]
+                                    chunk_item["host_hints"] = list(dict.fromkeys(re.findall(r"(?i)(?:[a-z0-9-]+\.)+pb06e2-resources\.(?:ru|com)", chunk_source)))[:60]
                                     chunk_item["api_path_hints"] = list(dict.fromkeys(re.findall(r"""['"]([^'"]{1,220}(?:api|live|event|market|odds|line|sport|basket)[^'"]{0,180})['"]""", chunk_source, re.I)))[:120]
                                     chunk_item["keyword_counts"] = {word: len(re.findall(word, chunk_source, re.I)) for word in ("clientsapi", "commonApi", "line", "live", "event", "market", "odds", "graphql", "websocket", "fetch")}
                                     chunk_item["preview"] = chunk_source[:1200]
