@@ -514,12 +514,24 @@ async def pari_discover():
                                 for key, value in re.findall(r"([0-9]+)\s*:\s*['\"]([^'\"]+)['\"]", map_match.group(1)):
                                     chunk_name_map[key] = value
                         item["webpack_chunk_name_map"] = {key: chunk_name_map.get(key) for key in ("43010", "5793", "50480")}
+                        # Besides bootstrap's initial chunks, inspect a small set of semantically
+                        # relevant lazy chunks: live, line, event, sport, market and common API.
+                        semantic_candidates = [
+                            (chunk_id, filename + ".js")
+                            for chunk_id, filename in chunk_name_map.items()
+                            if re.search(r"live|line|event|sport|market|common|api|basket|score|match", filename, re.I)
+                        ]
+                        item["semantic_chunk_candidates"] = [
+                            {"chunk_id": chunk_id, "filename": filename}
+                            for chunk_id, filename in semantic_candidates[:12]
+                        ]
                         chunk_candidates = []
                         for chunk_id in ("43010", "5793", "50480"):
                             semantic_name = chunk_name_map.get(chunk_id)
                             if semantic_name:
                                 chunk_candidates.append((chunk_id, semantic_name + ".js"))
                             chunk_candidates.append((chunk_id, chunk_id + ".js"))
+                        chunk_candidates.extend(semantic_candidates[:8])
                         base = bootstrap_url.rsplit("/", 1)[0] + "/"
                         seen_chunk_urls = set()
                         for chunk_id, filename in chunk_candidates:
@@ -554,6 +566,36 @@ async def pari_discover():
                                             pos += len(token)
                                             hits += 1
                                     chunk_item["api_context_windows"] = context_windows[:24]
+                                    # Detect data-model vocabulary and show bounded source context.
+                                    # These are code clues, not proof that the values are live.
+                                    data_patterns = {
+                                        "event_ids": r"\\b(?:eventId|sportEventId|event_id|eventID)\\b",
+                                        "team_fields": r"\\b(?:homeTeam|awayTeam|teamHome|teamAway|competitor|participant)\\b",
+                                        "score_fields": r"\\b(?:score|homeScore|awayScore|currentScore|scoreHome|scoreAway)\\b",
+                                        "clock_fields": r"\\b(?:clock|timer|period|quarter|matchTime)\\b",
+                                        "market_fields": r"\\b(?:odds|price|marketId|outcome)\\b",
+                                    }
+                                    chunk_item["data_model_keyword_counts"] = {
+                                        name: len(re.findall(pattern, chunk_source, re.I))
+                                        for name, pattern in data_patterns.items()
+                                    }
+                                    data_windows = []
+                                    for token in ("sportEventId", "eventId", "homeTeam", "awayTeam",
+                                                  "homeScore", "awayScore", "currentScore", "scoreHome",
+                                                  "scoreAway", "marketId", "matchTime", "competitor"):
+                                        pos = 0
+                                        hits = 0
+                                        while hits < 2:
+                                            pos = chunk_source.find(token, pos)
+                                            if pos < 0:
+                                                break
+                                            data_windows.append({
+                                                "token": token,
+                                                "snippet": chunk_source[max(0, pos-350):min(len(chunk_source), pos+650)]
+                                            })
+                                            pos += len(token)
+                                            hits += 1
+                                    chunk_item["data_model_context_windows"] = data_windows[:18]
                                     chunk_item["request_string_hints"] = list(dict.fromkeys(
                                         re.findall(r"""['"]([^'"]{1,180})['"]""", chunk_source)
                                     ))
