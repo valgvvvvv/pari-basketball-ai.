@@ -948,7 +948,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     if period_value is None:
                         for child_row in repaired_related_rows:
                             child_name = str(child_row.get("name", ""))
-                            quarter_match = re.search(r"(?:^|\\D)([1-4])\\s*[-–.]?\\s*(?:я|ая)?\\s*(?:четверть|четверт)", child_name.lower())
+                            quarter_match = re.search(r"(?:^|\D)([1-4])\s*[-–.]?\s*(?:я|ая)?\s*(?:четверть|четверт)", child_name.lower())
                             if quarter_match:
                                 period_value = int(quarter_match.group(1))
                                 break
