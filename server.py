@@ -287,8 +287,8 @@ async def pari_source_check():
             "etag": response.headers.get("etag"),
             "last_modified": response.headers.get("last-modified"),
             "content_sha256": hashlib.sha256(response.content).hexdigest(),
-            "freshness_check": "fresh" if freshness_ok else "stale_or_unverified",
-            "note": "Проверяет доступность и свежесть HTTP-ответа; ещё не подтверждает разбор LIVE-событий и время обновления каждого матча.",
+            "freshness_check": "http_response_recent_event_freshness_unverified" if freshness_ok else "stale_or_unverified",
+            "note": "Свежий HTTP Date подтверждает только время ответа сервера, но не свежесть LIVE-счёта или коэффициентов. Актуальность матчей можно подтвердить только после обнаружения и проверки feed с временными метками событий.",
         }
     except httpx.TimeoutException:
         return {"ok": False, "source": url, "freshness_check": "unavailable", "error": "PARI не ответил за 15 секунд", "checked_at_utc": datetime.now(timezone.utc).isoformat()}
