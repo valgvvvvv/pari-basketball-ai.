@@ -765,11 +765,83 @@ async def pari_live_events(catalog_only: bool = False):
                     if isinstance(event, dict) and event.get("sportId") is not None:
                         sid = str(event.get("sportId"))
                         sport_id_counts[sid] = sport_id_counts.get(sid, 0) + 1
-                # Current PARI sport IDs confirmed from actual root-event samples:
-                # 70206: Panathinaikos / Kolossos (basketball)
-                # 12071: Philadelphia / Indiana, Phoenix / Lakers (NBA basketball)
-                # Keep this explicit allowlist until the site's sport catalogue is decoded.
-                basketball_ids = {"70206", "12071"}
+                # Resolve sportId dynamically from PARI's own sports catalogue.
+                # The live feed may omit it, so use listBase as a cached metadata source.
+                sports_meta = payload.get("sports", []) if isinstance(payload, dict) else []
+                if not isinstance(sports_meta, list) or not sports_meta:
+                    cached = globals().get("_PARI_SPORTS_CACHE", {})
+                    if cached.get("expires", 0) > datetime.now(timezone.utc).timestamp():
+                        sports_meta = cached.get("sports", [])
+                    else:
+                        try:
+                            base_response = await client.get(
+                                host + "/events/listBase",
+                                params={"lang": "ru", "scopeMarket": "2300"},
+                            )
+                            if base_response.status_code == 200:
+                                base_payload = base_response.json()
+                                candidate_sports = base_payload.get("sports", []) if isinstance(base_payload, dict) else []
+                                if isinstance(candidate_sports, list) and candidate_sports:
+                                    sports_meta = candidate_sports
+                                    globals()["_PARI_SPORTS_CACHE"] = {
+                                        "expires": datetime.now(timezone.utc).timestamp() + 600,
+                                        "sports": sports_meta,
+                                    }
+                        except (httpx.HTTPError, ValueError):
+                            sports_meta = []
+                sports_by_id = {
+                    str(row.get("id")): row for row in sports_meta
+                    if isinstance(row, dict) and row.get("id") is not None
+                }
+                def sport_parent_id(row):
+                    for key in ("parentId", "parent_id", "parentSportId", "parent"):
+                        value = row.get(key)
+                        if isinstance(value, dict):
+                            value = value.get("id")
+                        if value is not None:
+                            return str(value)
+                    return None
+                def sport_chain_text(row):
+                    names = []
+                    seen = set()
+                    current = row
+                    for _ in range(12):
+                        if not isinstance(current, dict):
+                            break
+                        current_id = str(current.get("id", ""))
+                        if current_id in seen:
+                            break
+                        seen.add(current_id)
+                        names.append(str(current.get("name", "")))
+                        parent_id = sport_parent_id(current)
+                        current = sports_by_id.get(parent_id) if parent_id else None
+                    return " / ".join(names).lower()
+                basketball_ids = set()
+                sport_names = {}
+                basketball_markers = ("баскетбол", "basketball")
+                known_basketball_markers = (
+                    "nba", "wnba", "ncaa", "euroleague", "eurocup", "acb", "bbl",
+                    "kbl", "wkbl", "nbl", "cba", "lkl", "vtb", "gbl", "serie a",
+                    "pro a", "pro b", "liga nacional", "pba", "uaap", "tpbl",
+                    "basketliga", "plk", "superliga", "adriatic", "aba league",
+                    "fiba", "korisliiga", "b.league", "b one", "bnxt"
+                )
+                for sid, row in sports_by_id.items():
+                    chain = sport_chain_text(row)
+                    direct_name = str(row.get("name", "")).lower()
+                    if any(marker in chain for marker in basketball_markers) or (
+                        str(row.get("kind", "")).lower() == "segment"
+                        and any(marker in direct_name for marker in known_basketball_markers)
+                    ):
+                        basketball_ids.add(sid)
+                        sport_names[sid] = str(row.get("name", ""))
+                # Retain the two IDs already verified from actual basketball root events.
+                basketball_ids.update({"70206", "12071"})
+                excluded_markers = (
+                    "жен", "women", "female", "wnba", "wkbl", "esports",
+                    "esportsbattle", "кибер", "cyber", "nba 2k", "2k26", "2k27",
+                    "h2h", "ipbl", "виртуал", "3x3", "3х3"
+                )
                 basketball = []
                 def repair_team_encoding(value):
                     value = str(value or "")
@@ -788,7 +860,15 @@ async def pari_live_events(catalog_only: bool = False):
                 for event in all_events:
                     if not isinstance(event, dict):
                         continue
-                    if str(event.get("sportId", "")) not in basketball_ids:
+                    sid = str(event.get("sportId", ""))
+                    if sid not in basketball_ids:
+                        continue
+                    team_text = " ".join(str(event.get(k, "")) for k in ("team1", "team2")).lower()
+                    competition_text = " ".join([
+                        str(event.get("name", "")), str(event.get("competitionName", "")),
+                        sport_names.get(sid, "")
+                    ]).lower()
+                    if any(marker in competition_text or marker in team_text for marker in excluded_markers):
                         continue
                     # Only root match rows; children are periods/markets, not matches.
                     if event.get("level") != 1 and event.get("parentId") is not None:
@@ -802,7 +882,8 @@ async def pari_live_events(catalog_only: bool = False):
                         "team1": repair_team_encoding(event.get("team1") or event.get("team1Name") or ""),
                         "team2": repair_team_encoding(event.get("team2") or event.get("team2Name") or ""),
                         "sport_id": str(event.get("sportId")),
-                        "classification": "confirmed_sample_mapping",
+                        "classification": "catalogue_resolved",
+                        "sport_name": sport_names.get(str(event.get("sportId")), ""),
                         "status": "live",
                         "league": repair_team_encoding(event.get("name") or event.get("competitionName") or ""),
                         "start_time": event.get("startTime"),
@@ -830,6 +911,8 @@ async def pari_live_events(catalog_only: bool = False):
                     "total_events": len(all_events),
                     "basketball_events": len(basketball),
                     "basketball_sport_ids_detected": sorted(basketball_ids.intersection(sport_ids)),
+                    "sports_catalog_entries": len(sports_meta),
+                    "basketball_catalog_ids": len(basketball_ids),
                     "live_only": True,
                     "sport_ids": sport_ids,
                 })
@@ -908,7 +991,7 @@ async def pari_live_events(catalog_only: bool = False):
                     "sample_factor_shape": compact_event(factors[0]) if isinstance(factors, list) and factors else None,
                     "events": basketball,
                     "attempts": attempts,
-                    "note": "LIVE feed connection is verified. sport_catalog now lists every sportId with root/live/prematch counts and team examples; basketball allowlist is still conservative pending catalogue classification.",
+                    "note": "Basketball sportIds are resolved dynamically from PARI sports hierarchy or cached listBase metadata. Female, esports, virtual and 3x3 competitions are excluded.",
                 }
             except httpx.HTTPError as exc:
                 attempts.append({"host": host, "error": type(exc).__name__})
