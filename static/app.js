@@ -100,8 +100,16 @@ if (discoverSourceButton) {
       $("sourceDiscoverStatus").textContent = `Проверено JS-чанков: ${(data.chunk_scans || []).length}; рабочих CDN-зеркал: ${(data.bootstrap_scans || []).filter(x => x.status === 200).length}; кандидатов маршрутов: ${count}. API пока не подтверждён.`;
       const compact = {
         diagnostic_version: data.diagnostic_version,
-        pages: (data.pages || []).map(x => ({requested_url:x.requested_url,status:x.status,error:x.error,bytes:x.bytes})),
-        bootstrap_scans: (data.bootstrap_scans || []).map(x => ({url:x.url,status:x.status,error:x.error,bytes:x.bytes,host_hints:x.host_hints,api_path_hints:(x.api_path_hints||[]).slice(0,35)})),
+        pages: (data.pages || []).map(x => ({
+          requested_url:x.requested_url,status:x.status,error:x.error,bytes:x.bytes,
+          runtime_host_hints:x.runtime_host_hints,
+          runtime_config_context_windows:(x.runtime_config_context_windows||[]).slice(0,12)
+        })),
+        bootstrap_scans: (data.bootstrap_scans || []).map(x => ({
+          url:x.url,status:x.status,error:x.error,bytes:x.bytes,host_hints:x.host_hints,
+          semantic_chunk_candidates:x.semantic_chunk_candidates,
+          api_path_hints:(x.api_path_hints||[]).slice(0,35)
+        })),
         chunk_scans: (data.chunk_scans || []).map(x => ({
           chunk_id:x.chunk_id,status:x.status,error:x.error,url:x.url,bytes:x.bytes,
           data_model_keyword_counts:x.data_model_keyword_counts,
