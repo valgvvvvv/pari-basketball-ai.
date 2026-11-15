@@ -535,6 +535,31 @@ async def pari_discover():
                                     chunk_item["host_hints"] = list(dict.fromkeys(re.findall(r"(?i)(?:[a-z0-9-]+\.)+pb06e2-resources\.(?:ru|com)", chunk_source)))[:60]
                                     chunk_item["api_path_hints"] = list(dict.fromkeys(re.findall(r"""['"]([^'"]{1,220}(?:api|live|event|market|odds|line|sport|basket)[^'"]{0,180})['"]""", chunk_source, re.I)))[:120]
                                     chunk_item["keyword_counts"] = {word: len(re.findall(word, chunk_source, re.I)) for word in ("clientsapi", "commonApi", "line", "live", "event", "market", "odds", "graphql", "websocket", "fetch")}
+                                    # Surface code around request/configuration primitives so the next
+                                    # diagnostic can identify actual public feed calls, not just keywords.
+                                    context_tokens = ("getApiState", "clientCommonAgent", "lineAgents", "commonApi",
+                                                      "getServer", "sportEvents", "eventsFilter", "fetch(", "axios",
+                                                      "ApiRequest", "apiUrl", "baseURL", "request(")
+                                    context_windows = []
+                                    for token in context_tokens:
+                                        pos = 0
+                                        hits = 0
+                                        while hits < 3:
+                                            pos = chunk_source.find(token, pos)
+                                            if pos < 0:
+                                                break
+                                            context_windows.append({"token": token,
+                                                                    "snippet": chunk_source[max(0, pos-500):min(len(chunk_source), pos+1100)]})
+                                            pos += len(token)
+                                            hits += 1
+                                    chunk_item["api_context_windows"] = context_windows[:24]
+                                    chunk_item["request_string_hints"] = list(dict.fromkeys(
+                                        re.findall(r"""['"]([^'"]{1,180})['"]""", chunk_source)
+                                    ))
+                                    chunk_item["request_string_hints"] = [
+                                        value for value in chunk_item["request_string_hints"]
+                                        if "/" in value or any(word in value.lower() for word in ("api", "event", "live", "market", "sport", "line", "odds"))
+                                    ][:160]
                                     chunk_item["preview"] = chunk_source[:1200]
                                 chunk_scans.append(chunk_item)
                             except httpx.HTTPError as exc:
