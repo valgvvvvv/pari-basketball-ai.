@@ -185,11 +185,27 @@ function findLiveClock(ev){
   }
   return null;
 }
+function estimateLiveTotal(ev, score, period, clock){
+  const live=ev.external_live||{};
+  const length=Number(live.period_length_seconds||0);
+  if(!score||!period||!clock||!Number.isFinite(length)||length<300||length>900)return null;
+  const match=String(clock).match(/^(\d{1,2}):([0-5]\d)$/);
+  if(!match)return null;
+  const remaining=Number(match[1])*60+Number(match[2]);
+  if(remaining>length)return null;
+  const elapsed=(Number(period)-1)*length+(length-remaining);
+  if(elapsed<=0)return null;
+  const total=score[0]+score[1];
+  const projection=total/elapsed*(length*4);
+  if(!Number.isFinite(projection)||projection<=0)return null;
+  return {current:total,projection:Math.round(projection*10)/10,low:Math.round(projection*0.88),high:Math.round(projection*1.12),elapsed:Math.round(elapsed/60*10)/10};
+}
 function showSelectedMatch(ev){
   const panel=$("selectedMatch");panel.hidden=false;
   $("selectedMatchTitle").textContent=(ev.team1||"Команда 1")+" — "+(ev.team2||"Команда 2");
   const objects=collectEventObjects({root:ev.raw||{},related:ev.related_events||[],live:ev.live_fields||{}});
   const score=findLiveScore(ev),period=findLivePeriod(ev),clock=findLiveClock(ev);
+  const paceEstimate=estimateLiveTotal(ev,score,period,clock);
   const childCount=(ev.related_events||[]).length;
   const fieldNames=[...new Set(objects.flatMap(o=>Object.keys(o)))];
   const rootFactors=(ev.factors||[]).filter(x=>x&&["930","931"].includes(String(x.f)));
@@ -217,7 +233,8 @@ function showSelectedMatch(ev){
     '<p><b>Факторы в основной строке матча PARI</b></p>'+
     '<p class="muted">'+(rootLines.length?rootLines.map(escapeHtml).join("<br>"):"В основной строке нет факторов ID 930/931.")+'</p>'+
     '<p class="muted">Это пока не подтверждённая расшифровка типа рынка: ID фактора и линия показываются как получены от PARI.</p>'+
-    '<p class="muted">'+(score&&period&&clock?"Счёт, четверть и таймер доступны.":"Расчёт темпа заблокирован: нет подтверждённого счёта и/или таймера.")+'</p>';
+    '<p class="muted">'+(score&&period&&clock?"Счёт, четверть и таймер доступны.":"Расчёт темпа заблокирован: нет подтверждённого счёта и/или таймера.")+'</p>'+
+    (paceEstimate?'<p><b>Предварительная оценка полного тотала по текущему темпу:</b> '+paceEstimate.projection+' очка · ориентировочный диапазон '+paceEstimate.low+'–'+paceEstimate.high+' · сыграно около '+paceEstimate.elapsed+' мин. Это оценка темпа, не обученный прогноз.</p>':'<p class="muted">Оценка полного тотала появится после получения подтверждённого счёта, игрового таймера и длительности четверти.</p>');
   $("quarterForecast").innerHTML=
     '<p><b>Текущая четверть:</b> '+(period||"не определена")+'</p>'+
     (groupHtml||'<p class="muted">В дочерних строках не найдено факторов ID 930/931.</p>')+
