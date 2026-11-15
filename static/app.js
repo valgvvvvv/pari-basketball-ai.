@@ -163,7 +163,7 @@ function findLiveScore(ev){
 }
 function findLivePeriod(ev){
   const objects=collectEventObjects({root:ev.raw||{},related:ev.related_events||[],live:ev.live_fields||{}});
-  const direct=ev.period??(ev.raw||{}).period??(ev.raw||{}).periodName;
+  const direct=ev.period??ev.external_live?.period??ev.live_period??(ev.raw||{}).period??(ev.raw||{}).periodName;
   const candidates=[direct];
   for(const obj of objects)for(const [key,value] of Object.entries(obj))if(/period|quarter|gamePart|stageNumber/i.test(key))candidates.push(value);
   for(const value of candidates){
@@ -177,7 +177,7 @@ function findLivePeriod(ev){
 }
 function findLiveClock(ev){
   const objects=collectEventObjects({root:ev.raw||{},related:ev.related_events||[],live:ev.live_fields||{}});
-  const candidates=[ev.clock,(ev.raw||{}).time,(ev.raw||{}).timer];
+  const candidates=[ev.clock,ev.external_live?.clock,ev.live_clock,(ev.raw||{}).time,(ev.raw||{}).timer];
   for(const obj of objects)for(const [key,value] of Object.entries(obj))if(/^(time|timer|clock|matchTime|gameTime|remainingTime|periodTime|timeRemaining|time_remaining|countdown|remaining_seconds|clock_seconds)$/i.test(key))candidates.push(value);
   for(const value of candidates){
     if(value==null)continue;
