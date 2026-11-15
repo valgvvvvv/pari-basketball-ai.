@@ -192,7 +192,9 @@ function eventScore(ev) {
   try { return JSON.stringify(ev.score); } catch (_) { return ""; }
 }
 let liveRefreshInFlight = false;
+let nextLiveRefreshDelay = 30000;
 async function refreshLiveMatches() {
+  nextLiveRefreshDelay = 30000;
   if (liveRefreshInFlight) return;
   liveRefreshInFlight = true;
   const button = $("refreshLiveMatches");
@@ -202,6 +204,14 @@ async function refreshLiveMatches() {
     const response = await fetch("/api/pari/live", {cache:"no-store"});
     const data = await response.json();
     if (!response.ok || !data.ok) throw new Error(data.error || "Источник PARI недоступен");
+    if (data.loading) {
+      nextLiveRefreshDelay = 4000;
+      if (liveBadge) { liveBadge.textContent = "Загружаем матчи PARI…"; liveBadge.className = "pill warn"; }
+      if (liveMessage) liveMessage.textContent = "Сервер получает свежий список матчей PARI. Проверим результат через несколько секунд.";
+      if ($("liveSourceStatus")) { $("liveSourceStatus").textContent = "Загрузка…"; $("liveSourceStatus").className = "amber"; }
+      $("feedStatus").textContent = "PARI LIVE: получаем список матчей…";
+      return;
+    }
     const count = (data.events || []).length;
     window.pariLiveEvents = data.events || [];
     const sourceStatus = $("liveSourceStatus");
@@ -243,7 +253,7 @@ async function refreshLiveMatches() {
     liveRefreshInFlight = false;
     if (button) button.disabled = false;
     // Schedule the next poll only after this request has finished; never stack requests.
-    setTimeout(refreshLiveMatches, 30000);
+    setTimeout(refreshLiveMatches, nextLiveRefreshDelay);
   }
 }
 if ($("refreshLiveMatches")) $("refreshLiveMatches").addEventListener("click", refreshLiveMatches);
