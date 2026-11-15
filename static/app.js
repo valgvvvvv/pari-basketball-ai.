@@ -214,6 +214,7 @@ async function refreshLiveMatches() {
     if (sourceDetail) sourceDetail.textContent = "Не удалось получить ответ PARI API";
     if (liveBadge) { liveBadge.textContent = "Нет подтверждения LIVE"; liveBadge.className = "pill warn"; }
     if (liveMessage) liveMessage.textContent = "Не удалось получить список матчей: " + (error.message || "ошибка запроса");
+    if (liveUpdated) liveUpdated.textContent = "Ошибка первого ответа: " + (error.message || "сбой запроса");
     $("feedStatus").textContent = "PARI LIVE: подключение не подтверждено";
   } finally {
     liveRefreshInFlight = false;
