@@ -1002,19 +1002,6 @@ async def _enrich_with_sofascore_live(events):
                     ss_away_name = str(ss_away.get("name") or "")
                     if not ss_home_name or not ss_away_name:
                         continue
-                    duplicate = next((r for r in external_rows
-                                      if pair_score(ss_home_name, ss_away_name, r["home"], r["away"]) >= 0.94), None)
-                    if duplicate:
-                        # Fill gaps in the SportScore candidate with independently
-                        # matched SofaScore values, without overwriting existing data.
-                        if duplicate.get("score") is None: duplicate["score"] = ss_score
-                        if not duplicate.get("clock"): duplicate["clock"] = None
-                        if duplicate.get("period") is None:
-                            duplicate["period"] = ss_item.get("lastPeriod")
-                        if not duplicate.get("period_length_seconds"):
-                            duplicate["period_length_seconds"] = None
-                        duplicate.setdefault("sources", []).append("SofaScore")
-                        continue
                     ss_status = ss_item.get("status") or {}
                     ss_time = ss_item.get("time") or {}
                     if not isinstance(ss_status, dict): ss_status = {}
@@ -1053,13 +1040,25 @@ async def _enrich_with_sofascore_live(events):
                         if qh is not None and qa is not None:
                             try: ss_period_scores[str(n)] = [int(qh), int(qa)]
                             except (TypeError, ValueError, OverflowError): pass
-                    external_rows.append({
+                    ss_candidate = {
                         "home": ss_home_name, "away": ss_away_name, "score": ss_score,
                         "period_scores": ss_period_scores, "period": ss_period,
                         "clock": ss_clock, "period_length_seconds": ss_length,
                         "status": ss_desc, "id": "sofascore:" + str(ss_item.get("id")),
                         "detail_source": "SofaScore",
-                    })
+                    }
+                    duplicate = next((r for r in external_rows
+                                      if pair_score(ss_home_name, ss_away_name, r["home"], r["away"]) >= 0.94), None)
+                    if duplicate:
+                        for field in ("score", "period", "clock", "period_length_seconds"):
+                            if duplicate.get(field) is None and ss_candidate.get(field) is not None:
+                                duplicate[field] = ss_candidate[field]
+                        if not duplicate.get("period_scores") and ss_candidate.get("period_scores"):
+                            duplicate["period_scores"] = ss_candidate["period_scores"]
+                        if duplicate.get("detail_source") is None:
+                            duplicate["detail_source"] = "SportScore + SofaScore"
+                    else:
+                        external_rows.append(ss_candidate)
 
             # The list endpoint is score/status oriented. For live rows without a
             # countdown, ask SportScore's documented single-match detail endpoint.
