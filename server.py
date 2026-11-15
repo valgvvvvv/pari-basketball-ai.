@@ -786,9 +786,21 @@ async def _enrich_with_sofascore_live(events):
     except Exception as exc:
         errors.append(type(exc).__name__)
 
-    # A successful HTTP/JSON response is not enough: an empty events array
-    # must also fall through to SportScore, otherwise score enrichment silently stops.
-    if payload is None or not isinstance(payload.get("events"), list) or not payload.get("events"):
+    sofascore_has_scored_events = bool(
+        isinstance(payload, dict)
+        and isinstance(payload.get("events"), list)
+        and any(
+            isinstance(item, dict)
+            and isinstance(item.get("homeScore"), dict)
+            and isinstance(item.get("awayScore"), dict)
+            and item["homeScore"].get("current") is not None
+            and item["awayScore"].get("current") is not None
+            for item in payload["events"]
+        )
+    )
+    if not sofascore_has_scored_events:
+        # A scheduled feed with fixtures but no current score is not a usable LIVE source.
+        # Fall through to SportScore rather than returning matches without a scoreboard.
         # Use SportScore's public basketball live-score feed as a score-only fallback.
         sportscore_errors = []
         try:
