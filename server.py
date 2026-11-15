@@ -987,7 +987,8 @@ async def pari_live_events(catalog_only: bool = False):
                         key=lambda x: x["events"], reverse=True
                     )[:30],
                     "sample_event_shapes": [compact_event(e) for e in all_events[:5]],
-                    "sample_root_events_by_sport": root_samples[:80],\n                    "sport_catalog": sport_catalog,
+                    "sample_root_events_by_sport": root_samples[:80],
+                    "sport_catalog": sport_catalog,
                     "sample_factor_shape": compact_event(factors[0]) if isinstance(factors, list) and factors else None,
                     "events": basketball,
                     "attempts": attempts,
