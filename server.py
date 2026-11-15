@@ -380,8 +380,29 @@ async def pari_discover():
                             refs.append({"url": urljoin(str(response.url), href), "kind": "preload"})
                     for ref in refs:
                         asset_refs.append(ref)
-                    for inline in parser.inline_scripts:
+                    inline_analysis = []
+                    for inline_index, inline in enumerate(parser.inline_scripts):
                         inline_hints.extend(find_hints(inline))
+                        inline_analysis.append({
+                            "index": inline_index,
+                            "chars": len(inline),
+                            "loader_markers": {
+                                "create_element_script": bool(re.search(r"createElement\\s*\\(\\s*['\\"]script", inline, re.I)),
+                                "script_src_assignment": bool(re.search(r"\\.src\\s*=", inline, re.I)),
+                                "document_write": bool(re.search(r"document\\.write", inline, re.I)),
+                                "dynamic_import": bool(re.search(r"\\bimport\\s*\\(", inline)),
+                                "fetch": bool(re.search(r"\\bfetch\\s*\\(", inline)),
+                                "xmlhttprequest": "XMLHttpRequest" in inline,
+                                "websocket": "WebSocket" in inline,
+                                "service_worker": "serviceWorker" in inline,
+                                "eval_or_function": bool(re.search(r"\\beval\\s*\\(|new\\s+Function", inline)),
+                                "base64": "atob(" in inline or "base64" in inline.lower(),
+                                "source_map": "sourceMappingURL=" in inline
+                            },
+                            "external_url_hints": list(dict.fromkeys(re.findall(r"https?://[^\\s'\\"]{1,260}", inline)))[:30],
+                            "script_path_hints": list(dict.fromkeys(re.findall(r"['\\"]([^'\\"]{1,240}\\.js(?:\\?[^'\\"]*)?)['\\"]", inline, re.I)))[:30],
+                            "preview": inline[:7000]
+                        })
                     manifest = None
                     manifest_refs = [x["url"] for x in refs if "manifest" in x["url"].lower() and x["url"].lower().endswith(".json")]
                     for manifest_url in manifest_refs[:2]:
@@ -412,6 +433,7 @@ async def pari_discover():
                             "captcha": bool(re.search(r"captcha|challenge|cloudflare|access denied", body, re.I))
                         },
                         "inline_route_hints": find_hints(" ".join(parser.inline_scripts))[:80],
+                        "inline_script_analysis": inline_analysis,
                         "html_preview": body[:1200]
                     })
                 except httpx.HTTPError as exc:
@@ -447,7 +469,7 @@ async def pari_discover():
             "asset_refs_found": len(asset_refs), "first_party_assets_scanned": len(scanned),
             "scanned_assets": scanned, "inline_route_hints": list(dict.fromkeys(inline_hints))[:100],
             "route_candidates": hints[:200], "confirmed_api": False,
-            "note": "URL-кандидаты не являются подтверждённым API. Для подтверждения нужны проверка запроса, структуры ответа и повторное получение актуального LIVE-счёта/линий."
+            "note": "Версия 3 дополнительно показывает содержимое встроенного загрузчика и маркеры динамического импорта. URL-кандидаты не являются подтверждённым API до проверки реального ответа и актуальности LIVE-счёта/линий."
         }
     except httpx.TimeoutException:
         return {"ok": False, "diagnostic_version": 2, "error": "PARI diagnostic timed out"}
