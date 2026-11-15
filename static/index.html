@@ -29,7 +29,7 @@
       <div class="metric"><small>ИСТОРИЯ</small><b id="historyCount">0</b><span>Локально сохранённых анализов</span></div>
     </section>
     <section class="panel" id="liveMatches">
-      <div class="section-head"><div><span class="eyebrow">LIVE EVENT DISCOVERY</span><h2>Матчи PARI в онлайне</h2><p>Список загружается напрямую из сетевого API PARI и обновляется автоматически каждые 30 секунд. Счёт и статистика показываются только если они присутствуют в ответе источника.</p></div><span class="pill warn" id="liveFeedBadge">Проверяем источник</span></div>
+      <div class="section-head"><div><span class="eyebrow">LIVE EVENT DISCOVERY</span><h2>Матчи PARI в онлайне</h2><p>Матчи и линии загружаются из PARI, счёт и игровое время — только из подтверждённых источников. Предварительные ориентиры ТБ/ТМ рассчитываются автоматически при наличии полного набора данных.</p></div><span class="pill warn" id="liveFeedBadge">Проверяем источник</span></div>
       <div class="form-actions"><button class="btn-primary" type="button" id="refreshLiveMatches">Обновить матчи</button><span class="muted" id="liveFeedUpdated">Ожидание первого ответа…</span></div>
       <p class="muted" id="liveFeedMessage" aria-live="polite">Проверяем доступность API PARI.</p>
       <div id="liveMatchList" class="live-match-list"></div>
@@ -62,5 +62,5 @@ window.addEventListener("unhandledrejection", function(event) {
   if (message) message.textContent = "Ошибка выполнения страницы: " + String(event.reason || "неизвестная ошибка");
 });
 </script>
-<script src="/static/app.js?v=20261115-14" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
+<script src="/static/app.js?v=20261115-forecast1" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
 </body></html>
