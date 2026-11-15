@@ -477,6 +477,7 @@ async def pari_discover():
                     scanned.append({"url": asset["url"], "error": type(exc).__name__})
 
             bootstrap_scans = []
+        chunk_scans = []
             for bootstrap_url in list(dict.fromkeys(bootstrap_urls))[:3]:
                 parsed = urlparse(bootstrap_url)
                 host = (parsed.hostname or "").lower()
@@ -493,6 +494,42 @@ async def pari_discover():
                         item["api_path_hints"] = list(dict.fromkeys(re.findall(r"""['"]([^'"]{1,220}(?:api|live|event|market|odds|line|sport|basket)[^'"]{0,180})['"]""", source, re.I)))[:120]
                         item["keyword_counts"] = {word: len(re.findall(word, source, re.I)) for word in ("clientsapi", "commonApi", "line", "live", "event", "market", "odds", "graphql", "websocket")}
                         item["preview"] = source[:1800]
+                        # Webpack runtime reveals the exact public chunk filenames.
+                        runtime_windows = []
+                        for token in ("43010", "5793", "50480", ".u=", ".u ="):
+                            pos = source.find(token)
+                            if pos >= 0:
+                                runtime_windows.append({"token": token, "snippet": source[max(0, pos-500):min(len(source), pos+1800)]})
+                        item["runtime_windows"] = runtime_windows[:12]
+                        chunk_candidates = []
+                        for chunk_id in ("43010", "5793", "50480"):
+                            # Common webpack filename maps: {43010:"hash"} or ["hash"].
+                            patterns = [
+                                rf"(?:^|[{{,])\\s*{chunk_id}\\s*:\\s*[\"']([a-f0-9]{{5,80}})[\"']",
+                                rf"(?:^|[\\[,])\\s*[\"']?{chunk_id}[\"']?\\s*[,:]\\s*[\"']([a-f0-9]{{5,80}})[\"']"
+                            ]
+                            hashes = []
+                            for pattern in patterns:
+                                hashes.extend(re.findall(pattern, source, re.I))
+                            for digest in dict.fromkeys(hashes):
+                                chunk_candidates.append((chunk_id, digest, f"{chunk_id}.{digest}.js"))
+                            chunk_candidates.append((chunk_id, "", f"{chunk_id}.js"))
+                        base = bootstrap_url.rsplit("/", 1)[0] + "/"
+                        for chunk_id, digest, filename in chunk_candidates[:9]:
+                            chunk_url = base + filename
+                            try:
+                                cr = await client.get(chunk_url)
+                                chunk_item = {"chunk_id": chunk_id, "url": chunk_url, "status": cr.status_code,
+                                              "content_type": cr.headers.get("content-type"), "bytes": len(cr.content)}
+                                if cr.status_code == 200 and ("javascript" in (cr.headers.get("content-type") or "").lower() or cr.text.lstrip().startswith(("!", "(", "var ", "(()=>", "webpack"))):
+                                    chunk_source = cr.text[:4000000]
+                                    chunk_item["host_hints"] = list(dict.fromkeys(re.findall(r"(?i)(?:[a-z0-9-]+\\.)+pb06e2-resources\\.(?:ru|com)", chunk_source)))[:60]
+                                    chunk_item["api_path_hints"] = list(dict.fromkeys(re.findall(r"""['"]([^'"]{1,220}(?:api|live|event|market|odds|line|sport|basket)[^'"]{0,180})['"]""", chunk_source, re.I)))[:120]
+                                    chunk_item["keyword_counts"] = {word: len(re.findall(word, chunk_source, re.I)) for word in ("clientsapi", "commonApi", "line", "live", "event", "market", "odds", "graphql", "websocket", "fetch")}
+                                    chunk_item["preview"] = chunk_source[:1200]
+                                chunk_scans.append(chunk_item)
+                            except httpx.HTTPError as exc:
+                                chunk_scans.append({"chunk_id": chunk_id, "url": chunk_url, "error": type(exc).__name__})
                         bundle_hints.extend(item["route_hints"])
                     bootstrap_scans.append(item)
                 except httpx.HTTPError as exc:
@@ -501,11 +538,11 @@ async def pari_discover():
         hints = list(dict.fromkeys(inline_hints + bundle_hints))
         return {
             "ok": any(x.get("status") == 200 for x in pages),
-            "diagnostic_version": 4, "pages": pages,
+            "diagnostic_version": 5, "pages": pages,
             "asset_refs_found": len(asset_refs), "first_party_assets_scanned": len(scanned),
-            "scanned_assets": scanned, "bootstrap_scans": bootstrap_scans, "bootstrap_urls_found": len(set(bootstrap_urls)), "inline_route_hints": list(dict.fromkeys(inline_hints))[:100],
+            "scanned_assets": scanned, "bootstrap_scans": bootstrap_scans, "chunk_scans": chunk_scans, "bootstrap_urls_found": len(set(bootstrap_urls)), "inline_route_hints": list(dict.fromkeys(inline_hints))[:100],
             "route_candidates": hints[:200], "confirmed_api": False,
-            "note": "Версия 4 извлекает публичный bootstrap.js из CDN, указанного конфигурацией PARI, и ищет в нём маршруты/хосты данных. Найденные строки — только кандидаты; API подтверждается проверкой реальных ответов и изменения LIVE-данных."
+            "note": "Версия 5 извлекает публичный bootstrap.js и проверяет имена загружаемых webpack-блоков; Версия 4 извлекает публичный bootstrap.js из CDN, указанного конфигурацией PARI, и ищет в нём маршруты/хосты данных. Найденные строки — только кандидаты; API подтверждается проверкой реальных ответов и изменения LIVE-данных."
         }
     except httpx.TimeoutException:
         return {"ok": False, "diagnostic_version": 2, "error": "PARI diagnostic timed out"}
