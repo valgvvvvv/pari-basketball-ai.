@@ -696,7 +696,11 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
         "Cache-Control": "no-cache",
     }
     attempts = []
+    # Render environments can have broken/unrouted IPv6 egress while IPv4 works.
+    # Bind the outbound transport explicitly to IPv4; this does not alter the PARI URL.
+    ipv4_transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0", retries=1)
     async with httpx.AsyncClient(
+        transport=ipv4_transport,
         timeout=httpx.Timeout(22.0, connect=12.0),
         follow_redirects=True,
         headers=headers,
