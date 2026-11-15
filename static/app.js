@@ -130,7 +130,8 @@ function parseScore(value){
     const pairs=[
       ["team1","team2"],["home","away"],["score1","score2"],
       ["homeScore","awayScore"],["scoreHome","scoreAway"],
-      ["team1Score","team2Score"],["home_score","away_score"],
+      ["team1Score","team2Score"],["team1_score","team2_score"],
+      ["home_score","away_score"],["homePoints","awayPoints"],
       ["participant1","participant2"]
     ];
     for(const [aKey,bKey] of pairs){
@@ -177,11 +178,15 @@ function findLivePeriod(ev){
 function findLiveClock(ev){
   const objects=collectEventObjects({root:ev.raw||{},related:ev.related_events||[],live:ev.live_fields||{}});
   const candidates=[ev.clock,(ev.raw||{}).time,(ev.raw||{}).timer];
-  for(const obj of objects)for(const [key,value] of Object.entries(obj))if(/^(time|timer|clock|matchTime|gameTime|remainingTime|periodTime|timeRemaining)$/i.test(key))candidates.push(value);
+  for(const obj of objects)for(const [key,value] of Object.entries(obj))if(/^(time|timer|clock|matchTime|gameTime|remainingTime|periodTime|timeRemaining|time_remaining|countdown|remaining_seconds|clock_seconds)$/i.test(key))candidates.push(value);
   for(const value of candidates){
     if(value==null)continue;
     const m=String(value).match(/(?:^|\D)(\d{1,2}):([0-5]\d)(?:\D|$)/);
     if(m)return m[1].padStart(2,"0")+":"+m[2];
+    // Numeric countdowns are accepted only in plausible basketball-period range.
+    if(typeof value==="number"&&Number.isFinite(value)&&Number.isInteger(value)&&value>=0&&value<=900){
+      return String(Math.floor(value/60)).padStart(2,"0")+":"+String(value%60).padStart(2,"0");
+    }
   }
   return null;
 }
