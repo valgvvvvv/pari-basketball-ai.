@@ -1015,8 +1015,8 @@ async def _enrich_with_sofascore_live(events):
                                             continue
                                         if not row.get("clock") and clock_keys.search(str(key)):
                                             candidate = str(value).strip()
-                                            if not re.match(r"^\\d{4}-\\d{2}-\\d{2}[T ]", candidate):
-                                                match = re.fullmatch(r"(\\d{1,2}):([0-5]\\d)", candidate)
+                                            if not re.match(r"^\d{4}-\d{2}-\d{2}[T ]", candidate):
+                                                match = re.fullmatch(r"(\d{1,2}):([0-5]\d)", candidate)
                                                 if match:
                                                     seconds = int(match.group(1)) * 60 + int(match.group(2))
                                                     if 0 <= seconds <= 900:
@@ -1031,7 +1031,7 @@ async def _enrich_with_sofascore_live(events):
                                         if row.get("period_length_seconds") is None and duration_keys.search(str(key)):
                                             try:
                                                 raw = str(value).strip()
-                                                if re.fullmatch(r"\\d{1,2}:[0-5]\\d", raw):
+                                                if re.fullmatch(r"\d{1,2}:[0-5]\d", raw):
                                                     mm, ss = raw.split(":")
                                                     seconds = int(mm) * 60 + int(ss)
                                                 else:
