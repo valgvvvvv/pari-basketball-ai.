@@ -1087,12 +1087,37 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
 
 @app.get("/api/pari/match-debug")
 async def pari_match_debug(team: str = "Luxol"):
-    """Inspect all normalized LIVE basketball matches and search every field."""
+    """Inspect LIVE matches; tolerate PARI Cyrillic mojibake and Latin transliterations."""
     import json
+    import unicodedata
 
     data = await _fetch_pari_live_events(catalog_only=False)
     if not data.get("ok"):
         return {"ok": False, "error": data.get("error"), "attempts": data.get("attempts", [])}
+
+    def repair_text(value):
+        text = str(value or "")
+        # Repeatedly undo UTF-8 bytes that were decoded as Windows-1251.
+        for _ in range(2):
+            try:
+                candidate = text.encode("cp1251").decode("utf-8")
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                break
+            bad_before = sum(text.count(ch) for ch in ("Р", "С", "Ð", "Ñ", "�"))
+            bad_after = sum(candidate.count(ch) for ch in ("Р", "С", "Ð", "Ñ", "�"))
+            if bad_after >= bad_before or candidate == text:
+                break
+            text = candidate
+        return text
+
+    def repair_tree(value):
+        if isinstance(value, str):
+            return repair_text(value)
+        if isinstance(value, list):
+            return [repair_tree(item) for item in value]
+        if isinstance(value, dict):
+            return {key: repair_tree(item) for key, item in value.items()}
+        return value
 
     def compact(row):
         if not isinstance(row, dict):
@@ -1100,47 +1125,47 @@ async def pari_match_debug(team: str = "Luxol"):
         scalar, nested = {}, {}
         for key, value in row.items():
             if value is None or isinstance(value, (str, int, float, bool)):
-                scalar[key] = value
+                scalar[key] = repair_text(value) if isinstance(value, str) else value
             elif isinstance(value, dict):
-                nested[key] = {"keys": list(value.keys())[:50]}
+                nested[key] = {"keys": list(value.keys())[:60]}
             elif isinstance(value, list):
                 nested[key] = {
                     "length": len(value),
-                    "first_keys": list(value[0].keys())[:50] if value and isinstance(value[0], dict) else [],
-                    "first_scalar": value[0] if value and isinstance(value[0], (str, int, float, bool)) else None
+                    "first_keys": list(value[0].keys())[:60] if value and isinstance(value[0], dict) else [],
+                    "first_scalar": repair_text(value[0]) if value and isinstance(value[0], str) else (value[0] if value and isinstance(value[0], (int, float, bool)) else None)
                 }
         return {"scalar_fields": scalar, "nested_fields": nested}
 
-    needle = str(team or "").casefold().strip()
+    needle = unicodedata.normalize("NFKC", str(team or "")).casefold().strip()
+    aliases = {needle}
+    if needle in ("luxol", "luxol basketball"):
+        aliases.update(("луксол", "люксол"))
     matches, samples = [], []
     for event in data.get("events", []):
-        raw_text = json.dumps(event, ensure_ascii=False, default=str).casefold()
-        if needle and needle not in raw_text:
+        repaired_event = repair_tree(event)
+        raw_text = json.dumps(repaired_event, ensure_ascii=False, default=str).casefold()
+        found = any(alias and alias in raw_text for alias in aliases)
+        summary = {
+            "id": event.get("id"),
+            "team1": repair_text(event.get("team1")),
+            "team2": repair_text(event.get("team2")),
+            "league": repair_text(event.get("league")),
+            "sport_name": repair_text(event.get("sport_name")),
+            "root_fields": sorted((event.get("raw") or {}).keys()) if isinstance(event.get("raw"), dict) else [],
+            "related_count": len(event.get("related_events", []) or []),
+        }
+        if not found:
             if len(samples) < 30:
-                matches_text = {
-                    "id": event.get("id"),
-                    "team1": event.get("team1"),
-                    "team2": event.get("team2"),
-                    "league": event.get("league"),
-                    "sport_name": event.get("sport_name"),
-                    "root_fields": sorted((event.get("raw") or {}).keys()) if isinstance(event.get("raw"), dict) else [],
-                    "related_count": len(event.get("related_events", []) or []),
-                }
-                samples.append(matches_text)
+                samples.append(summary)
             continue
         matches.append({
-            "id": event.get("id"),
-            "team1": event.get("team1"),
-            "team2": event.get("team2"),
-            "league": event.get("league"),
-            "sport_name": event.get("sport_name"),
-            "root": compact(event.get("raw", {})),
-            "related_count": len(event.get("related_events", []) or []),
-            "related_rows": [compact(row) for row in (event.get("related_events", []) or [])[:80]],
-            "factor_count": len(event.get("factors", []) or []),
-            "factor_examples": (event.get("factors", []) or [])[:12],
-            "related_factor_count": len(event.get("related_factors", []) or []),
-            "related_factor_examples": (event.get("related_factors", []) or [])[:20],
+            **summary,
+            "root": compact(repaired_event.get("raw", {})),
+            "related_rows": [compact(row) for row in (repaired_event.get("related_events", []) or [])[:80]],
+            "factor_count": len(repaired_event.get("factors", []) or []),
+            "factor_examples": (repaired_event.get("factors", []) or [])[:12],
+            "related_factor_count": len(repaired_event.get("related_factors", []) or []),
+            "related_factor_examples": (repaired_event.get("related_factors", []) or [])[:20],
         })
     return {
         "ok": True,
@@ -1151,9 +1176,8 @@ async def pari_match_debug(team: str = "Luxol"):
         "matches": matches,
         "live_match_samples": samples,
         "filter_diagnostics": data.get("filter_diagnostics"),
-        "note": "Search scans the full normalized event object, including nested child rows. Samples expose actual field names when no match is found."
+        "note": "Search includes repaired Cyrillic text and common Latin transliterations; all actual source fields are preserved."
     }
-
 
 @app.get("/api/pari/diagnostics")
 async def pari_live_diagnostics():
