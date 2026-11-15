@@ -733,20 +733,26 @@ async def _enrich_with_sofascore_live(events):
                     errors.append(type(exc).__name__)
             # Some lower-division matches are absent from the live index briefly.
             # Today's scheduled feed may already carry their live status and score.
-            if payload is None or not payload.get("events"):
-                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                for base in ("https://www.sofascore.com/api/v1", "https://api.sofascore.com/api/v1"):
-                    try:
-                        response = await client.get(base + "/sport/basketball/scheduled-events/" + today)
-                        if response.status_code == 200:
-                            candidate = response.json()
-                            if isinstance(candidate, dict) and isinstance(candidate.get("events"), list):
+            # Add today's fixtures too: smaller domestic leagues may be absent
+            # from the global live index even while a match is in progress.
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            for base in ("https://www.sofascore.com/api/v1", "https://api.sofascore.com/api/v1"):
+                try:
+                    response = await client.get(base + "/sport/basketball/scheduled-events/" + today)
+                    if response.status_code == 200:
+                        candidate = response.json()
+                        if isinstance(candidate, dict) and isinstance(candidate.get("events"), list):
+                            if payload is None:
                                 payload = candidate
-                                break
-                        else:
-                            errors.append("scheduled_HTTP_" + str(response.status_code))
-                    except (httpx.HTTPError, ValueError) as exc:
-                        errors.append("scheduled_" + type(exc).__name__)
+                            else:
+                                existing = {str(e.get("id")) for e in payload.get("events", []) if isinstance(e, dict)}
+                                payload["events"].extend(e for e in candidate["events"]
+                                                         if isinstance(e, dict) and str(e.get("id")) not in existing)
+                            break
+                    else:
+                        errors.append("scheduled_HTTP_" + str(response.status_code))
+                except (httpx.HTTPError, ValueError) as exc:
+                    errors.append("scheduled_" + type(exc).__name__)
     except Exception as exc:
         errors.append(type(exc).__name__)
 
@@ -878,25 +884,34 @@ async def _enrich_with_sofascore_live(events):
     stats_errors = []
     if matched_rows:
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(6.0, connect=3.5),
+            stats_cache = globals().setdefault("_SOFASCORE_STATS_CACHE", {})
+            async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0),
                                           follow_redirects=True, headers=headers) as stats_client:
-                for pari, row in matched_rows[:20]:
+                for pari, row in matched_rows[:6]:
                     event_id = row.get("id")
                     if not event_id:
                         continue
-                    stats_payload = None
-                    for base in ("https://www.sofascore.com/api/v1", "https://api.sofascore.com/api/v1"):
-                        try:
-                            response = await stats_client.get(base + "/event/" + str(event_id) + "/statistics")
-                            if response.status_code == 200:
-                                candidate = response.json()
-                                if isinstance(candidate, dict):
-                                    stats_payload = candidate
-                                    break
-                            else:
-                                stats_errors.append("stats_HTTP_" + str(response.status_code))
-                        except (httpx.HTTPError, ValueError) as exc:
-                            stats_errors.append("stats_" + type(exc).__name__)
+                    cached_stats = stats_cache.get(str(event_id), {})
+                    if cached_stats.get("expires", 0) > datetime.now(timezone.utc).timestamp():
+                        stats_payload = cached_stats.get("payload")
+                    else:
+                        stats_payload = None
+                        for base in ("https://www.sofascore.com/api/v1", "https://api.sofascore.com/api/v1"):
+                            try:
+                                response = await stats_client.get(base + "/event/" + str(event_id) + "/statistics")
+                                if response.status_code == 200:
+                                    candidate = response.json()
+                                    if isinstance(candidate, dict):
+                                        stats_payload = candidate
+                                        stats_cache[str(event_id)] = {
+                                            "expires": datetime.now(timezone.utc).timestamp() + 25,
+                                            "payload": candidate,
+                                        }
+                                        break
+                                else:
+                                    stats_errors.append("stats_HTTP_" + str(response.status_code))
+                            except (httpx.HTTPError, ValueError) as exc:
+                                stats_errors.append("stats_" + type(exc).__name__)
                     if not stats_payload:
                         continue
                     source_stats = stats_payload.get("statistics") or stats_payload
