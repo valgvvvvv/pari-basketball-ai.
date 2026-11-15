@@ -1030,8 +1030,8 @@ async def _enrich_with_sofascore_live(events):
                                                 if found is not None: return found
                                         return None
                                     candidate = str(value).strip()
-                                    if re.match(r"^\\d{4}-\\d{2}-\\d{2}[T ]", candidate): return None
-                                    match = re.fullmatch(r"(\\d{1,2}):([0-5]\\d)", candidate)
+                                    if re.match(r"^\d{4}-\d{2}-\d{2}[T ]", candidate): return None
+                                    match = re.fullmatch(r"(\d{1,2}):([0-5]\d)", candidate)
                                     if match:
                                         total = int(match.group(1))*60 + int(match.group(2))
                                         return total if 0 <= total <= 900 else None
@@ -1050,7 +1050,7 @@ async def _enrich_with_sofascore_live(events):
                                                 if found is not None: return found
                                         return None
                                     raw = str(value).strip()
-                                    if re.fullmatch(r"\\d{1,2}:[0-5]\\d", raw):
+                                    if re.fullmatch(r"\d{1,2}:[0-5]\d", raw):
                                         mm, ss = raw.split(":")
                                         return int(mm)*60 + int(ss)
                                     try:
