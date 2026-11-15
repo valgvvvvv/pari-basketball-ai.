@@ -34,7 +34,8 @@ form.addEventListener("submit",async e=>{e.preventDefault();try{const d=getData(
 $("resetBtn").addEventListener("click",()=>{Object.entries(defaults).forEach(([k,v])=>{let el=$(k);if(el)el.value=v;});$("result").hidden=true;});
 function renderHistory(){let h=JSON.parse(localStorage.getItem("pariHistory")||"[]");$("historyCount").textContent=h.length;$("historyList").innerHTML=h.length?h.map(x=>`<div class="history-row"><b>${x.match}</b><span>${x.direction} ${x.line}</span><span>${x.prob}% · ${x.grade}</span><span>${x.date}</span></div>`).join(""):'<p class="muted">Пока нет сохранённых расчётов.</p>';}
 $("clearHistory").addEventListener("click",()=>{localStorage.removeItem("pariHistory");renderHistory();});
-fetch("/api/health").then(r=>r.json()).then(s=>{$("feedStatus").textContent=s.pari_live_connected?"PARI LIVE подключён":"PARI LIVE: источник не подключён";}).catch(()=>{});
+// Health is a backend status only; the live feed status below is authoritative.
+fetch("/api/health").catch(()=>{});
 renderHistory();
 
 
@@ -139,3 +140,60 @@ if (discoverSourceButton) {
     }
   });
 }
+
+// Direct PARI event feed: refresh on page open and every 30 seconds.
+const liveList = $("liveMatchList");
+const liveMessage = $("liveFeedMessage");
+const liveBadge = $("liveFeedBadge");
+const liveUpdated = $("liveFeedUpdated");
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+}
+function eventScore(ev) {
+  if (ev.score == null) return "";
+  if (typeof ev.score === "string" || typeof ev.score === "number") return String(ev.score);
+  try { return JSON.stringify(ev.score); } catch (_) { return ""; }
+}
+async function refreshLiveMatches() {
+  const button = $("refreshLiveMatches");
+  if (button) button.disabled = true;
+  if (liveMessage && !liveList.children.length) liveMessage.textContent = "Запрашиваем events/list у серверов PARI…";
+  try {
+    const response = await fetch("/api/pari/live", {cache:"no-store"});
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || "Источник PARI недоступен");
+    const count = (data.events || []).length;
+    if (liveBadge) {
+      liveBadge.textContent = count ? "LIVE-источник отвечает" : "API отвечает, матчей не найдено";
+      liveBadge.className = "pill " + (count ? "success" : "warn");
+    }
+    if (liveMessage) liveMessage.textContent = count
+      ? "Получен ответ PARI: " + data.total_events + " событий всего, " + count + " баскетбольных событий по sportId 15872/15873."
+      : "API PARI отвечает (" + data.total_events + " событий), но по текущей карте sportId 15872/15873 баскетбольные матчи не найдены. Нужна сверка категорий.";
+    if (liveUpdated) liveUpdated.textContent = "Обновлено: " + new Date(data.checked_at_utc).toLocaleTimeString("ru-RU") + " · " + (data.attempts?.[0]?.host || "PARI");
+    if (liveList) {
+      liveList.innerHTML = count ? data.events.map(ev => {
+        const teams = escapeHtml(ev.team1 || "Команда 1") + " — " + escapeHtml(ev.team2 || "Команда 2");
+        const score = eventScore(ev);
+        const details = [ev.league, score, ev.period, ev.clock].filter(Boolean).map(escapeHtml).join(" · ");
+        return '<button type="button" class="live-match" data-home="' + escapeHtml(ev.team1) + '" data-away="' + escapeHtml(ev.team2) + '">' +
+          '<span class="live-match-title">' + teams + '</span><span class="live-match-meta">' + (details || "Событие получено из LIVE API PARI") + '</span></button>';
+      }).join("") : '<p class="muted">В ответе пока нет матчей с распознанным баскетбольным sportId.</p>';
+      liveList.querySelectorAll(".live-match").forEach(el => el.addEventListener("click", () => {
+        $("team1").value = el.dataset.home || "";
+        $("team2").value = el.dataset.away || "";
+        $("analysis").scrollIntoView({behavior:"smooth",block:"start"});
+      }));
+    }
+    $("feedStatus").textContent = count ? "PARI LIVE: найдено " + count + " матчей" : "PARI API отвечает; матчи не распознаны";
+  } catch (error) {
+    if (liveBadge) { liveBadge.textContent = "Нет подтверждения LIVE"; liveBadge.className = "pill warn"; }
+    if (liveMessage) liveMessage.textContent = "Не удалось получить список матчей: " + (error.message || "ошибка запроса");
+    $("feedStatus").textContent = "PARI LIVE: подключение не подтверждено";
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+if ($("refreshLiveMatches")) $("refreshLiveMatches").addEventListener("click", refreshLiveMatches);
+refreshLiveMatches();
+setInterval(refreshLiveMatches, 30000);
