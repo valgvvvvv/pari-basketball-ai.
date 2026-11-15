@@ -210,7 +210,7 @@ function showSelectedMatch(ev){
     return '<p><b>'+escapeHtml(label)+'</b></p><p class="muted">'+(lines.length?lines.map(escapeHtml).join("<br>"):"Факторы не распознаны")+'</p>';
   }).join("");
   $("selectedMatchMeta").textContent=[ev.league||ev.sport_name,"Строк PARI: "+(childCount+1),"Полей: "+fieldNames.length].filter(Boolean).join(" · ");
-  $("selectedMatchInfo").textContent="Счёт: "+(score?score.join(" : "):"нет в ответе PARI")+" · Четверть: "+(period||"не определена")+" · Время: "+(clock||"нет в ответе PARI")+" · Рынков-факторов: "+new Set([...(ev.factors||[]),...(ev.related_factors||[])].map(x=>String(x.f)+"|"+String(x.pt||x.p||"")+"|"+String(x.v||""))).size;
+  $("selectedMatchInfo").textContent="Счёт: "+(score?score.join(" : "):"не найден")+" · Четверть: "+(period||"не определена")+" · Время: "+(clock||"не найден")+" · Источник счёта: "+(ev.score_source||"PARI")+" · Источник времени: "+(ev.clock_source||"PARI")+" · Рынков-факторов: "+new Set([...(ev.factors||[]),...(ev.related_factors||[])].map(x=>String(x.f)+"|"+String(x.pt||x.p||"")+"|"+String(x.v||""))).size;
   $("matchForecast").innerHTML=
     '<p><b>Факторы в основной строке матча PARI</b></p>'+
     '<p class="muted">'+(rootLines.length?rootLines.map(escapeHtml).join("<br>"):"В основной строке нет факторов ID 930/931.")+'</p>'+
@@ -260,7 +260,7 @@ async function refreshLiveMatches() {
     if (data.loading) {
       nextLiveRefreshDelay = 4000;
       if (liveBadge) { liveBadge.textContent = "Загружаем матчи PARI…"; liveBadge.className = "pill warn"; }
-      if (liveMessage) liveMessage.textContent = "Сервер получает свежий список матчей PARI. Проверим результат через несколько секунд.";
+      if (liveMessage) liveMessage.textContent = "Сервер получает свежий список матчей PARI и проверяет дополнительный LIVE-счёт.";
       if ($("liveSourceStatus")) { $("liveSourceStatus").textContent = "Загрузка…"; $("liveSourceStatus").className = "amber"; }
       $("feedStatus").textContent = "PARI LIVE: получаем список матчей…";
       return;
@@ -276,7 +276,7 @@ async function refreshLiveMatches() {
       liveBadge.className = "pill " + (count ? "success" : "warn");
     }
     if (liveMessage) liveMessage.textContent = count
-      ? "Получен свежий ответ PARI: " + data.total_events + " событий всего, " + count + " LIVE-матчей по подтверждённым баскетбольным sportId."
+      ? "Получен свежий ответ PARI: " + data.total_events + " событий всего, " + count + " LIVE-матчей. Счёт/время дополнительно сверяются с независимым LIVE-источником."
       : "API PARI отвечает (" + data.total_events + " событий), но сейчас не найдено LIVE-событий мужского баскетбола после фильтрации лиг.";
     if (liveUpdated) liveUpdated.textContent = "Обновлено: " + new Date(data.checked_at_utc).toLocaleTimeString("ru-RU") + " · " + (data.attempts?.[0]?.host || "PARI");
     if (liveList) {
