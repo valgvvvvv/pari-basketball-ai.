@@ -384,7 +384,7 @@ async def pari_discover():
                     inline_analysis = []
                     for inline_index, inline in enumerate(parser.inline_scripts):
                         inline_hints.extend(find_hints(inline))
-                        config_match = re.search(r"urlsPreloadRaw='(\\{.*?\\})';if\\(urlsPreloadRaw\\)", inline, re.S)
+                        config_match = re.search(r"urlsPreloadRaw='(\{.*?\})';if\(urlsPreloadRaw\)", inline, re.S)
                         if config_match:
                             try:
                                 cfg = json.loads(config_match.group(1))
@@ -489,7 +489,7 @@ async def pari_discover():
                     if br.status_code == 200:
                         source = br.text[:5000000]
                         item["route_hints"] = find_hints(source)[:160]
-                        item["host_hints"] = list(dict.fromkeys(re.findall(r"(?i)(?:[a-z0-9-]+\\.)+pb06e2-resources\\.(?:ru|com)", source)))[:80]
+                        item["host_hints"] = list(dict.fromkeys(re.findall(r"(?i)(?:[a-z0-9-]+\.)+pb06e2-resources\.(?:ru|com)", source)))[:80]
                         item["api_path_hints"] = list(dict.fromkeys(re.findall(r"""['"]([^'"]{1,220}(?:api|live|event|market|odds|line|sport|basket)[^'"]{0,180})['"]""", source, re.I)))[:120]
                         item["keyword_counts"] = {word: len(re.findall(word, source, re.I)) for word in ("clientsapi", "commonApi", "line", "live", "event", "market", "odds", "graphql", "websocket")}
                         item["preview"] = source[:1800]
