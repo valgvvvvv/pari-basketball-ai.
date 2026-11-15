@@ -24,7 +24,7 @@
 - `GET /api/pari/source-check` — проверяет HTTP-доступность публичной страницы и возвращает диагностические сведения о HTML.
 - `GET /api/pari/discover` — диагностирует страницы `/live/basketball` и `/live`, ищет внешние и встроенные JS-блоки, preload/modulepreload, метаданные, manifest, признаки Service Worker/WebSocket и строки-кандидаты API.
 - Сканируются только HTTPS-ресурсы основного домена PARI и его поддоменов; произвольные внешние адреса из HTML не запрашиваются.
-- В ответе есть `diagnostic_version: 2`, `pages`, `scanned_assets`, `inline_route_hints` и `route_candidates`.
+- В ответе есть `diagnostic_version: 8`, `pages`, `bootstrap_scans`, `chunk_scans`, `data_model_keyword_counts`, `data_model_context_windows`, `inline_route_hints` и `route_candidates`. Диагностика дополнительно проверяет ограниченное число lazy-чанков PARI, связанных с live/line/event/sport/market/common/API.
 - В интерфейсе есть кнопка «Найти API PARI», которая запускает эту диагностику.
 - Найденные строки маршрутов не считаются подтверждённым API до проверки метода, параметров, структуры ответа и повторного получения актуального счёта/линий. До такой проверки `pari_live_connected` остаётся `false`.
 
