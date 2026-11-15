@@ -983,7 +983,11 @@ async def _enrich_with_sofascore_live(events):
                 if not best:
                     diagnostic["rejection_reason"] = "no_external_candidate"
                     continue
-                if best[0] < 0.86:
+                # Team-pair confidence is the minimum of the two independent
+                # team-name scores. Accept shortened/transliterated club names,
+                # but keep the one-to-one and ambiguity checks below to prevent
+                # assigning a score to the wrong fixture.
+                if best[0] < 0.72:
                     diagnostic["rejection_reason"] = "both_team_names_not_confirmed"
                     continue
                 if len(ranked) > 1 and best[0] - ranked[1][0] < 0.10:
