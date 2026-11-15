@@ -1049,6 +1049,23 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
         "error": "All known PARI line hosts failed to return a valid events/list JSON response.",
     }
 
+@app.get("/api/pari/diagnostics")
+async def pari_live_diagnostics():
+    data = await _fetch_pari_live_events(catalog_only=False)
+    return {
+        "ok": data.get("ok"),
+        "connected": data.get("connected"),
+        "total_events": data.get("total_events"),
+        "basketball_events": data.get("basketball_events"),
+        "filter_diagnostics": data.get("filter_diagnostics"),
+        "basketball_catalogue_ids": data.get("basketball_catalogue_ids"),
+        "sports_catalogue_entries": data.get("sports_catalogue_entries"),
+        "unclassified_live_examples": data.get("unclassified_live_examples", []),
+        "attempts": data.get("attempts", []),
+        "error": data.get("error"),
+    }
+
+
 # Stale-while-revalidate cache: the mobile page must not wait for the full PARI
 # catalogue scan on every visit. Only one upstream refresh may run at a time.
 @app.get("/api/pari/live")
