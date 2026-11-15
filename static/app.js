@@ -275,8 +275,9 @@ async function refreshLiveMatches() {
       liveBadge.textContent = count ? "LIVE-источник отвечает" : "API отвечает, матчей не найдено";
       liveBadge.className = "pill " + (count ? "success" : "warn");
     }
+    const liveScoreSource = data.live_score_source || {};
     if (liveMessage) liveMessage.textContent = count
-      ? "Получен свежий ответ PARI: " + data.total_events + " событий всего, " + count + " LIVE-матчей. Счёт/время дополнительно сверяются с независимым LIVE-источником."
+      ? "PARI: " + data.total_events + " событий, LIVE-матчей: " + count + ". Независимый источник счёта: " + (liveScoreSource.status === "ok" ? "получен, совпадений " + (liveScoreSource.matched || 0) : "недоступен (" + (liveScoreSource.errors || []).join(", ") + ")") + ". Счёт и таймер отображаются только при подтверждённом совпадении команд."
       : "API PARI отвечает (" + data.total_events + " событий), но сейчас не найдено LIVE-событий мужского баскетбола после фильтрации лиг.";
     if (liveUpdated) liveUpdated.textContent = "Обновлено: " + new Date(data.checked_at_utc).toLocaleTimeString("ru-RU") + " · " + (data.attempts?.[0]?.host || "PARI");
     if (liveList) {
