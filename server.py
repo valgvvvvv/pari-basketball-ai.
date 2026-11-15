@@ -708,7 +708,6 @@ async def _enrich_with_sofascore_live(events):
     }
     urls = (
         "https://www.sofascore.com/api/v1/sport/basketball/events/live",
-        "https://www.sofascore.com/api/v1/sport/basketball/events/live",
         "https://api.sofascore.com/api/v1/sport/basketball/events/live",
     )
     payload = None
@@ -817,6 +816,12 @@ async def _enrich_with_sofascore_live(events):
             ambiguous += 1
             continue
         score, row = ranked[0]
+        # Keep the score orientation aligned with PARI's team1/team2 order.
+        direct = (SequenceMatcher(None, norm(pari.get("team1")), norm(row["home"])).ratio() +
+                  SequenceMatcher(None, norm(pari.get("team2")), norm(row["away"])).ratio()) / 2
+        reverse = (SequenceMatcher(None, norm(pari.get("team1")), norm(row["away"])).ratio() +
+                   SequenceMatcher(None, norm(pari.get("team2")), norm(row["home"])).ratio()) / 2
+        pari_order_score = row["score"] if direct >= reverse else [row["score"][1], row["score"][0]]
         # A single SofaScore event must not be assigned to multiple PARI matches.
         if row.get("_used"):
             continue
@@ -826,7 +831,7 @@ async def _enrich_with_sofascore_live(events):
             "event_id": row["id"],
             "match": row["home"] + " — " + row["away"],
             "match_confidence": round(score, 3),
-            "score": row["score"],
+            "score": pari_order_score,
             "period": row["period"],
             "clock": row["clock"],
             "status": row["status"],
@@ -834,7 +839,7 @@ async def _enrich_with_sofascore_live(events):
             "updated_at": row["updated_at"],
         }
         if pari.get("score") is None:
-            pari["score"] = row["score"]
+            pari["score"] = pari_order_score
             pari["score_source"] = "SofaScore"
         if pari.get("period") is None and row.get("period") is not None:
             pari["period"] = row["period"]
