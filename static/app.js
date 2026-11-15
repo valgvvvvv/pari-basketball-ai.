@@ -163,6 +163,10 @@ async function refreshLiveMatches() {
     const data = await response.json();
     if (!response.ok || !data.ok) throw new Error(data.error || "Источник PARI недоступен");
     const count = (data.events || []).length;
+    const sourceStatus = $("liveSourceStatus");
+    const sourceDetail = $("liveSourceDetail");
+    if (sourceStatus) { sourceStatus.textContent = "Подключён"; sourceStatus.className = "success"; }
+    if (sourceDetail) sourceDetail.textContent = "PARI API отвечает · автообновление каждые 30 секунд";
     if (liveBadge) {
       liveBadge.textContent = count ? "LIVE-источник отвечает" : "API отвечает, матчей не найдено";
       liveBadge.className = "pill " + (count ? "success" : "warn");
@@ -188,6 +192,10 @@ async function refreshLiveMatches() {
     }
     $("feedStatus").textContent = count ? "PARI LIVE: найдено " + count + " матчей" : "PARI API отвечает; матчи не распознаны";
   } catch (error) {
+    const sourceStatus = $("liveSourceStatus");
+    const sourceDetail = $("liveSourceDetail");
+    if (sourceStatus) { sourceStatus.textContent = "Нет соединения"; sourceStatus.className = "amber"; }
+    if (sourceDetail) sourceDetail.textContent = "Не удалось получить ответ PARI API";
     if (liveBadge) { liveBadge.textContent = "Нет подтверждения LIVE"; liveBadge.className = "pill warn"; }
     if (liveMessage) liveMessage.textContent = "Не удалось получить список матчей: " + (error.message || "ошибка запроса");
     $("feedStatus").textContent = "PARI LIVE: подключение не подтверждено";
