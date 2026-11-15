@@ -36,32 +36,12 @@
       <div id="liveMatchList" class="live-match-list"></div>
     </section>
 
-    <section class="panel" id="analysis">
-      <div class="section-head"><div><span class="eyebrow">LIVE MATCH ANALYZER</span><h2>Анализ матча</h2><p>Внесите актуальный снимок PARI. Приложение не подменяет его старыми данными.</p></div><span class="pill">РУЧНОЙ ВВОД</span></div>
-      <form id="analysisForm">
-        <div class="form-grid">
-          <label>Команда 1<input id="team1" value="Юнион Креминь" required></label>
-          <label>Команда 2<input id="team2" value="Вела Баскет" required></label>
-          <label>Очки команды 1<input id="score1" type="number" min="0" value="75" required></label>
-          <label>Очки команды 2<input id="score2" type="number" min="0" value="82" required></label>
-          <label>Текущая четверть<select id="period"><option value="1">1-я</option><option value="2">2-я</option><option value="3">3-я</option><option value="4" selected>4-я</option></select></label>
-          <label>Время четверти (MM:SS)<input id="clock" value="04:01" pattern="[0-9]{1,2}:[0-5][0-9]" required></label>
-          <label>Длительность четверти<select id="periodMinutes"><option value="10" selected>10 минут</option><option value="12">12 минут</option></select></label>
-          <label>Линия общего тотала<input id="line" type="number" step="0.5" value="187.5" required></label>
-          <label>Коэффициент ТБ<input id="overOdds" type="number" step="0.01" value="1.80"></label>
-          <label>Коэффициент ТМ<input id="underOdds" type="number" step="0.01" value="1.90"></label>
-          <label>Суммарные фолы (если известны)<input id="fouls" type="number" min="0" value="12"></label>
-          <label>Число симуляций<select id="sims"><option>10000</option><option selected>20000</option><option>50000</option><option>100000</option></select></label>
-        </div>
-        <div class="form-actions"><button class="btn-primary" type="submit">Рассчитать прогноз <span>→</span></button><button class="btn-ghost" type="button" id="resetBtn">Сбросить</button></div>
-      </form>
-      <div class="result" id="result" hidden>
-        <div class="result-top"><div><span class="eyebrow">MODEL OUTPUT</span><h3 id="matchTitle">Матч</h3></div><span class="pill success" id="grade">Сигнал</span></div>
-        <div class="prediction"><div><small>НАПРАВЛЕНИЕ МОДЕЛИ</small><strong id="direction">ТМ</strong><span id="lineLabel">Линия 187.5</span></div><div><small>ВЕРОЯТНОСТЬ МОДЕЛИ</small><strong id="probability">—</strong><span>Монте-Карло</span></div><div><small>ОЖИДАЕМЫЙ ТОТАЛ</small><strong id="expected">—</strong><span id="remaining">—</span></div></div>
-        <div class="prob-bars"><div class="bar-label"><span>ТБ</span><b id="overPct">—</b></div><div class="bar"><i id="overBar"></i></div><div class="bar-label"><span>ТМ</span><b id="underPct">—</b></div><div class="bar"><i id="underBar"></i></div></div>
-        <div class="result-grid"><div class="result-card"><small>ТЕМП</small><b id="pace">—</b><span>очков / мин</span></div><div class="result-card"><small>ОСТАЛОСЬ НАБРАТЬ (ОЖИД.)</small><b id="mu">—</b><span>очков</span></div><div class="result-card"><small>ДИАПАЗОН 80%</small><b id="range80">—</b><span>симуляции</span></div><div class="result-card"><small>ДИАПАЗОН 95%</small><b id="range95">—</b><span>симуляции</span></div></div>
-        <div class="explain"><h4>Как получен прогноз</h4><p id="explanation"></p><ul id="warnings"></ul></div>
-        <div class="result-foot"><span id="market">Рыночная вероятность: —</span><span id="simCount">— симуляций</span></div>
+    <section class="panel" id="selectedMatch" hidden>
+      <div class="section-head"><div><span class="eyebrow">LIVE MATCH ANALYSIS</span><h2 id="selectedMatchTitle">Выбранный матч</h2><p id="selectedMatchMeta">Данные матча PARI</p></div><span class="pill success">LIVE</span></div>
+      <div id="selectedMatchInfo" class="live-match-meta"></div>
+      <div class="two-panels">
+        <div class="panel"><span class="eyebrow">FULL GAME</span><h2>Прогноз на матч</h2><div id="matchForecast" class="forecast-content">Ожидаем данные счёта, времени и линии из PARI.</div></div>
+        <div class="panel"><span class="eyebrow">CURRENT QUARTER</span><h2>Прогноз на четверть</h2><div id="quarterForecast" class="forecast-content">Ожидаем данные текущей четверти и её линии из PARI.</div></div>
       </div>
     </section>
     <section class="two-panels">
