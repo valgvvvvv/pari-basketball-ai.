@@ -1007,8 +1007,9 @@ async def _enrich_with_sofascore_live(events):
                                 walk(payload)
 
                                 clock_keys = re.compile(
-                                    r"(clock|timer|countdown|remaining.?time|time.?remaining|"
-                                    r"current.?period.?time|period.?time|game.?time)", re.I
+                                    r"(clock|timer|countdown|remaining.?time|remaining.?seconds|"
+                                    r"time.?remaining|time.?left|clock.?seconds|period.?clock|"
+                                    r"current.?period.?time|period.?time|game.?time|game.?clock)", re.I
                                 )
                                 duration_keys = re.compile(
                                     r"(period.?length|quarter.?length|period.?duration|quarter.?duration|"
