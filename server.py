@@ -322,7 +322,7 @@ async def pari_discover():
                         continue
                     js = asset.text[:4000000]
                     found = []
-                    for quote in ("\\"", "'"):
+                    for quote in (chr(34), chr(39)):
                         pos = 0
                         while True:
                             start = js.find(quote, pos)
