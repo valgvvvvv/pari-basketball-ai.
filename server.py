@@ -504,13 +504,13 @@ async def pari_discover():
                         # PARI webpack maps numeric chunk IDs to semantic filenames.
                         chunk_name_map = {}
                         map_patterns = [
-                            r"\\.u\\s*=\\s*function\\s*\\([^)]*\\)\\s*\\{.{0,800}?\\(\\{(.*?)\\}\\)\\s*\\[",
-                            r"\\.u\\s*=\\s*e\\s*=>.{0,300}?\\(\\{(.*?)\\}\\)\\s*\\["
+                            r"\.u\s*=\s*function\s*\([^)]*\)\s*\{.{0,800}?\(\{(.*?)\}\)\s*\[",
+                            r"\.u\s*=\s*e\s*=>.{0,300}?\(\{(.*?)\}\)\s*\["
                         ]
                         for map_pattern in map_patterns:
                             map_match = re.search(map_pattern, source, re.S)
                             if map_match:
-                                for key, value in re.findall(r"([0-9]+)\\s*:\\s*['\\\"]([^'\\\"]+)['\\\"]", map_match.group(1)):
+                                for key, value in re.findall(r"([0-9]+)\s*:\s*['\"]([^'\"]+)['\"]", map_match.group(1)):
                                     chunk_name_map[key] = value
                         item["webpack_chunk_name_map"] = {key: chunk_name_map.get(key) for key in ("43010", "5793", "50480")}
                         chunk_candidates = []
