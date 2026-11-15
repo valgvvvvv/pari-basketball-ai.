@@ -243,10 +243,14 @@ async function refreshLiveMatches() {
   const button = $("refreshLiveMatches");
   if (button) button.disabled = true;
   if (liveMessage && !liveList.children.length) liveMessage.textContent = "Запрашиваем events/list у серверов PARI…";
+  let pariFeedFailure = null;
   try {
     const response = await fetch("/api/pari/live", {cache:"no-store"});
     const data = await response.json();
-    if (!response.ok || !data.ok) throw new Error(data.error || "Источник PARI недоступен");
+    if (!response.ok || !data.ok) {
+      pariFeedFailure = data;
+      throw new Error(data.error || "Источник PARI недоступен");
+    }
     if (data.loading) {
       nextLiveRefreshDelay = 4000;
       if (liveBadge) { liveBadge.textContent = "Загружаем матчи PARI…"; liveBadge.className = "pill warn"; }
@@ -288,7 +292,18 @@ async function refreshLiveMatches() {
     const sourceStatus = $("liveSourceStatus");
     const sourceDetail = $("liveSourceDetail");
     if (sourceStatus) { sourceStatus.textContent = "Нет соединения"; sourceStatus.className = "amber"; }
-    if (sourceDetail) sourceDetail.textContent = "Не удалось получить ответ PARI API";
+    if (sourceDetail) {
+      const attempts = (pariFeedFailure && pariFeedFailure.attempts) || [];
+      const details = attempts.map(x => {
+        const host = String(x.host || "PARI");
+        const status = x.status == null ? "" : " · HTTP " + x.status;
+        const type = x.content_type ? " · " + x.content_type : "";
+        const reason = x.error || "ошибка";
+        const preview = x.body_preview ? " · " + String(x.body_preview).slice(0, 150) : "";
+        return host + status + type + " · " + reason + preview;
+      });
+      sourceDetail.textContent = details.length ? details.join(" | ") : "Не удалось получить ответ PARI API";
+    }
     if (liveBadge) { liveBadge.textContent = "Нет подтверждения LIVE"; liveBadge.className = "pill warn"; }
     if (liveMessage) liveMessage.textContent = "Не удалось получить список матчей: " + (error.message || "ошибка запроса");
     if (liveUpdated) liveUpdated.textContent = "Ошибка первого ответа: " + (error.message || "сбой запроса");
