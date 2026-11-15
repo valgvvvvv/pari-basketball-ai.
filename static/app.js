@@ -71,3 +71,25 @@ qForm.addEventListener("submit", async e => {
     $("quarterResult").scrollIntoView({behavior:"smooth",block:"nearest"});
   } catch (err) { alert(err.message || "Не удалось рассчитать четверть"); }
 });
+
+// Public PARI asset/API discovery. This is diagnostic only; it does not claim that a feed is connected.
+const discoverSourceButton = $("discoverSource");
+if (discoverSourceButton) {
+  discoverSourceButton.addEventListener("click", async () => {
+    discoverSourceButton.disabled = true;
+    $("sourceDiscoverStatus").textContent = "Проверяем страницу PARI и загружаемые JS-модули…";
+    $("sourceDiscoverOutput").textContent = "";
+    try {
+      const response = await fetch("/api/pari/discover", {cache: "no-store"});
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "Источник не ответил");
+      const count = (data.route_candidates || []).length;
+      $("sourceDiscoverStatus").textContent = `Проверено модулей: ${(data.scanned_bundles || []).length}. Кандидатов маршрутов: ${count}. Это ещё не подтверждённый feed.`;
+      $("sourceDiscoverOutput").textContent = JSON.stringify(data, null, 2);
+    } catch (error) {
+      $("sourceDiscoverStatus").textContent = "Не удалось выполнить поиск: " + (error.message || "ошибка");
+    } finally {
+      discoverSourceButton.disabled = false;
+    }
+  });
+}
