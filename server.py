@@ -913,6 +913,12 @@ async def _enrich_with_sofascore_live(events):
                 # strings in others. Normalize both without turning dicts into names.
                 home_raw = item.get("home") or item.get("homeTeam") or item.get("home_team") or {}
                 away_raw = item.get("away") or item.get("awayTeam") or item.get("away_team") or {}
+                if score_pair is None and isinstance(home_raw, dict) and isinstance(away_raw, dict):
+                    nested_home = home_raw.get("score") or home_raw.get("points") or home_raw.get("currentScore")
+                    nested_away = away_raw.get("score") or away_raw.get("points") or away_raw.get("currentScore")
+                    nested_hp, nested_ap = score_number(nested_home), score_number(nested_away)
+                    if nested_hp is not None and nested_ap is not None:
+                        score_pair = [nested_hp, nested_ap]
                 home_name = str(home_raw.get("name") or home_raw.get("title") or home_raw.get("shortName") or "") if isinstance(home_raw, dict) else str(home_raw)
                 away_name = str(away_raw.get("name") or away_raw.get("title") or away_raw.get("shortName") or "") if isinstance(away_raw, dict) else str(away_raw)
                 if not home_name or not away_name:
@@ -973,7 +979,7 @@ async def _enrich_with_sofascore_live(events):
                 external_rows.append({
                     "home": home_name, "away": away_name, "score": score_pair,
                     "period_scores": period_scores, "period": period, "clock": clock,
-                    "status": status_label, "id": item.get("slug"),
+                    "status": status_label, "id": item.get("slug") or item.get("id"),
                     "provider_id": item.get("id"), "period_length_seconds": None,
                     "detail_source": None,
                 })
