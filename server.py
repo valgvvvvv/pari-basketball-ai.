@@ -1005,6 +1005,18 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             for child in collect_related_event_rows(event_id)
                             for factor in factor_map.get(str(child.get("id")), [])
                         ],
+                        "related_factor_groups": [
+                            {
+                                "event_id": str(child.get("id")),
+                                "name": repair_team_encoding(child.get("name") or child.get("kindName") or ""),
+                                "level": child.get("level"),
+                                "kind": child.get("kind"),
+                                "root_kind": child.get("rootKind"),
+                                "factors": factor_map.get(str(child.get("id")), []),
+                            }
+                            for child in collect_related_event_rows(event_id)
+                            if factor_map.get(str(child.get("id")), [])
+                        ],
                         "match_total_candidates": [
                             factor for factor in factor_map.get(str(event_id), [])
                             if isinstance(factor, dict) and str(factor.get("f")) in ("930", "931")
