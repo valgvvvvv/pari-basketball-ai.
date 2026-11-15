@@ -43,6 +43,13 @@
       <pre id="sourceDiscoverOutput" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;color:#a9b8cb;font-size:11px"></pre>
     </section>
 
+    <section class="panel" id="liveMatches">
+      <div class="section-head"><div><span class="eyebrow">LIVE EVENT DISCOVERY</span><h2>Матчи PARI в онлайне</h2><p>Список загружается напрямую из сетевого API PARI и обновляется автоматически каждые 30 секунд. Счёт и статистика показываются только если они присутствуют в ответе источника.</p></div><span class="pill warn" id="liveFeedBadge">Проверяем источник</span></div>
+      <div class="form-actions"><button class="btn-primary" type="button" id="refreshLiveMatches">Обновить матчи</button><span class="muted" id="liveFeedUpdated">Ожидание первого ответа…</span></div>
+      <p class="muted" id="liveFeedMessage" aria-live="polite">Проверяем доступность API PARI.</p>
+      <div id="liveMatchList" class="live-match-list"></div>
+    </section>
+
     <section class="panel" id="analysis">
       <div class="section-head"><div><span class="eyebrow">LIVE MATCH ANALYZER</span><h2>Анализ матча</h2><p>Внесите актуальный снимок PARI. Приложение не подменяет его старыми данными.</p></div><span class="pill">РУЧНОЙ ВВОД</span></div>
       <form id="analysisForm">
