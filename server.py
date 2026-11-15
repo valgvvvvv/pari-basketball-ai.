@@ -677,6 +677,167 @@ async def pari_discover():
         return {"ok": False, "diagnostic_version": 10, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
 
 
+
+async def _enrich_with_sofascore_live(events):
+    """Enrich PARI rows with independently sourced live score/period/clock.
+    Only high-confidence, one-to-one team-name matches are accepted.
+    """
+    import unicodedata
+    from difflib import SequenceMatcher
+
+    def norm(value):
+        value = unicodedata.normalize("NFKD", str(value or "").casefold())
+        value = "".join(ch for ch in value if not unicodedata.combining(ch))
+        value = re.sub(r"\b(bc|basket|basketball|club|team|bk|bc|kk|bc|women|w)\b", " ", value)
+        return re.sub(r"[^a-zа-яё0-9]+", "", value)
+
+    def pair_score(a, b, x, y):
+        direct = (SequenceMatcher(None, norm(a), norm(x)).ratio() +
+                  SequenceMatcher(None, norm(b), norm(y)).ratio()) / 2
+        reverse = (SequenceMatcher(None, norm(a), norm(y)).ratio() +
+                   SequenceMatcher(None, norm(b), norm(x)).ratio()) / 2
+        return max(direct, reverse)
+
+    if not events:
+        return {"source": "sofascore", "status": "skipped_no_pari_events", "matched": 0}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130 Safari/537.36",
+        "Accept": "application/json",
+        "Referer": "https://www.sofascore.com/",
+        "Cache-Control": "no-cache",
+    }
+    urls = (
+        "https://www.sofascore.com/api/v1/sport/basketball/events/live",
+        "https://www.sofascore.com/api/v1/sport/basketball/events/live",
+    )
+    payload = None
+    errors = []
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(7.0, connect=4.0),
+            follow_redirects=True,
+            headers=headers,
+        ) as client:
+            for url in urls:
+                try:
+                    response = await client.get(url)
+                    if response.status_code == 200:
+                        candidate = response.json()
+                        if isinstance(candidate, dict) and isinstance(candidate.get("events"), list):
+                            payload = candidate
+                            break
+                        errors.append("unexpected_json_shape")
+                    else:
+                        errors.append("HTTP_" + str(response.status_code))
+                except (httpx.HTTPError, ValueError) as exc:
+                    errors.append(type(exc).__name__)
+    except Exception as exc:
+        errors.append(type(exc).__name__)
+
+    if payload is None:
+        return {"source": "sofascore", "status": "unavailable", "matched": 0,
+                "errors": errors[:4]}
+
+    live_rows = []
+    for item in payload.get("events", []):
+        if not isinstance(item, dict):
+            continue
+        home = item.get("homeTeam") or {}
+        away = item.get("awayTeam") or {}
+        if not isinstance(home, dict) or not isinstance(away, dict):
+            continue
+        hs, aws = item.get("homeScore") or {}, item.get("awayScore") or {}
+        home_score = hs.get("current") if isinstance(hs, dict) else None
+        away_score = aws.get("current") if isinstance(aws, dict) else None
+        if home_score is None or away_score is None:
+            continue
+        status = item.get("status") or {}
+        time_data = item.get("time") or {}
+        if not isinstance(status, dict):
+            status = {}
+        if not isinstance(time_data, dict):
+            time_data = {}
+        description = str(status.get("description") or status.get("code") or "")
+        period = None
+        pm = re.search(r"(?:q|quarter|period|период|четверть)\s*([1-4])", description, re.I)
+        if pm:
+            period = int(pm.group(1))
+        elif description.strip().isdigit() and 1 <= int(description.strip()) <= 4:
+            period = int(description.strip())
+        clock = None
+        for key in ("currentPeriodTime", "clock", "timer", "timeRemaining", "periodTime"):
+            value = time_data.get(key, item.get(key))
+            if value is not None:
+                match = re.search(r"(\d{1,2}):([0-5]\d)", str(value))
+                if match:
+                    clock = match.group(1).zfill(2) + ":" + match.group(2)
+                    break
+        tournament = item.get("tournament") or {}
+        live_rows.append({
+            "home": str(home.get("name") or ""),
+            "away": str(away.get("name") or ""),
+            "score": [int(home_score), int(away_score)],
+            "period": period,
+            "clock": clock,
+            "status": description,
+            "league": str(tournament.get("name") or ""),
+            "id": item.get("id"),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    matched = 0
+    ambiguous = 0
+    for pari in events:
+        ranked = sorted(
+            ((pair_score(pari.get("team1"), pari.get("team2"), row["home"], row["away"]), row)
+             for row in live_rows),
+            key=lambda x: x[0], reverse=True
+        )
+        if not ranked or ranked[0][0] < 0.86:
+            continue
+        if len(ranked) > 1 and ranked[0][0] - ranked[1][0] < 0.07:
+            ambiguous += 1
+            continue
+        score, row = ranked[0]
+        # A single SofaScore event must not be assigned to multiple PARI matches.
+        if row.get("_used"):
+            continue
+        row["_used"] = True
+        pari["external_live"] = {
+            "source": "SofaScore",
+            "event_id": row["id"],
+            "match": row["home"] + " — " + row["away"],
+            "match_confidence": round(score, 3),
+            "score": row["score"],
+            "period": row["period"],
+            "clock": row["clock"],
+            "status": row["status"],
+            "league": row["league"],
+            "updated_at": row["updated_at"],
+        }
+        if pari.get("score") is None:
+            pari["score"] = row["score"]
+            pari["score_source"] = "SofaScore"
+        if pari.get("period") is None and row.get("period") is not None:
+            pari["period"] = row["period"]
+            pari["period_source"] = "SofaScore"
+        if pari.get("clock") is None and row.get("clock"):
+            pari["clock"] = row["clock"]
+            pari["clock_source"] = "SofaScore"
+        matched += 1
+
+    return {
+        "source": "SofaScore",
+        "status": "ok",
+        "live_events": len(live_rows),
+        "matched": matched,
+        "unmatched_pari": max(0, len(events) - matched),
+        "ambiguous": ambiguous,
+        "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+        "note": "Сопоставление только при уверенности >= 0.86; неуверенные совпадения не используются."
+    }
+
+
 # PARI public LIVE events feed. The endpoint is read-only; no account or betting actions.
 async def _fetch_pari_live_events(catalog_only: bool = False):
     from urllib.parse import urljoin
@@ -1037,6 +1198,9 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                 # catalogue diagnostics are only needed by the explicit catalog_only
                 # diagnostic request, never by every phone refresh.
                 if not catalog_only:
+                    # PARI is authoritative for markets/odds. Fill missing score,
+                    # period and clock only from a separately verified live event.
+                    live_enrichment = await _enrich_with_sofascore_live(basketball)
                     return {
                         "ok": True,
                         "connected": True,
@@ -1045,12 +1209,13 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "total_events": len(all_events),
                         "basketball_events": len(basketball),
                         "events": basketball,
+                        "live_score_source": live_enrichment,
                         "filter_diagnostics": filter_counts,
                         "basketball_catalogue_ids": len(basketball_ids),
                         "sports_catalogue_entries": len(sports_meta),
                         "unclassified_live_examples": candidate_live_examples if not basketball else [],
                         "attempts": attempts,
-                        "note": "LIVE basketball events resolved from PARI sports catalogue; women, esports, virtual and 3x3 excluded.",
+                        "note": "PARI supplies live events and betting markets; missing live score/period/clock are enriched from SofaScore only on high-confidence team matches.",
                     }
 
                 # Sample root match records across the most common sport IDs.
