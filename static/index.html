@@ -12,37 +12,23 @@
     <nav>
       <a class="active" href="#dashboard">Обзор</a>
       <a href="#analysis">Анализ матча</a>
-      <a href="#source">Источник PARI</a>
       <a href="#quarters">Тоталы четвертей</a>
       <a href="#history">История прогнозов</a>
       <a href="#models">Модели и данные</a>
     </nav>
     <div class="sidebar-bottom">
       <div class="status-dot"></div><span>Расчётное ядро работает</span>
-      <small id="feedStatus">PARI LIVE: источник не подключён</small>
+      <small id="feedStatus">PARI LIVE: проверяем соединение…</small>
     </div>
   </aside>
   <main>
-    <header class="topbar"><div><span class="eyebrow">BASKETBALL INTELLIGENCE</span><h1>Центр анализа</h1></div><div class="top-actions"><span class="pill warn">Демо / ручной ввод</span><span class="avatar">AI</span></div></header>
-    <section class="hero" id="dashboard">
-      <div><span class="eyebrow">МАТЕМАТИЧЕСКАЯ ПЛАТФОРМА</span><h2>Находим закономерности.<br><em>Измеряем вероятность.</em></h2>
-      <p>Анализ общего тотала и четвертей с прозрачными расчётами, симуляциями и контролем качества исходных данных.</p>
-      <a class="primary-link" href="#analysis">Открыть анализ <span>↗</span></a></div>
-      <div class="hero-art"><div class="orb orb1"></div><div class="orb orb2"></div><div class="court"><div class="center-circle"></div><div class="court-line"></div><div class="hoop"></div></div><div class="hero-stat"><small>МОДЕЛЬНЫЙ ДВИЖОК</small><b>MC / BAYES / PACE</b><span>готов к расчётам</span></div></div>
-    </section>
+    <header class="topbar"><div><span class="eyebrow">PARI BASKETBALL AI</span><h1>Центр анализа</h1></div><div class="top-actions"><span class="avatar">AI</span></div></header>
     <section class="metrics">
-      <div class="metric"><small>LIVE-ИСТОЧНИК</small><b class="amber">Не подключён</b><span>Ожидает разрешённый feed</span></div>
+      <div class="metric"><small>LIVE-ИСТОЧНИК</small><b id="liveSourceStatus" class="amber">Проверка…</b><span id="liveSourceDetail">Автоматическое обновление каждые 30 секунд</span></div>
       <div class="metric"><small>МОДЕЛЕЙ В ЯДРЕ</small><b>6</b><span>Базовые независимые методы</span></div>
       <div class="metric"><small>СИМУЛЯЦИИ</small><b>20 000</b><span>Настраивается до 100 000</span></div>
       <div class="metric"><small>ИСТОРИЯ</small><b id="historyCount">0</b><span>Локально сохранённых анализов</span></div>
     </section>
-    <section class="panel" id="source">
-      <div class="section-head"><div><span class="eyebrow">SOURCE CONNECTIVITY</span><h2>Подключение PARI LIVE</h2><p>Проверяем публичные JavaScript-модули PARI и ищем сетевые маршруты, из которых загружаются события. Пока API не подтверждён, матчи не выдаются как подключённые.</p></div><span class="pill warn">Поиск источника</span></div>
-      <div class="form-actions"><button class="btn-primary" type="button" id="discoverSource">Найти API PARI <span>→</span></button><button class="btn-ghost" type="button" id="copySourceDiagnostic" disabled>Скопировать отчёт</button></div>
-      <p class="muted" id="sourceDiscoverStatus" aria-live="polite">Проверка ещё не запускалась.</p>
-      <pre id="sourceDiscoverOutput" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;color:#a9b8cb;font-size:11px"></pre>
-    </section>
-
     <section class="panel" id="liveMatches">
       <div class="section-head"><div><span class="eyebrow">LIVE EVENT DISCOVERY</span><h2>Матчи PARI в онлайне</h2><p>Список загружается напрямую из сетевого API PARI и обновляется автоматически каждые 30 секунд. Счёт и статистика показываются только если они присутствуют в ответе источника.</p></div><span class="pill warn" id="liveFeedBadge">Проверяем источник</span></div>
       <div class="form-actions"><button class="btn-primary" type="button" id="refreshLiveMatches">Обновить матчи</button><span class="muted" id="liveFeedUpdated">Ожидание первого ответа…</span></div>
