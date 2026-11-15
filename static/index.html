@@ -12,7 +12,6 @@
     <nav>
       <a class="active" href="#dashboard">Обзор</a>
       <a href="#selectedMatch">Прогноз выбранного матча</a>
-      <a href="#quarters">Тоталы четвертей</a>
       <a href="#history">История прогнозов</a>
       <a href="#models">Модели и данные</a>
     </nav>
@@ -44,24 +43,7 @@
         <div class="panel"><span class="eyebrow">CURRENT QUARTER</span><h2>Прогноз на четверть</h2><div id="quarterForecast" class="forecast-content">Ожидаем данные текущей четверти и её линии из PARI.</div></div>
       </div>
     </section>
-    <section class="two-panels">
-      <div class="panel" id="quarters"><span class="eyebrow">QUARTER TOTALS</span><h2>Анализ четверти</h2>
-        <p>Отдельный расчёт по счёту и времени именно текущей четверти. Введите значения из актуального LIVE-снимка.</p>
-        <form id="quarterForm"><div class="form-grid">
-          <label>Команда 1<input id="qTeam1" value="Команда 1" required></label>
-          <label>Команда 2<input id="qTeam2" value="Команда 2" required></label>
-          <label>Номер четверти<select id="qNumber"><option>1</option><option>2</option><option selected>3</option><option>4</option></select></label>
-          <label>Очки команды 1 за четверть<input id="qScore1" type="number" min="0" max="100" value="12" required></label>
-          <label>Очки команды 2 за четверть<input id="qScore2" type="number" min="0" max="100" value="10" required></label>
-          <label>Прошло времени (MM:SS)<input id="qClock" value="05:00" pattern="[0-9]{1,2}:[0-5][0-9]" required></label>
-          <label>Длительность четверти<select id="qMinutes"><option selected>10</option><option>12</option></select></label>
-          <label>Линия тотала четверти<input id="qLine" type="number" step="0.5" value="42.5" required></label>
-          <label>Симуляции<select id="qSims"><option selected>5000</option><option>10000</option><option>20000</option></select></label>
-        </div><div class="form-actions"><button class="btn-primary" type="submit">Рассчитать четверть →</button></div></form>
-        <div id="quarterResult" class="result" hidden><div class="result-top"><h3 id="qTitle">Четверть</h3><span class="pill success" id="qGrade">Сигнал</span></div>
-          <div class="prediction"><div><small>НАПРАВЛЕНИЕ</small><strong id="qDirection">—</strong><span id="qLineLabel">—</span></div><div><small>ВЕРОЯТНОСТЬ</small><strong id="qProbability">—</strong><span>Монте-Карло</span></div><div><small>ОЖИДАЕМЫЙ ТОТАЛ</small><strong id="qExpected">—</strong><span id="qRemaining">—</span></div></div>
-          <p id="qRange" class="muted"></p><ul id="qWarnings"></ul></div>
-        </div>
+    <section>
       <div class="panel" id="models"><span class="eyebrow">MODEL STACK</span><h2>Модельное ядро</h2><div class="model-list"><div><b>01</b><span>Линейный темп</span><i>Активна</i></div><div><b>02</b><span>Пуассон</span><i>Активна</i></div><div><b>03</b><span>Монте-Карло</span><i>Активна</i></div><div><b>04</b><span>Динамика концовки</span><i>Базовая</i></div><div><b>05</b><span>Модель владений</span><i class="muted">Нужна статистика</i></div><div><b>06</b><span>Ансамбль / калибровка</span><i class="muted">Нужна история</i></div></div></div>
     </section>
     <section class="panel" id="history"><div class="section-head"><div><span class="eyebrow">TRACK RECORD</span><h2>История анализов</h2></div><button class="btn-ghost" id="clearHistory">Очистить</button></div><div id="historyList" class="history-list"><p class="muted">Пока нет сохранённых расчётов.</p></div></section>
