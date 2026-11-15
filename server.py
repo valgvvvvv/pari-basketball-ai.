@@ -765,21 +765,42 @@ async def pari_live_events():
                     if isinstance(event, dict) and event.get("sportId") is not None:
                         sid = str(event.get("sportId"))
                         sport_id_counts[sid] = sport_id_counts.get(sid, 0) + 1
-                # Legacy IDs from an independent parser are tentative until current metadata is inspected.
-                basketball_ids = {"15872", "15873"}
+                # Current PARI sport IDs confirmed from actual root-event samples:
+                # 70206: Panathinaikos / Kolossos (basketball)
+                # 12071: Philadelphia / Indiana, Phoenix / Lakers (NBA basketball)
+                # Keep this explicit allowlist until the site's sport catalogue is decoded.
+                basketball_ids = {"70206", "12071"}
                 basketball = []
+                def repair_team_encoding(value):
+                    value = str(value or "")
+                    # PARI sometimes returns UTF-8 Cyrillic decoded as Windows-1251/Latin-1.
+                    try:
+                        repaired = value.encode("latin1").decode("utf-8")
+                        if repaired.count("Р") + repaired.count("С") < value.count("Р") + value.count("С"):
+                            return repaired
+                    except (UnicodeEncodeError, UnicodeDecodeError):
+                        pass
+                    return value
                 for event in all_events:
                     if not isinstance(event, dict):
                         continue
                     if str(event.get("sportId", "")) not in basketball_ids:
                         continue
+                    # Only root match rows; children are periods/markets, not matches.
+                    if event.get("level") != 1 and event.get("parentId") is not None:
+                        continue
+                    # Do not mix prematch events into the LIVE list.
+                    if str(event.get("place", "")).lower() != "live":
+                        continue
                     event_id = event.get("id")
                     basketball.append({
                         "id": str(event_id) if event_id is not None else "",
-                        "team1": str(event.get("team1") or event.get("team1Name") or ""),
-                        "team2": str(event.get("team2") or event.get("team2Name") or ""),
+                        "team1": repair_team_encoding(event.get("team1") or event.get("team1Name") or ""),
+                        "team2": repair_team_encoding(event.get("team2") or event.get("team2Name") or ""),
                         "sport_id": str(event.get("sportId")),
-                        "league": str(event.get("name") or event.get("competitionName") or ""),
+                        "classification": "confirmed_sample_mapping",
+                        "status": "live",
+                        "league": repair_team_encoding(event.get("name") or event.get("competitionName") or ""),
                         "start_time": event.get("startTime"),
                         "score": event.get("score") or event.get("scoreInfo"),
                         "period": event.get("period") or event.get("periodName"),
@@ -792,6 +813,8 @@ async def pari_live_events():
                     "status": 200,
                     "total_events": len(all_events),
                     "basketball_events": len(basketball),
+                    "basketball_sport_ids_detected": sorted(basketball_ids.intersection(sport_ids)),
+                    "live_only": True,
                     "sport_ids": sport_ids,
                 })
                 # Sample root match records across the most common sport IDs.
@@ -845,7 +868,7 @@ async def pari_live_events():
                     "sample_factor_shape": compact_event(factors[0]) if isinstance(factors, list) and factors else None,
                     "events": basketball,
                     "attempts": attempts,
-                    "note": "Feed connection is verified; current sport classification is pending inspection of sample_event_shapes.",
+                    "note": "LIVE feed connection is verified. Basketball allowlist currently contains IDs confirmed by root-event samples; only level-1 rows with place=live are returned. Other leagues remain to be classified from PARI sport metadata.",
                 }
             except httpx.HTTPError as exc:
                 attempts.append({"host": host, "error": type(exc).__name__})
