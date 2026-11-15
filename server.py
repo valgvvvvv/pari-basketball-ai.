@@ -1052,6 +1052,14 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
 @app.get("/api/pari/diagnostics")
 async def pari_live_diagnostics():
     data = await _fetch_pari_live_events(catalog_only=False)
+    # The diagnostics request already fetched the complete LIVE payload.
+    # Prime the same in-memory cache used by the homepage so opening diagnostics
+    # does not force the phone browser to repeat the upstream PARI request.
+    if data.get("ok") and data.get("connected"):
+        globals()["_PARI_LIVE_CACHE"] = {
+            "saved_at": datetime.now(timezone.utc).timestamp(),
+            "data": data,
+        }
     return {
         "ok": data.get("ok"),
         "connected": data.get("connected"),
