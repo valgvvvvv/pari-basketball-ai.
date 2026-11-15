@@ -1532,6 +1532,13 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     if str(event.get("place", "")).lower() != "live":
                         filter_counts["not_live"] += 1
                         continue
+                    pari_gender_text = " ".join(
+                        repair_team_encoding(event.get(key) or "")
+                        for key in ("team1", "team2", "name", "competitionName", "sportName")
+                    ).casefold()
+                    if re.search(r"\b(women|woman|female|ladies|girls|wbb|womens)\b|женск|девуш", pari_gender_text):
+                        filter_counts["excluded_by_name"] += 1
+                        continue
                     filter_counts["accepted_live_roots"] += 1
                     event_id = event.get("id")
                     related_rows = collect_related_event_rows(event_id)
