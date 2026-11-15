@@ -8,6 +8,17 @@ import math, random, os
 app = FastAPI(title="PARI Basketball AI", version="0.1.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+class QuarterAnalyzeRequest(BaseModel):
+    team1: str = "Команда 1"
+    team2: str = "Команда 2"
+    quarter: int = Field(ge=1, le=4)
+    score1: int = Field(ge=0, le=100)
+    score2: int = Field(ge=0, le=100)
+    clock: str
+    period_minutes: int = Field(default=10, ge=5, le=15)
+    total_line: float
+    simulations: int = Field(default=10000, ge=1000, le=20000)
+
 class AnalyzeRequest(BaseModel):
     team1: str = "Команда 1"
     team2: str = "Команда 2"
