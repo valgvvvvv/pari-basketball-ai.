@@ -108,6 +108,8 @@ if (discoverSourceButton) {
         bootstrap_scans: (data.bootstrap_scans || []).map(x => ({
           url:x.url,status:x.status,error:x.error,bytes:x.bytes,host_hints:x.host_hints,
           semantic_chunk_candidates:x.semantic_chunk_candidates,
+          runtime_windows:(x.runtime_windows||[]).slice(0,12),
+          webpack_chunk_name_map:x.webpack_chunk_name_map,
           api_path_hints:(x.api_path_hints||[]).slice(0,35)
         })),
         chunk_scans: (data.chunk_scans || []).map(x => ({
@@ -115,7 +117,9 @@ if (discoverSourceButton) {
           data_model_keyword_counts:x.data_model_keyword_counts,
           api_path_hints:(x.api_path_hints||[]).slice(0,35),
           data_model_context_windows:(x.data_model_context_windows||[]).slice(0,8),
-          api_context_windows:(x.api_context_windows||[]).slice(0,8),
+          api_context_windows:(x.api_context_windows||[]).slice(0,18),
+          targeted_context_windows:(x.targeted_context_windows||[]).slice(0,30),
+          service_keyword_counts:x.service_keyword_counts,
           request_string_hints:(x.request_string_hints||[]).slice(0,45)
         })),
         route_candidates:(data.route_candidates||[]).slice(0,80),
