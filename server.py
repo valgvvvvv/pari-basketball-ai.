@@ -847,8 +847,18 @@ async def _enrich_with_sofascore_live(events):
             for item in matches:
                 if not isinstance(item, dict):
                     continue
-                status_text = str(item.get("status") or item.get("status_text") or "").casefold()
-                if not any(token in status_text for token in ("live", "in progress", "in_progress", "inprogress", "period", "quarter", "q1", "q2", "q3", "q4", "half time", "halftime")):
+                # Combine status fields and explicitly reject completed fixtures.
+                # The widget endpoint also returns recent finished games.
+                status_text = " ".join(str(item.get(key) or "") for key in
+                                        ("status", "status_text", "state", "match_status")).casefold().strip()
+                terminal_tokens = ("finished", "completed", "ended", "full time", "fulltime",
+                                   "after overtime", "cancelled", "canceled", "postponed", "abandoned")
+                if any(token in status_text for token in terminal_tokens):
+                    continue
+                live_tokens = ("live", "in progress", "in_progress", "inprogress",
+                               "period", "quarter", "q1", "q2", "q3", "q4",
+                               "half time", "halftime", "1st", "2nd", "3rd", "4th")
+                if not any(token in status_text for token in live_tokens):
                     continue
                 hs, aws = item.get("home_score"), item.get("away_score")
                 try:
