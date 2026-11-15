@@ -39,40 +39,6 @@ fetch("/api/health").catch(()=>{});
 renderHistory();
 
 
-// Отдельный расчёт тотала текущей четверти через серверный endpoint.
-const qForm = $("quarterForm");
-qForm.addEventListener("submit", async e => {
-  e.preventDefault();
-  const payload = {
-    team1: $("qTeam1").value, team2: $("qTeam2").value,
-    quarter: +$("qNumber").value, score1: +$("qScore1").value,
-    score2: +$("qScore2").value, clock: $("qClock").value,
-    period_minutes: +$("qMinutes").value, total_line: +$("qLine").value,
-    simulations: +$("qSims").value
-  };
-  try {
-    const response = await fetch("/api/analyze-quarter", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify(payload)
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.detail || "Ошибка расчёта четверти");
-    $("quarterResult").hidden = false;
-    $("qTitle").textContent = payload.team1 + " — " + payload.team2 + " · " + payload.quarter + "-я четверть";
-    $("qDirection").textContent = result.direction;
-    $("qLineLabel").textContent = "Линия " + result.line;
-    const p = Math.max(result.p_over_mc, result.p_under_mc);
-    $("qProbability").textContent = p.toFixed(1) + "%";
-    $("qExpected").textContent = result.expected_total.toFixed(1);
-    $("qRemaining").textContent = "Осталось " + result.remaining_minutes.toFixed(2) + " мин.";
-    $("qGrade").textContent = "Сигнал " + result.grade;
-    $("qRange").textContent = "Диапазон 80%: " + result.range80.join("–") + " · Диапазон 95%: " + result.range95.join("–") + " · " + result.simulations.toLocaleString("ru-RU") + " симуляций";
-    $("qWarnings").innerHTML = "";
-    (result.warnings || []).forEach(w => { const li=document.createElement("li"); li.textContent=w; $("qWarnings").appendChild(li); });
-    $("quarterResult").scrollIntoView({behavior:"smooth",block:"nearest"});
-  } catch (err) { alert(err.message || "Не удалось рассчитать четверть"); }
-});
-
 // Public PARI asset/API discovery. This is diagnostic only; it does not claim that a feed is connected.
 const discoverSourceButton = $("discoverSource");
 const copySourceDiagnosticButton = $("copySourceDiagnostic");
