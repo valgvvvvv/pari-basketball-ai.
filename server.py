@@ -786,8 +786,9 @@ async def _enrich_with_sofascore_live(events):
     except Exception as exc:
         errors.append(type(exc).__name__)
 
-    if payload is None:
-        # SofaScore currently rejects cloud/datacenter requests with HTTP 403.
+    # A successful HTTP/JSON response is not enough: an empty events array
+    # must also fall through to SportScore, otherwise score enrichment silently stops.
+    if payload is None or not isinstance(payload.get("events"), list) or not payload.get("events"):
         # Use SportScore's public basketball live-score feed as a score-only fallback.
         sportscore_errors = []
         try:
@@ -867,12 +868,29 @@ async def _enrich_with_sofascore_live(events):
                 if not (explicit_live or period_live):
                     continue
                 hs, aws = item.get("home_score"), item.get("away_score")
-                try:
-                    if hs is None or aws is None:
-                        continue
-                    score_pair = [int(float(hs)), int(float(aws))]
-                except (TypeError, ValueError, OverflowError):
+                # Accept common provider score shapes without treating missing values as 0.
+                def score_number(value):
+                    if isinstance(value, dict):
+                        for key in ("current", "score", "total", "value", "points"):
+                            if value.get(key) is not None:
+                                value = value.get(key)
+                                break
+                    if isinstance(value, (list, tuple)) and value:
+                        value = value[-1]
+                    try:
+                        number = float(value)
+                        return int(number) if math.isfinite(number) and number >= 0 else None
+                    except (TypeError, ValueError, OverflowError):
+                        return None
+                if hs is None or aws is None:
+                    score_obj = item.get("score") or item.get("scores") or {}
+                    if isinstance(score_obj, dict):
+                        hs = hs if hs is not None else score_obj.get("home") or score_obj.get("home_score") or score_obj.get("team1")
+                        aws = aws if aws is not None else score_obj.get("away") or score_obj.get("away_score") or score_obj.get("team2")
+                home_points, away_points = score_number(hs), score_number(aws)
+                if home_points is None or away_points is None:
                     continue
+                score_pair = [home_points, away_points]
                 home_name = str(item.get("home") or item.get("homeTeam") or "")
                 away_name = str(item.get("away") or item.get("awayTeam") or "")
                 # Women's competitions are intentionally excluded from this project.
@@ -893,17 +911,32 @@ async def _enrich_with_sofascore_live(events):
                     period = candidate_period if 1 <= candidate_period <= 4 else None
                 # Only parse actual countdown fields. Never read HH:MM from ISO dates,
                 # kickoff timestamps, or status text as a game clock.
-                clock_value = " ".join(str(item.get(key) or "") for key in
-                                       ("clock", "timer", "time_remaining", "countdown"))
+                clock = None
+                # Prefer explicit countdown strings. Some feeds encode the clock as
+                # seconds or expose it under alternate countdown field names.
+                clock_fields = ("clock", "timer", "time_remaining", "timeRemaining",
+                                "countdown", "remaining_time", "remaining_seconds",
+                                "clock_seconds", "period_clock")
+                clock_values = [item.get(key) for key in clock_fields if item.get(key) is not None]
+                clock_value = " ".join(str(value) for value in clock_values)
                 if not clock_value:
                     clock_value = str(item.get("status_text") or "")
                 clock_value = re.sub(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b", " ", clock_value)
                 clock_match = re.search(r"\b(\d{1,2}):([0-5]\d)\b", clock_value)
-                clock = None
                 if clock_match:
                     candidate_clock = int(clock_match.group(1)) * 60 + int(clock_match.group(2))
                     if candidate_clock <= 15 * 60:
                         clock = f"{candidate_clock // 60:02d}:{candidate_clock % 60:02d}"
+                if clock is None:
+                    for key in ("remaining_seconds", "clock_seconds", "countdown_seconds"):
+                        value = item.get(key)
+                        try:
+                            seconds = int(float(value))
+                            if 0 <= seconds <= 15 * 60:
+                                clock = f"{seconds // 60:02d}:{seconds % 60:02d}"
+                                break
+                        except (TypeError, ValueError, OverflowError):
+                            pass
                 external_rows.append({
                     "home": home_name,
                     "away": away_name,
