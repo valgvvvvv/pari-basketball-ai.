@@ -373,7 +373,7 @@ function automaticQuarterForecast(ev) {
   const scores=ev.external_live?.period_scores || {};
   const score=scores[String(period)];
   if (!Array.isArray(score) || score.length<2) return {ready:false,reason:"нет подтверждённого счёта текущей четверти"};
-  const m=String(clock).match(/^(\\d{1,2}):([0-5]\\d)$/);
+  const m=String(clock).match(/^(\d{1,2}):([0-5]\d)$/);
   if (!m) return {ready:false,reason:"неизвестный формат таймера"};
   const remaining=Number(m[1])*60+Number(m[2]), elapsed=length-remaining;
   const current=Number(score[0])+Number(score[1]);
