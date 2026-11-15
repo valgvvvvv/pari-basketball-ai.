@@ -228,7 +228,7 @@ function showSelectedMatch(ev){
     return '<p><b>'+escapeHtml(label)+'</b></p><p class="muted">'+(lines.length?lines.map(escapeHtml).join("<br>"):"Факторы не распознаны")+'</p>';
   }).join("");
   $("selectedMatchMeta").textContent=[ev.league||ev.sport_name,"Строк PARI: "+(childCount+1),"Полей: "+fieldNames.length].filter(Boolean).join(" · ");
-  $("selectedMatchInfo").textContent="Счёт: "+(score?score.join(" : "):"не найден")+" · Четверть: "+(period||"не определена")+" · Время: "+(clock||"не найден")+" · Источник счёта: "+(ev.score_source||"PARI")+" · Источник времени: "+(ev.clock_source||"PARI")+" · Рынков-факторов: "+new Set([...(ev.factors||[]),...(ev.related_factors||[])].map(x=>String(x.f)+"|"+String(x.pt||x.p||"")+"|"+String(x.v||""))).size;
+  $("selectedMatchInfo").textContent="Счёт: "+(score?score.join(" : "):"не найден")+" · Четверть: "+(period||"не определена")+" · Время: "+(clock||"не найден")+" · Источник счёта: "+(score?(ev.score_source||"PARI"):"не получен")+" · Источник времени: "+(clock?(ev.clock_source||"PARI"):"не получен")+" · Рынков-факторов: "+new Set([...(ev.factors||[]),...(ev.related_factors||[])].map(x=>String(x.f)+"|"+String(x.pt||x.p||"")+"|"+String(x.v||""))).size;
   $("matchForecast").innerHTML=
     '<p><b>Факторы в основной строке матча PARI</b></p>'+
     '<p class="muted">'+(rootLines.length?rootLines.map(escapeHtml).join("<br>"):"В основной строке нет факторов ID 930/931.")+'</p>'+
@@ -297,7 +297,7 @@ async function refreshLiveMatches() {
     }
     const liveScoreSource = data.live_score_source || {};
     if (liveMessage) liveMessage.textContent = count
-      ? "PARI: " + data.total_events + " событий, LIVE-матчей: " + count + ". Независимый источник счёта: " + (liveScoreSource.status === "ok" ? "получен, совпадений " + (liveScoreSource.matched || 0) : "недоступен (" + (liveScoreSource.errors || []).join(", ") + ")") + ". Счёт и таймер отображаются только при подтверждённом совпадении команд."
+      ? "PARI: " + data.total_events + " событий, LIVE-матчей: " + count + ". Независимый источник счёта: " + (liveScoreSource.status === "ok" ? "получен, совпадений " + (liveScoreSource.matched || 0) : liveScoreSource.status === "no_live_events" ? "ответил, но не вернул LIVE-матчи" : "недоступен (" + (liveScoreSource.errors || []).join(", ") + ")") + ". Счёт и таймер отображаются только при подтверждённом совпадении команд."
       : "API PARI отвечает (" + data.total_events + " событий), но сейчас не найдено LIVE-событий мужского баскетбола после фильтрации лиг.";
     if (liveUpdated) liveUpdated.textContent = "Обновлено: " + new Date(data.checked_at_utc).toLocaleTimeString("ru-RU") + " · " + (data.attempts?.[0]?.host || "PARI");
     if (liveList) {
