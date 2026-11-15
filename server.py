@@ -844,6 +844,16 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     "h2h", "ipbl", "виртуал", "3x3", "3х3"
                 )
                 basketball = []
+                filter_counts = {
+                    "all_event_rows": len(all_events),
+                    "with_sport_id": 0,
+                    "sport_id_in_basketball_catalogue": 0,
+                    "excluded_by_name": 0,
+                    "excluded_by_hierarchy": 0,
+                    "not_live": 0,
+                    "accepted_live_roots": 0,
+                }
+                candidate_live_examples = []
                 def repair_team_encoding(value):
                     value = str(value or "")
                     # PARI payload strings are UTF-8 bytes that were decoded as CP1251.
@@ -862,21 +872,37 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     if not isinstance(event, dict):
                         continue
                     sid = str(event.get("sportId", ""))
+                    if sid:
+                        filter_counts["with_sport_id"] += 1
                     if sid not in basketball_ids:
+                        if str(event.get("place", "")).lower() == "live" and len(candidate_live_examples) < 12:
+                            candidate_live_examples.append({
+                                "sport_id": sid,
+                                "name": repair_team_encoding(event.get("name") or event.get("competitionName") or ""),
+                                "team1": repair_team_encoding(event.get("team1") or event.get("team1Name") or ""),
+                                "team2": repair_team_encoding(event.get("team2") or event.get("team2Name") or ""),
+                                "level": event.get("level"),
+                                "parent_id": event.get("parentId"),
+                            })
                         continue
+                    filter_counts["sport_id_in_basketball_catalogue"] += 1
                     team_text = " ".join(str(event.get(k, "")) for k in ("team1", "team2")).lower()
                     competition_text = " ".join([
                         str(event.get("name", "")), str(event.get("competitionName", "")),
                         sport_names.get(sid, "")
                     ]).lower()
                     if any(marker in competition_text or marker in team_text for marker in excluded_markers):
+                        filter_counts["excluded_by_name"] += 1
                         continue
                     # Only root match rows; children are periods/markets, not matches.
                     if event.get("level") != 1 and event.get("parentId") is not None:
+                        filter_counts["excluded_by_hierarchy"] += 1
                         continue
                     # Do not mix prematch events into the LIVE list.
                     if str(event.get("place", "")).lower() != "live":
+                        filter_counts["not_live"] += 1
                         continue
+                    filter_counts["accepted_live_roots"] += 1
                     event_id = event.get("id")
                     basketball.append({
                         "id": str(event_id) if event_id is not None else "",
@@ -929,6 +955,10 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "total_events": len(all_events),
                         "basketball_events": len(basketball),
                         "events": basketball,
+                        "filter_diagnostics": filter_counts,
+                        "basketball_catalogue_ids": len(basketball_ids),
+                        "sports_catalogue_entries": len(sports_meta),
+                        "unclassified_live_examples": candidate_live_examples if not basketball else [],
                         "attempts": attempts,
                         "note": "LIVE basketball events resolved from PARI sports catalogue; women, esports, virtual and 3x3 excluded.",
                     }
