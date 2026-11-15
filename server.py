@@ -688,8 +688,18 @@ async def _enrich_with_sofascore_live(events):
     def norm(value):
         value = unicodedata.normalize("NFKD", str(value or "").casefold())
         value = "".join(ch for ch in value if not unicodedata.combining(ch))
-        value = re.sub(r"\b(bc|basket|basketball|club|team|bk|bc|kk|bc|women|w)\b", " ", value)
-        return re.sub(r"[^a-zа-яё0-9]+", "", value)
+        # PARI frequently returns Russian transliterations while SofaScore uses
+        # the original Latin/Finnish names. Normalize both to comparable Latin.
+        cyrillic_to_latin = str.maketrans({
+            "а":"a","б":"b","в":"v","г":"g","д":"d","е":"e","ё":"e",
+            "ж":"zh","з":"z","и":"i","й":"j","к":"k","л":"l","м":"m",
+            "н":"n","о":"o","п":"p","р":"r","с":"s","т":"t","у":"u",
+            "ф":"f","х":"h","ц":"ts","ч":"ch","ш":"sh","щ":"shch",
+            "ъ":"","ы":"y","ь":"","э":"e","ю":"yu","я":"ya"
+        })
+        value = value.translate(cyrillic_to_latin)
+        value = re.sub(r"\b(bc|basket|basketball|club|team|bk|kk|women|w)\b", " ", value)
+        return re.sub(r"[^a-z0-9]+", "", value)
 
     def pair_score(a, b, x, y):
         direct = (SequenceMatcher(None, norm(a), norm(x)).ratio() +
@@ -861,12 +871,22 @@ async def _enrich_with_sofascore_live(events):
     matched = 0
     ambiguous = 0
     matched_rows = []
+    match_diagnostics = []
     for pari in events:
         ranked = sorted(
             ((pair_score(pari.get("team1"), pari.get("team2"), row["home"], row["away"]), row)
              for row in live_rows),
             key=lambda x: x[0], reverse=True
         )
+        best = ranked[0] if ranked else None
+        match_diagnostics.append({
+            "pari_match": str(pari.get("team1") or "") + " — " + str(pari.get("team2") or ""),
+            "best_external_match": (ranked[0][1]["home"] + " — " + ranked[0][1]["away"]) if ranked else None,
+            "best_confidence": round(ranked[0][0], 3) if ranked else None,
+            "external_score": ranked[0][1]["score"] if ranked else None,
+            "external_period": ranked[0][1]["period"] if ranked else None,
+            "external_clock": ranked[0][1]["clock"] if ranked else None,
+        })
         if not ranked or ranked[0][0] < 0.86:
             continue
         if len(ranked) > 1 and ranked[0][0] - ranked[1][0] < 0.07:
@@ -986,8 +1006,9 @@ async def _enrich_with_sofascore_live(events):
         "statistics_errors": stats_errors[:6],
         "unmatched_pari": max(0, len(events) - matched),
         "ambiguous": ambiguous,
+        "match_diagnostics": match_diagnostics[:30],
         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
-        "note": "Сопоставление только при уверенности >= 0.86; неуверенные совпадения не используются."
+        "note": "Сопоставление учитывает кириллическую транслитерацию названий PARI; совпадения ниже 0.86 не используются."
     }
 
 
