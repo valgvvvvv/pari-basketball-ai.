@@ -816,11 +816,32 @@ async def _enrich_with_sofascore_live(events):
                     clock = f"{remaining // 60:02d}:{remaining % 60:02d}"
             except (TypeError, ValueError, OverflowError):
                 clock = None
+        period_length_seconds = None
+        raw_period_length = time_data.get("max") or time_data.get("periodLength") or item.get("periodLength")
+        if raw_period_length is not None:
+            try:
+                if isinstance(raw_period_length, str) and ":" in raw_period_length:
+                    mm, ss = raw_period_length.split(":", 1)
+                    period_length_seconds = int(mm) * 60 + int(ss)
+                else:
+                    period_length_seconds = int(float(raw_period_length))
+                    if period_length_seconds > 100000:
+                        period_length_seconds //= 1000
+            except (TypeError, ValueError, OverflowError):
+                period_length_seconds = None
+        period_scores = {}
+        for n in range(1, 5):
+            hv = hs.get("period" + str(n)) if isinstance(hs, dict) else None
+            av = aws.get("period" + str(n)) if isinstance(aws, dict) else None
+            if hv is not None and av is not None:
+                period_scores[str(n)] = [hv, av]
         tournament = item.get("tournament") or {}
         live_rows.append({
             "home": str(home.get("name") or ""),
             "away": str(away.get("name") or ""),
             "score": [int(home_score), int(away_score)],
+            "period_scores": period_scores,
+            "period_length_seconds": period_length_seconds,
             "period": period,
             "clock": clock,
             "status": description,
@@ -860,6 +881,8 @@ async def _enrich_with_sofascore_live(events):
             "match": row["home"] + " — " + row["away"],
             "match_confidence": round(score, 3),
             "score": pari_order_score,
+            "period_scores": row.get("period_scores", {}),
+            "period_length_seconds": row.get("period_length_seconds"),
             "period": row["period"],
             "clock": row["clock"],
             "status": row["status"],
