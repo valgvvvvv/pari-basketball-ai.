@@ -478,7 +478,7 @@ async def pari_discover():
 
             bootstrap_scans = []
             chunk_scans = []
-            for bootstrap_url in list(dict.fromkeys(bootstrap_urls))[:3]:
+            for bootstrap_url in list(dict.fromkeys(bootstrap_urls))[:1]:
                 parsed = urlparse(bootstrap_url)
                 host = (parsed.hostname or "").lower()
                 if parsed.scheme != "https" or not (host.endswith(".pb06e2-resources.ru") or host.endswith(".pb06e2-resources.com")):
@@ -515,7 +515,7 @@ async def pari_discover():
                                 chunk_candidates.append((chunk_id, digest, f"{chunk_id}.{digest}.js"))
                             chunk_candidates.append((chunk_id, "", f"{chunk_id}.js"))
                         base = bootstrap_url.rsplit("/", 1)[0] + "/"
-                        for chunk_id, digest, filename in chunk_candidates[:9]:
+                        for chunk_id, digest, filename in chunk_candidates[:6]:
                             chunk_url = base + filename
                             try:
                                 cr = await client.get(chunk_url)
