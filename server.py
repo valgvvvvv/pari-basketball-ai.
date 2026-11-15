@@ -784,6 +784,39 @@ async def pari_live_events():
                     "basketball_events": len(basketball),
                     "sport_ids": sport_ids,
                 })
+                # Sample root match records across the most common sport IDs.
+                # The feed is hierarchical: level 1 rows are match/event roots;
+                # lower levels are periods and markets, not separate matches.
+                top_sport_ids = [
+                    row["sport_id"] for row in sorted(
+                        [{"sport_id": k, "events": v} for k, v in sport_id_counts.items()],
+                        key=lambda x: x["events"], reverse=True
+                    )[:30]
+                ]
+                root_samples = []
+                for sid in top_sport_ids:
+                    roots = [
+                        e for e in all_events
+                        if isinstance(e, dict)
+                        and str(e.get("sportId", "")) == sid
+                        and (e.get("level") == 1 or e.get("parentId") is None)
+                        and (e.get("team1") or e.get("team2"))
+                    ]
+                    for e in roots[:2]:
+                        root_samples.append({
+                            "sport_id": sid,
+                            "id": e.get("id"),
+                            "level": e.get("level"),
+                            "kind": e.get("kind"),
+                            "root_kind": e.get("rootKind"),
+                            "team1": e.get("team1"),
+                            "team2": e.get("team2"),
+                            "name": e.get("name"),
+                            "place": e.get("place"),
+                            "start_time": e.get("startTime"),
+                            "statistics_types": e.get("statisticsTypes"),
+                            "fields": sorted(e.keys()),
+                        })
                 return {
                     "ok": True,
                     "connected": True,
@@ -798,6 +831,7 @@ async def pari_live_events():
                         key=lambda x: x["events"], reverse=True
                     )[:30],
                     "sample_event_shapes": [compact_event(e) for e in all_events[:5]],
+                    "sample_root_events_by_sport": root_samples[:40],
                     "sample_factor_shape": compact_event(factors[0]) if isinstance(factors, list) and factors else None,
                     "events": basketball,
                     "attempts": attempts,
