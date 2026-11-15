@@ -109,39 +109,115 @@ if (discoverSourceButton) {
 }
 
 
+function collectEventObjects(root){
+  const out=[],seen=new Set();
+  function walk(value,depth){
+    if(!value||typeof value!=="object"||depth>6||seen.has(value))return;
+    seen.add(value);
+    if(!Array.isArray(value))out.push(value);
+    if(Array.isArray(value)){for(const x of value)walk(x,depth+1);}
+    else for(const x of Object.values(value))walk(x,depth+1);
+  }
+  walk(root,0);return out;
+}
 function parseScore(value){
   if(value==null)return null;
-  if(typeof value==="object"){
-    const a=Number(value.team1??value.home??value.score1);
-    const b=Number(value.team2??value.away??value.score2);
+  if(Array.isArray(value)&&value.length>=2){
+    const a=Number(value[0]),b=Number(value[1]);
     if(Number.isFinite(a)&&Number.isFinite(b))return [a,b];
-    value=JSON.stringify(value);
   }
-  const m=String(value).match(/(\d{1,3})\s*[:\-]\s*(\d{1,3})/);
+  if(typeof value==="object"){
+    const pairs=[
+      ["team1","team2"],["home","away"],["score1","score2"],
+      ["homeScore","awayScore"],["scoreHome","scoreAway"],
+      ["team1Score","team2Score"],["home_score","away_score"],
+      ["participant1","participant2"]
+    ];
+    for(const [aKey,bKey] of pairs){
+      const a=Number(value[aKey]),b=Number(value[bKey]);
+      if(value[aKey]!=null&&value[bKey]!=null&&Number.isFinite(a)&&Number.isFinite(b))return [a,b];
+    }
+    for(const [key,nested] of Object.entries(value)){
+      if(/score|result|period/i.test(key)){const found=parseScore(nested);if(found)return found;}
+    }
+    return null;
+  }
+  const m=String(value).match(/(?:^|[^0-9])(\\d{1,3})\\s*[:\\-]\\s*(\\d{1,3})(?:[^0-9]|$)/);
   return m?[Number(m[1]),Number(m[2])]:null;
 }
-function parsePeriod(value){const m=String(value??"").match(/([1-4])/);return m?Number(m[1]):null;}
-function parseClock(value){const m=String(value??"").match(/(\d{1,2}):([0-5]\d)/);return m?m[1].padStart(2,"0")+":"+m[2]:null;}
+function findLiveScore(ev){
+  const objects=collectEventObjects({root:ev.raw||{},related:ev.related_events||[],live:ev.live_fields||{}});
+  const direct=parseScore(ev.score);if(direct)return direct;
+  for(const obj of objects){
+    for(const [key,value] of Object.entries(obj)){
+      if(/^(score|scoreInfo|currentScore|result|liveScore|matchScore|totalScore)$/i.test(key)){
+        const parsed=parseScore(value);if(parsed)return parsed;
+      }
+    }
+    const home=Object.entries(obj).find(([k,v])=>/^(homeScore|scoreHome|team1Score|team1Points|home_points)$/i.test(k)&&v!=null);
+    const away=Object.entries(obj).find(([k,v])=>/^(awayScore|scoreAway|team2Score|team2Points|away_points)$/i.test(k)&&v!=null);
+    if(home&&away){const a=Number(home[1]),b=Number(away[1]);if(Number.isFinite(a)&&Number.isFinite(b))return [a,b];}
+  }
+  return null;
+}
+function findLivePeriod(ev){
+  const objects=collectEventObjects({root:ev.raw||{},related:ev.related_events||[],live:ev.live_fields||{}});
+  const direct=ev.period??(ev.raw||{}).period??(ev.raw||{}).periodName;
+  const candidates=[direct];
+  for(const obj of objects)for(const [key,value] of Object.entries(obj))if(/period|quarter|gamePart|stageNumber/i.test(key))candidates.push(value);
+  for(const value of candidates){
+    if(value==null)continue;
+    if(typeof value==="number"&&Number.isInteger(value)&&value>=1&&value<=4)return value;
+    const str=String(value).toLowerCase();
+    const m=str.match(/(?:q|quarter|period|период|четверт\\w*|\\b)([1-4])(?:\\b|$)/i)||str.match(/^([1-4])$/);
+    if(m)return Number(m[1]);
+  }
+  return null;
+}
+function findLiveClock(ev){
+  const objects=collectEventObjects({root:ev.raw||{},related:ev.related_events||[],live:ev.live_fields||{}});
+  const candidates=[ev.clock,(ev.raw||{}).time,(ev.raw||{}).timer];
+  for(const obj of objects)for(const [key,value] of Object.entries(obj))if(/^(time|timer|clock|matchTime|gameTime|remainingTime|periodTime|timeRemaining)$/i.test(key))candidates.push(value);
+  for(const value of candidates){
+    if(value==null)continue;
+    const m=String(value).match(/(?:^|\\D)(\\d{1,2}):([0-5]\\d)(?:\\D|$)/);
+    if(m)return m[1].padStart(2,"0")+":"+m[2];
+  }
+  return null;
+}
 function showSelectedMatch(ev){
   const panel=$("selectedMatch");panel.hidden=false;
   $("selectedMatchTitle").textContent=(ev.team1||"Команда 1")+" — "+(ev.team2||"Команда 2");
-  $("selectedMatchMeta").textContent=[ev.league||ev.sport_name,ev.period,ev.clock].filter(Boolean).join(" · ");
-  const raw=ev.raw||{},score=parseScore(ev.score),period=parsePeriod(ev.period??raw.period??raw.periodName),clock=parseClock(ev.clock??raw.time??raw.timer);
-  $("selectedMatchInfo").textContent="Счёт: "+(score?score.join(" : "):"нет в фиде")+" · Четверть: "+(period||"не определена")+" · Время: "+(clock||"нет в фиде");
-  const candidates=ev.match_total_candidates||[];
-  const line=candidates.map(x=>Number(x.pt)).find(Number.isFinite);
+  const objects=collectEventObjects({root:ev.raw||{},related:ev.related_events||[],live:ev.live_fields||{}});
+  const score=findLiveScore(ev),period=findLivePeriod(ev),clock=findLiveClock(ev);
+  const childCount=(ev.related_events||[]).length;
+  const fieldNames=[...new Set(objects.flatMap(o=>Object.keys(o)))];
+  $("selectedMatchMeta").textContent=[ev.league||ev.sport_name,"Строк PARI: "+(childCount+1),"Полей: "+fieldNames.length].filter(Boolean).join(" · ");
+  $("selectedMatchInfo").textContent="Счёт: "+(score?score.join(" : "):"нет в данных")+" · Четверть: "+(period||"не определена")+" · Время: "+(clock||"нет в данных");
+  const allFactors=[...(ev.factors||[]),...(ev.related_factors||[])];
+  const line=allFactors.map(x=>Number(x.pt)).find(Number.isFinite);
+  const stats=[];
+  for(const obj of objects)for(const [key,value] of Object.entries(obj)){
+    if(/stat|foul|rebound|assist|attempt|throw|possession|percent|three|two|block|steal|turnover|point/i.test(key)&&value!=null&&typeof value!=="object"){
+      stats.push(key+": "+String(value));
+    }
+  }
+  const statsText=[...new Set(stats)].slice(0,24);
   if(score&&period&&clock){
     const total=score[0]+score[1],parts=clock.split(":").map(Number),leftQ=parts[0]*60+parts[1];
-    const qMinutes=Number(raw.periodLength||raw.periodDuration||raw.quarterDuration||10)||10;
+    const raw=ev.raw||{},qMinutes=Number(raw.periodLength||raw.periodDuration||raw.quarterDuration||10)||10;
     const elapsed=(period-1)*qMinutes*60+(qMinutes*60-leftQ);
     if(elapsed>0){
       const remaining=4*qMinutes*60-elapsed,pace=total/(elapsed/60),expected=total+pace*(remaining/60);
-      $("matchForecast").innerHTML='<div class="prediction"><div><small>ОЖИДАЕМЫЙ ИТОГ</small><strong>'+expected.toFixed(1)+'</strong></div><div><small>ТЕКУЩИЙ ТЕМП</small><strong>'+pace.toFixed(2)+'</strong><span>очков/мин</span></div></div><p class="muted">'+(Number.isFinite(line)?"Линия PARI: "+line:"Линия общего тотала не найдена в фиде")+'</p><p class="muted">Предварительная оценка по текущему темпу. Вероятность ТБ/ТМ будет рассчитана после подтверждения линии и формата.</p>';
-      $("quarterForecast").innerHTML='<p>Текущий счёт: '+total+' · Четверть: '+period+' · Осталось в четверти: '+Math.floor(leftQ/60)+':'+String(leftQ%60).padStart(2,"0")+'</p><p class="muted">Для точного прогноза четверти нужен отдельный счёт четверти и линия PARI на неё. Если этих данных нет в фиде, прогноз не подменяется догадкой.</p>';
+      $("matchForecast").innerHTML='<div class="prediction"><div><small>ОЖИДАЕМЫЙ ИТОГ</small><strong>'+expected.toFixed(1)+'</strong></div><div><small>ТЕКУЩИЙ ТЕМП</small><strong>'+pace.toFixed(2)+'</strong><span>очков/мин</span></div></div><p class="muted">'+(Number.isFinite(line)?"Линия PARI: "+line:"Линия общего тотала не найдена в данных")+'</p><p class="muted">Предварительная оценка по текущему темпу. Вероятность ТБ/ТМ будет рассчитана после подтверждения линии и формата.</p>';
+      $("quarterForecast").innerHTML='<p>Текущий счёт: '+total+' · Четверть: '+period+' · Осталось в четверти: '+Math.floor(leftQ/60)+':'+String(leftQ%60).padStart(2,"0")+'</p><p class="muted">Для точного прогноза четверти нужен отдельный счёт четверти и линия PARI на неё.</p>';
     }else{$("matchForecast").textContent="Недостаточно данных времени.";$("quarterForecast").textContent="Недостаточно данных времени.";}
   }else{
-    $("matchForecast").textContent="PARI пока не передаёт распознанные счёт, четверть или таймер для этого события. Прогноз не будет выдумываться.";
-    $("quarterForecast").textContent="Нет подтверждённых данных текущей четверти и линии. Прогноз появится автоматически, когда фид их передаст.";
+    $("matchForecast").textContent="Данные матча и все вложенные строки PARI загружены. Для прогноза пока не хватает подтверждённых счёта, четверти и таймера.";
+    $("quarterForecast").textContent="Проверены дочерние события и рынки PARI. Прогноз четверти появится после распознавания периода, счёта и линии.";
+  }
+  if(statsText.length){
+    $("matchForecast").insertAdjacentHTML("beforeend",'<details class="source-statistics"><summary>Статистика из фида ('+statsText.length+')</summary><p>'+statsText.map(x=>escapeHtml(x)).join("<br>")+'</p></details>');
   }
   panel.scrollIntoView({behavior:"smooth",block:"start"});
 }
