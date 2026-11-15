@@ -139,3 +139,46 @@ def health():
 @app.post("/api/analyze")
 def api_analyze(req: AnalyzeRequest):
     return analyze(req)
+
+
+@app.post("/api/analyze-quarter")
+def api_analyze_quarter(req: QuarterAnalyzeRequest):
+    period_sec = req.period_minutes * 60
+    elapsed_sec = parse_clock(req.clock)
+    if elapsed_sec <= 0 or elapsed_sec > period_sec:
+        raise ValueError("Время должно быть внутри текущей четверти и больше нуля")
+    current = req.score1 + req.score2
+    elapsed_min = elapsed_sec / 60.0
+    remaining_min = (period_sec - elapsed_sec) / 60.0
+    pace = current / elapsed_min
+    mu = pace * remaining_min
+    expected = current + mu
+    sigma = max(math.sqrt(max(mu, 1.0)) * 1.18, 1.0)
+    rng = random.Random()
+    n = req.simulations
+    totals = []
+    over = 0
+    for _ in range(n):
+        total = current + max(0.0, rng.gauss(mu, sigma))
+        totals.append(total)
+        if total > req.total_line:
+            over += 1
+    totals.sort()
+    def qtile(q):
+        return round(totals[min(n - 1, max(0, int(q * (n - 1))))], 1)
+    p_over = over / n
+    return {
+        "quarter": req.quarter, "current_total": current,
+        "elapsed_minutes": round(elapsed_min, 2),
+        "remaining_minutes": round(remaining_min, 2),
+        "pace_per_min": round(pace, 3), "expected_total": round(expected, 1),
+        "line": req.total_line, "direction": "ТБ" if p_over >= 0.5 else "ТМ",
+        "p_over_mc": round(p_over * 100, 1),
+        "p_under_mc": round((1 - p_over) * 100, 1),
+        "range80": [qtile(.10), qtile(.90)],
+        "range95": [qtile(.025), qtile(.975)],
+        "grade": "A" if max(p_over, 1-p_over) >= .72 and abs(expected-req.total_line) >= 3 else ("B" if max(p_over,1-p_over) >= .62 else "C"),
+        "simulations": n,
+        "warnings": ["Оценка основана на темпе текущей четверти и приближённой симуляции.",
+                     "Не учитываются владения, составы, фолы по командам и игровые события; модель пока не обучена на истории лиги."]
+    }
