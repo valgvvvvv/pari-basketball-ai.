@@ -1129,7 +1129,9 @@ async def _enrich_with_sofascore_live(events):
                 "sportscore_live_rows_after_filter": len(external_rows),
                 "sportscore_live_match_samples": [
                     {"home": row["home"], "away": row["away"], "status": row["status"],
-                     "period": row["period"], "score": row["score"]}
+                     "period": row["period"], "clock": row.get("clock"),
+                     "period_length_seconds": row.get("period_length_seconds"),
+                     "detail_source": row.get("detail_source"), "score": row["score"]}
                     for row in external_rows[:12]
                 ],
                 "note": "Счёт берётся из SportScore только при однозначном совпадении обеих команд и уникальном матче; завершённые игры исключаются. Статистика и часы не выдумываются.",
