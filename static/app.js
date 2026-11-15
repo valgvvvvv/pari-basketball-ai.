@@ -27,7 +27,7 @@ function show(d,r){
  $("market").textContent="Рыночная вероятность ТБ без маржи: "+(r.market===null?"нет коэффициентов":r.market.toFixed(1)+"%");$("simCount").textContent=d.simulations.toLocaleString("ru-RU")+" симуляций";
  const item={date:new Date().toLocaleString("ru-RU"),match:$("matchTitle").textContent,direction:r.direction,line:d.total_line,prob:(r.prob*100).toFixed(1),grade:r.grade};let hist=JSON.parse(localStorage.getItem("pariHistory")||"[]");hist.unshift(item);localStorage.setItem("pariHistory",JSON.stringify(hist.slice(0,50)));renderHistory();
 }
-form.addEventListener("submit",async e=>{e.preventDefault();try{const d=getData();let r;try{const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)});if(res.ok)r=await res.json();else throw Error("API");}catch(_){r=calculate(d);r.range80=r.range80||[];r.range95=r.range95||[];r.p_over_mc=r.pOver*100;r.p_under_mc=r.pUnder*100;r.p_over_poisson=r.pPois*100;r.expected_total=r.expected;r.pace_per_min=r.pace;r.mu_remaining=r.mu;r.remaining_minutes=r.left/60;r.current_total=r.current;r.market_over_devig=r.market;r.grade=r.grade;r.direction=r.direction;r.simulations=d.simulations;}
+form.addEventListener("submit",async e=>{e.preventDefault();try{const d=getData();const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)});const payload=await res.json();if(!res.ok)throw Error(payload.detail||"Сервер не смог выполнить расчёт");let r=payload;
  if(r.p_over_mc!==undefined){r={...r,pOver:r.p_over_mc/100,pUnder:r.p_under_mc/100,expected:r.expected_total,pace:r.pace_per_min,mu:r.mu_remaining,left:r.remaining_minutes*60,elapsed:r.elapsed_minutes*60,current:r.current_total,market:r.market_over_devig,pPois:r.p_over_poisson/100,range80:r.range80,range95:r.range95,prob:Math.max(r.p_over_mc,r.p_under_mc)/100};}
  show(d,r);$("result").scrollIntoView({behavior:"smooth",block:"start"});
  }catch(err){alert(err.message||"Не удалось рассчитать прогноз");}});
@@ -84,7 +84,7 @@ if (discoverSourceButton) {
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.error || "Источник не ответил");
       const count = (data.route_candidates || []).length;
-      $("sourceDiscoverStatus").textContent = `Проверено модулей: ${(data.scanned_bundles || []).length}. Кандидатов маршрутов: ${count}. Это ещё не подтверждённый feed.`;
+      $("sourceDiscoverStatus").textContent = `Проверено JS-чанков: ${(data.chunk_scans || []).length}; рабочих CDN-зеркал: ${(data.bootstrap_scans || []).filter(x => x.status === 200).length}; кандидатов маршрутов: ${count}. API пока не подтверждён.`;
       $("sourceDiscoverOutput").textContent = JSON.stringify(data, null, 2);
     } catch (error) {
       $("sourceDiscoverStatus").textContent = "Не удалось выполнить поиск: " + (error.message || "ошибка");
