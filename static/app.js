@@ -181,6 +181,7 @@ function findLiveClock(ev){
   for(const obj of objects)for(const [key,value] of Object.entries(obj))if(/^(time|timer|clock|matchTime|gameTime|remainingTime|periodTime|timeRemaining|time_remaining|countdown|remaining_seconds|clock_seconds)$/i.test(key))candidates.push(value);
   for(const value of candidates){
     if(value==null)continue;
+    if(typeof value==="string" && /^\\d{4}-\\d{2}-\\d{2}[T ]/.test(value.trim())) continue;
     const m=String(value).match(/(?:^|\D)(\d{1,2}):([0-5]\d)(?:\D|$)/);
     if(m)return m[1].padStart(2,"0")+":"+m[2];
     // Numeric countdowns are accepted only in plausible basketball-period range.
