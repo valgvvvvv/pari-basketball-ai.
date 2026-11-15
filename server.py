@@ -364,6 +364,7 @@ async def pari_discover():
             pages = []
             asset_refs = []
             inline_hints = []
+            bootstrap_urls = []
             for page_url in page_urls:
                 try:
                     response = await client.get(page_url, params={"_diag": str(int(datetime.now(timezone.utc).timestamp() * 1000))})
@@ -383,6 +384,19 @@ async def pari_discover():
                     inline_analysis = []
                     for inline_index, inline in enumerate(parser.inline_scripts):
                         inline_hints.extend(find_hints(inline))
+                        config_match = re.search(r"urlsPreloadRaw='(\\{.*?\\})';if\\(urlsPreloadRaw\\)", inline, re.S)
+                        if config_match:
+                            try:
+                                cfg = json.loads(config_match.group(1))
+                                static_hosts = [cfg.get("static", "")] + cfg.get("staticQueue", [])
+                                static_path = cfg.get("staticSiteDir", "")
+                                version = (cfg.get("site") or {}).get("version", "")
+                                for static_host in static_hosts:
+                                    if static_host and static_path and version:
+                                        host_url = static_host if static_host.startswith("http") else "https:" + static_host
+                                        bootstrap_urls.append(host_url.rstrip("/") + static_path + "/" + version + "/bootstrap.js")
+                            except Exception:
+                                pass
                         inline_analysis.append({
                             "index": inline_index,
                             "chars": len(inline),
@@ -462,14 +476,36 @@ async def pari_discover():
                 except httpx.HTTPError as exc:
                     scanned.append({"url": asset["url"], "error": type(exc).__name__})
 
+            bootstrap_scans = []
+            for bootstrap_url in list(dict.fromkeys(bootstrap_urls))[:3]:
+                parsed = urlparse(bootstrap_url)
+                host = (parsed.hostname or "").lower()
+                if parsed.scheme != "https" or not (host.endswith(".pb06e2-resources.ru") or host.endswith(".pb06e2-resources.com")):
+                    continue
+                try:
+                    br = await client.get(bootstrap_url)
+                    item = {"url": bootstrap_url, "status": br.status_code,
+                            "content_type": br.headers.get("content-type"), "bytes": len(br.content)}
+                    if br.status_code == 200:
+                        source = br.text[:5000000]
+                        item["route_hints"] = find_hints(source)[:160]
+                        item["host_hints"] = list(dict.fromkeys(re.findall(r"(?i)(?:[a-z0-9-]+\\.)+pb06e2-resources\\.(?:ru|com)", source)))[:80]
+                        item["api_path_hints"] = list(dict.fromkeys(re.findall(r"""['"]([^'"]{1,220}(?:api|live|event|market|odds|line|sport|basket)[^'"]{0,180})['"]""", source, re.I)))[:120]
+                        item["keyword_counts"] = {word: len(re.findall(word, source, re.I)) for word in ("clientsapi", "commonApi", "line", "live", "event", "market", "odds", "graphql", "websocket")}
+                        item["preview"] = source[:1800]
+                        bundle_hints.extend(item["route_hints"])
+                    bootstrap_scans.append(item)
+                except httpx.HTTPError as exc:
+                    bootstrap_scans.append({"url": bootstrap_url, "error": type(exc).__name__})
+
         hints = list(dict.fromkeys(inline_hints + bundle_hints))
         return {
             "ok": any(x.get("status") == 200 for x in pages),
-            "diagnostic_version": 2, "pages": pages,
+            "diagnostic_version": 4, "pages": pages,
             "asset_refs_found": len(asset_refs), "first_party_assets_scanned": len(scanned),
-            "scanned_assets": scanned, "inline_route_hints": list(dict.fromkeys(inline_hints))[:100],
+            "scanned_assets": scanned, "bootstrap_scans": bootstrap_scans, "bootstrap_urls_found": len(set(bootstrap_urls)), "inline_route_hints": list(dict.fromkeys(inline_hints))[:100],
             "route_candidates": hints[:200], "confirmed_api": False,
-            "note": "Версия 3 дополнительно показывает содержимое встроенного загрузчика и маркеры динамического импорта. URL-кандидаты не являются подтверждённым API до проверки реального ответа и актуальности LIVE-счёта/линий."
+            "note": "Версия 4 извлекает публичный bootstrap.js из CDN, указанного конфигурацией PARI, и ищет в нём маршруты/хосты данных. Найденные строки — только кандидаты; API подтверждается проверкой реальных ответов и изменения LIVE-данных."
         }
     except httpx.TimeoutException:
         return {"ok": False, "diagnostic_version": 2, "error": "PARI diagnostic timed out"}
