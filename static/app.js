@@ -142,7 +142,7 @@ function parseScore(value){
     }
     return null;
   }
-  const m=String(value).match(/(?:^|[^0-9])(\\d{1,3})\\s*[:\\-]\\s*(\\d{1,3})(?:[^0-9]|$)/);
+  const m=String(value).match(/(?:^|[^0-9])(\d{1,3})\s*[:\-]\s*(\d{1,3})(?:[^0-9]|$)/);
   return m?[Number(m[1]),Number(m[2])]:null;
 }
 function findLiveScore(ev){
@@ -169,7 +169,7 @@ function findLivePeriod(ev){
     if(value==null)continue;
     if(typeof value==="number"&&Number.isInteger(value)&&value>=1&&value<=4)return value;
     const str=String(value).toLowerCase();
-    const m=str.match(/(?:q|quarter|period|период|четверт\\w*|\\b)([1-4])(?:\\b|$)/i)||str.match(/^([1-4])$/);
+    const m=str.match(/(?:q|quarter|period|период|четверт\w*|\b)([1-4])(?:\b|$)/i)||str.match(/^([1-4])$/);
     if(m)return Number(m[1]);
   }
   return null;
@@ -180,7 +180,7 @@ function findLiveClock(ev){
   for(const obj of objects)for(const [key,value] of Object.entries(obj))if(/^(time|timer|clock|matchTime|gameTime|remainingTime|periodTime|timeRemaining)$/i.test(key))candidates.push(value);
   for(const value of candidates){
     if(value==null)continue;
-    const m=String(value).match(/(?:^|\\D)(\\d{1,2}):([0-5]\\d)(?:\\D|$)/);
+    const m=String(value).match(/(?:^|\D)(\d{1,2}):([0-5]\d)(?:\D|$)/);
     if(m)return m[1].padStart(2,"0")+":"+m[2];
   }
   return null;
