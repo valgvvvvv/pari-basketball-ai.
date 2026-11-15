@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 from typing import Optional
 import math, random, os, hashlib, re
 from datetime import datetime, timezone
+from html.parser import HTMLParser
+from html import unescape
 import httpx
 
 app = FastAPI(title="PARI Basketball AI", version="0.1.0")
@@ -208,6 +210,25 @@ async def pari_source_check():
         body = response.text
         title_match = re.search(r"<title[^>]*>(.*?)</title>", body, re.I | re.S)
         title = re.sub(r"\\s+", " ", title_match.group(1)).strip()[:180] if title_match else None
+        class _TextOnly(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.parts = []
+                self.hidden = 0
+            def handle_starttag(self, tag, attrs):
+                if tag in ("script", "style", "noscript"):
+                    self.hidden += 1
+            def handle_endtag(self, tag):
+                if tag in ("script", "style", "noscript") and self.hidden:
+                    self.hidden -= 1
+            def handle_data(self, data):
+                if not self.hidden and data.strip():
+                    self.parts.append(data.strip())
+        parser = _TextOnly()
+        parser.feed(body)
+        visible_text = re.sub(r"\\s+", " ", unescape(" ".join(parser.parts))).strip()
+        script_sources = re.findall(r'<script[^>]+src=["\\']([^"\\']+)', body, re.I)[:12]
+        score_time_patterns = len(re.findall(r"(?<!\\d)\\d{1,2}:\\d{2}(?!\\d)", visible_text))
         age_header = response.headers.get("age")
         age_seconds = int(age_header) if age_header and age_header.isdigit() else None
         date_header = response.headers.get("date")
@@ -227,6 +248,10 @@ async def pari_source_check():
             "content_type": response.headers.get("content-type"),
             "bytes": len(response.content),
             "title": title,
+            "visible_text_chars": len(visible_text),
+            "score_or_clock_patterns": score_time_patterns,
+            "visible_text_preview": visible_text[:2400],
+            "script_sources": script_sources,
             "fetched_at_utc": received_at.isoformat(),
             "request_started_at_utc": requested_at.isoformat(),
             "fetch_duration_ms": round((received_at - requested_at).total_seconds() * 1000),
