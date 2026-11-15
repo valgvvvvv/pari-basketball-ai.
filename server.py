@@ -219,7 +219,7 @@ async def pari_source_check():
             except Exception:
                 pass
         # Не называем старый ответ свежим: CDN Age или HTTP Date проверяются отдельно.
-        freshness_ok = response.status_code == 200 and (age_seconds is None or age_seconds <= 60) and (upstream_age is None or upstream_age <= 180)
+        freshness_ok = response.status_code == 200 and (age_seconds is not None or upstream_age is not None) and (age_seconds is None or age_seconds <= 60) and (upstream_age is None or upstream_age <= 180)
         return {
             "ok": response.status_code == 200,
             "source": "https://pari.ru/live/basketball",
