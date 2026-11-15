@@ -965,7 +965,7 @@ async def _enrich_with_sofascore_live(events):
             # countdown, ask SportScore's documented single-match detail endpoint.
             # This is a bounded, read-only enrichment; only explicit clock and
             # period-duration fields are accepted (never infer 10/12-minute periods).
-            detail_targets = [row for row in external_rows if not row.get("clock") and row.get("id")]
+            detail_targets = [row for row in external_rows if (not row.get("clock") or not row.get("period_length_seconds")) and row.get("id")]
             if detail_targets:
                 async with httpx.AsyncClient(
                     timeout=httpx.Timeout(5.0, connect=3.0),
@@ -1097,7 +1097,10 @@ async def _enrich_with_sofascore_live(events):
                     "source": "SportScore", "event_id": row.get("id"),
                     "match": row["home"] + " — " + row["away"],
                     "match_confidence": round(best[0], 3), "score": ordered_score,
-                    "period": row["period"], "clock": row["clock"], "status": row["status"],
+                    "period": row["period"], "clock": row["clock"],
+                    "period_length_seconds": row.get("period_length_seconds"),
+                    "clock_detail_source": row.get("detail_source"),
+                    "status": row["status"],
                 }
                 if pari.get("score") is None:
                     pari["score"] = ordered_score
