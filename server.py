@@ -376,7 +376,7 @@ async def pari_discover():
                     for link in parser.links:
                         rel = link.get("rel", "").lower()
                         href = link.get("href", "")
-                        if ".js" in href.lower() or "modulepreload" in rel or ("preload" in rel and link.get("as") == "script"):
+                        if ".js" in href.lower() or "modulepreload" in rel or "manifest" in rel or ("preload" in rel and link.get("as") == "script"):
                             refs.append({"url": urljoin(str(response.url), href), "kind": "preload"})
                     for ref in refs:
                         asset_refs.append(ref)
