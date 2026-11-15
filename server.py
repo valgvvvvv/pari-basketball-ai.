@@ -717,21 +717,38 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     except httpx.HTTPError:
                         if attempt_no + 1 >= retries:
                             raise
-                item = {"host": host, "status": response.status_code}
+                item = {
+                    "host": host,
+                    "status": response.status_code,
+                    "final_url": str(response.url),
+                    "content_type": response.headers.get("content-type", ""),
+                    "bytes": len(response.content or b""),
+                }
                 if response.status_code != 200:
                     item["error"] = "HTTP response is not 200"
+                    item["body_preview"] = (response.text or "")[:240]
                     attempts.append(item)
                     continue
                 try:
                     payload = response.json()
-                except Exception:
-                    item["error"] = "Response is not JSON"
-                    item["content_type"] = response.headers.get("content-type")
+                except Exception as exc:
+                    item["error"] = "Response is not JSON: " + type(exc).__name__
+                    item["body_preview"] = (response.text or "")[:320]
                     attempts.append(item)
                     continue
-                all_events = payload.get("events", []) if isinstance(payload, dict) else []
-                if not isinstance(all_events, list):
-                    all_events = []
+                if not isinstance(payload, dict):
+                    item["error"] = "JSON root is not an object"
+                    item["json_type"] = type(payload).__name__
+                    item["body_preview"] = (response.text or "")[:240]
+                    attempts.append(item)
+                    continue
+                if not isinstance(payload.get("events"), list):
+                    item["error"] = "JSON object has no events array"
+                    item["json_keys"] = list(payload.keys())[:40]
+                    item["body_preview"] = (response.text or "")[:240]
+                    attempts.append(item)
+                    continue
+                all_events = payload["events"]
                 factors = payload.get("customFactors", []) if isinstance(payload, dict) else []
                 factor_map = {}
                 for row in factors if isinstance(factors, list) else []:
@@ -1097,13 +1114,20 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     "note": "Basketball sportIds are resolved dynamically from PARI sports hierarchy or cached listBase metadata. Female, esports, virtual and 3x3 competitions are excluded.",
                 }
             except httpx.HTTPError as exc:
-                attempts.append({"host": host, "error": type(exc).__name__})
+                attempts.append({"host": host, "error": type(exc).__name__, "detail": str(exc)[:240]})
+            except Exception as exc:
+                attempts.append({"host": host, "error": type(exc).__name__, "detail": str(exc)[:240]})
+    failure_summary = "; ".join(
+        str(item.get("host", "")) + ": " + str(item.get("error", "unknown error"))
+        + ((" (HTTP " + str(item.get("status")) + ")") if item.get("status") is not None else "")
+        for item in attempts
+    )
     return {
         "ok": False,
         "connected": False,
         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
         "attempts": attempts,
-        "error": "All known PARI line hosts failed to return a valid events/list JSON response.",
+        "error": "PARI events/list недоступен на проверенных узлах. " + (failure_summary or "Нет диагностических ответов."),
     }
 
 @app.get("/api/pari/match-debug")
