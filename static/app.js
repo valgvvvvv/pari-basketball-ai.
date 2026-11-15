@@ -192,32 +192,33 @@ function showSelectedMatch(ev){
   const score=findLiveScore(ev),period=findLivePeriod(ev),clock=findLiveClock(ev);
   const childCount=(ev.related_events||[]).length;
   const fieldNames=[...new Set(objects.flatMap(o=>Object.keys(o)))];
-  $("selectedMatchMeta").textContent=[ev.league||ev.sport_name,"Строк PARI: "+(childCount+1),"Полей: "+fieldNames.length].filter(Boolean).join(" · ");
-  $("selectedMatchInfo").textContent="Счёт: "+(score?score.join(" : "):"нет в данных")+" · Четверть: "+(period||"не определена")+" · Время: "+(clock||"нет в данных");
-  const allFactors=[...(ev.factors||[]),...(ev.related_factors||[])];
-  const line=allFactors.map(x=>Number(x.pt)).find(Number.isFinite);
+  const factors=[...(ev.match_total_candidates||[]),...(ev.factors||[]),...(ev.related_factors||[])];
+  const uniqueFactors=[...new Map(factors.filter(x=>x&&typeof x==="object").map(x=>[String(x.f||"")+"|"+String(x.pt||x.p||"")+"|"+String(x.v||""),x])).values()];
+  const matchLines=uniqueFactors.filter(x=>["930","931"].includes(String(x.f)));
+  const quarterLines=(ev.related_factors||[]).filter(x=>x&&["930","931"].includes(String(x.f)));
+  const fmtFactors=list=>list.map(x=>{
+    const line=x.pt!=null?String(x.pt):(x.p!=null?String(Number(x.p)/100):"линия не указана");
+    return "линия "+line+" · ID "+String(x.f)+" · кэф. "+(x.v??"—");
+  });
   const stats=[];
   for(const obj of objects)for(const [key,value] of Object.entries(obj)){
-    if(/stat|foul|rebound|assist|attempt|throw|possession|percent|three|two|block|steal|turnover|point/i.test(key)&&value!=null&&typeof value!=="object"){
-      stats.push(key+": "+String(value));
-    }
+    if(/stat|foul|rebound|assist|attempt|throw|possession|percent|three|two|block|steal|turnover|point/i.test(key)&&value!=null&&typeof value!=="object")stats.push(key+": "+String(value));
   }
   const statsText=[...new Set(stats)].slice(0,24);
-  if(score&&period&&clock){
-    const total=score[0]+score[1],parts=clock.split(":").map(Number),leftQ=parts[0]*60+parts[1];
-    const raw=ev.raw||{},qMinutes=Number(raw.periodLength||raw.periodDuration||raw.quarterDuration||10)||10;
-    const elapsed=(period-1)*qMinutes*60+(qMinutes*60-leftQ);
-    if(elapsed>0){
-      const remaining=4*qMinutes*60-elapsed,pace=total/(elapsed/60),expected=total+pace*(remaining/60);
-      $("matchForecast").innerHTML='<div class="prediction"><div><small>ОЖИДАЕМЫЙ ИТОГ</small><strong>'+expected.toFixed(1)+'</strong></div><div><small>ТЕКУЩИЙ ТЕМП</small><strong>'+pace.toFixed(2)+'</strong><span>очков/мин</span></div></div><p class="muted">'+(Number.isFinite(line)?"Линия PARI: "+line:"Линия общего тотала не найдена в данных")+'</p><p class="muted">Предварительная оценка по текущему темпу. Вероятность ТБ/ТМ будет рассчитана после подтверждения линии и формата.</p>';
-      $("quarterForecast").innerHTML='<p>Текущий счёт: '+total+' · Четверть: '+period+' · Осталось в четверти: '+Math.floor(leftQ/60)+':'+String(leftQ%60).padStart(2,"0")+'</p><p class="muted">Для точного прогноза четверти нужен отдельный счёт четверти и линия PARI на неё.</p>';
-    }else{$("matchForecast").textContent="Недостаточно данных времени.";$("quarterForecast").textContent="Недостаточно данных времени.";}
-  }else{
-    $("matchForecast").textContent="Данные матча и все вложенные строки PARI загружены. Для прогноза пока не хватает подтверждённых счёта, четверти и таймера.";
-    $("quarterForecast").textContent="Проверены дочерние события и рынки PARI. Прогноз четверти появится после распознавания периода, счёта и линии.";
-  }
+  $("selectedMatchMeta").textContent=[ev.league||ev.sport_name,"Строк PARI: "+(childCount+1),"Полей: "+fieldNames.length].filter(Boolean).join(" · ");
+  $("selectedMatchInfo").textContent="Счёт: "+(score?score.join(" : "):"нет в ответе PARI")+" · Четверть: "+(period||"не определена")+" · Время: "+(clock||"нет в ответе PARI")+" · Рынков-факторов: "+uniqueFactors.length;
+  $("matchForecast").innerHTML=
+    '<p><b>Что получено от PARI</b></p>'+
+    '<p class="muted">'+(matchLines.length?fmtFactors(matchLines).map(escapeHtml).join("<br>"):"Кандидаты общего тотала не найдены в распознанных факторах.")+'</p>'+
+    '<p class="muted">'+(score&&period&&clock?"Счёт, четверть и таймер доступны.":"Независимый расчёт темпа пока заблокирован: PARI не передал подтверждённый счёт и/или таймер.")+'</p>';
+  $("quarterForecast").innerHTML=
+    '<p><b>Текущая четверть:</b> '+(period||"не определена")+'</p>'+
+    '<p class="muted">'+(quarterLines.length?fmtFactors(quarterLines).map(escapeHtml).join("<br>"):"Отдельные факторы четверти не распознаны.")+'</p>'+
+    '<p class="muted">'+(clock?"Таймер: "+escapeHtml(clock):"Таймер четверти отсутствует в полученных строках PARI.")+'</p>';
   if(statsText.length){
     $("matchForecast").insertAdjacentHTML("beforeend",'<details class="source-statistics"><summary>Статистика из фида ('+statsText.length+')</summary><p>'+statsText.map(x=>escapeHtml(x)).join("<br>")+'</p></details>');
+  } else {
+    $("matchForecast").insertAdjacentHTML("beforeend",'<p class="muted">Подробная игровая статистика в ответе PARI не обнаружена.</p>');
   }
   panel.scrollIntoView({behavior:"smooth",block:"start"});
 }
