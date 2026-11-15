@@ -976,6 +976,79 @@ async def _enrich_with_sofascore_live(events):
                     "detail_source": None,
                 })
 
+            # Merge scored SofaScore fixtures into the candidate pool as well.
+            # This prevents the SportScore fallback branch from discarding matches
+            # already found by SofaScore when only some PARI events are missing data.
+            if isinstance(payload, dict) and isinstance(payload.get("events"), list):
+                for ss_item in payload["events"]:
+                    if not isinstance(ss_item, dict):
+                        continue
+                    ss_home = ss_item.get("homeTeam") or {}
+                    ss_away = ss_item.get("awayTeam") or {}
+                    if not isinstance(ss_home, dict) or not isinstance(ss_away, dict):
+                        continue
+                    ss_hs, ss_as = ss_item.get("homeScore") or {}, ss_item.get("awayScore") or {}
+                    ss_hp = ss_hs.get("current") if isinstance(ss_hs, dict) else None
+                    ss_ap = ss_as.get("current") if isinstance(ss_as, dict) else None
+                    try:
+                        if ss_hp is None or ss_ap is None:
+                            continue
+                        ss_score = [int(ss_hp), int(ss_ap)]
+                    except (TypeError, ValueError, OverflowError):
+                        continue
+                    ss_home_name = str(ss_home.get("name") or "")
+                    ss_away_name = str(ss_away.get("name") or "")
+                    if not ss_home_name or not ss_away_name:
+                        continue
+                    if any(pair_score(ss_home_name, ss_away_name, r["home"], r["away"]) >= 0.94
+                           for r in external_rows):
+                        continue
+                    ss_status = ss_item.get("status") or {}
+                    ss_time = ss_item.get("time") or {}
+                    if not isinstance(ss_status, dict): ss_status = {}
+                    if not isinstance(ss_time, dict): ss_time = {}
+                    ss_desc = str(ss_status.get("description") or ss_status.get("code") or "")
+                    ss_period_value = ss_item.get("lastPeriod") or ss_status.get("period") or ss_desc
+                    ss_pm = re.search(r"(?:q|quarter|period|период|четверть)\\s*([1-4])|period([1-4])", str(ss_period_value), re.I)
+                    ss_period = int(ss_pm.group(1) or ss_pm.group(2)) if ss_pm else None
+                    ss_clock = None
+                    for ss_key in ("currentPeriodTime", "clock", "timer", "timeRemaining", "periodTime"):
+                        ss_value = ss_time.get(ss_key, ss_item.get(ss_key))
+                        if ss_value is not None:
+                            ss_match = re.search(r"(\\d{1,2}):([0-5]\\d)", str(ss_value))
+                            if ss_match:
+                                ss_clock = ss_match.group(1).zfill(2) + ":" + ss_match.group(2)
+                                break
+                    ss_length = ss_time.get("max") or ss_time.get("periodLength") or ss_item.get("periodLength")
+                    try:
+                        ss_length = int(float(ss_length)) if ss_length is not None else None
+                        if ss_length and ss_length > 100000: ss_length //= 1000
+                        if ss_length is not None and not 300 <= ss_length <= 900: ss_length = None
+                    except (TypeError, ValueError, OverflowError):
+                        ss_length = None
+                    if ss_clock is None and ss_length:
+                        try:
+                            ss_started = float(ss_time.get("currentPeriodStartTimestamp") or 0)
+                            if ss_started > 0:
+                                ss_remaining = max(0, int(ss_length - (datetime.now(timezone.utc).timestamp() - ss_started)))
+                                ss_clock = f"{ss_remaining // 60:02d}:{ss_remaining % 60:02d}"
+                        except (TypeError, ValueError, OverflowError):
+                            pass
+                    ss_period_scores = {}
+                    for n in range(1, 5):
+                        qh = ss_hs.get("period" + str(n)) if isinstance(ss_hs, dict) else None
+                        qa = ss_as.get("period" + str(n)) if isinstance(ss_as, dict) else None
+                        if qh is not None and qa is not None:
+                            try: ss_period_scores[str(n)] = [int(qh), int(qa)]
+                            except (TypeError, ValueError, OverflowError): pass
+                    external_rows.append({
+                        "home": ss_home_name, "away": ss_away_name, "score": ss_score,
+                        "period_scores": ss_period_scores, "period": ss_period,
+                        "clock": ss_clock, "period_length_seconds": ss_length,
+                        "status": ss_desc, "id": "sofascore:" + str(ss_item.get("id")),
+                        "detail_source": "SofaScore",
+                    })
+
             # The list endpoint is score/status oriented. For live rows without a
             # countdown, ask SportScore's documented single-match detail endpoint.
             # This is a bounded, read-only enrichment; only explicit clock and
