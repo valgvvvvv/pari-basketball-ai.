@@ -319,6 +319,7 @@ async def pari_discover():
                 host = (urlparse(absolute).hostname or "").lower()
                 if host == "pari.ru" or host.endswith(".pari.ru"):
                     scripts.append(absolute)
+            scripts = list(dict.fromkeys(scripts))[:12]
             scanned, candidates = [], []
             for asset_url in scripts:
                 try:
