@@ -742,6 +742,17 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     for event in all_events
                     if isinstance(event, dict) and event.get("sportId") is not None
                 })
+
+                # Keep the complete event hierarchy. PARI often places period,
+                # score/statistics and market rows under the root match event.
+                events_by_parent = {}
+                for child in all_events:
+                    if not isinstance(child, dict):
+                        continue
+                    parent_id = child.get("parentId", child.get("parent_id"))
+                    if parent_id is not None:
+                        events_by_parent.setdefault(str(parent_id), []).append(child)
+
                 # Compact structural diagnostics: current PARI responses may use
                 # different sport identifiers or nested sport metadata.
                 def compact_event(event):
@@ -922,11 +933,20 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             key: value for key, value in event.items()
                             if any(token in key.lower() for token in (
                                 "score", "period", "quarter", "clock", "timer", "time",
-                                "team1s", "team2s", "team1m", "team2m", "foul", "stat"
+                                "team1s", "team2s", "team1m", "team2m", "foul", "stat",
+                                "point", "rebound", "assist", "attempt", "throw", "possession",
+                                "percent", "three", "two", "free"
                             ))
                         },
+                        # Full root + child rows are retained for downstream parsing.
                         "raw": event,
+                        "related_events": events_by_parent.get(str(event_id), [])[:160],
                         "factors": factor_map.get(str(event_id), []),
+                        "related_factors": [
+                            factor
+                            for child in events_by_parent.get(str(event_id), [])
+                            for factor in factor_map.get(str(child.get("id")), [])
+                        ],
                         "match_total_candidates": [
                             factor for factor in factor_map.get(str(event_id), [])
                             if isinstance(factor, dict) and str(factor.get("f")) in ("930", "931")
