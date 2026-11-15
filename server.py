@@ -686,10 +686,20 @@ async def _enrich_with_sofascore_live(events):
     from difflib import SequenceMatcher
 
     def norm(value):
-        value = unicodedata.normalize("NFKD", str(value or "").casefold())
+        value = str(value or "")
+        # Repair PARI's UTF-8-as-CP1251 mojibake before transliteration.
+        for _ in range(3):
+            try:
+                repaired = value.encode("cp1251").decode("utf-8")
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                break
+            bad_before = sum(value.count(ch) for ch in ("Р", "С", "Ð", "Ñ", "�"))
+            bad_after = sum(repaired.count(ch) for ch in ("Р", "С", "Ð", "Ñ", "�"))
+            if repaired == value or bad_after >= bad_before:
+                break
+            value = repaired
+        value = unicodedata.normalize("NFKD", value.casefold())
         value = "".join(ch for ch in value if not unicodedata.combining(ch))
-        # PARI frequently returns Russian transliterations while SofaScore uses
-        # the original Latin/Finnish names. Normalize both to comparable Latin.
         cyrillic_to_latin = str.maketrans({
             "а":"a","б":"b","в":"v","г":"g","д":"d","е":"e","ё":"e",
             "ж":"zh","з":"z","и":"i","й":"j","к":"k","л":"l","м":"m",
@@ -701,11 +711,21 @@ async def _enrich_with_sofascore_live(events):
         value = re.sub(r"\b(bc|basket|basketball|club|team|bk|kk|women|w)\b", " ", value)
         return re.sub(r"[^a-z0-9]+", "", value)
 
+    def team_score(a, b):
+        aa, bb = norm(a), norm(b)
+        if not aa or not bb:
+            return 0.0
+        score = SequenceMatcher(None, aa, bb).ratio()
+        # Sponsor and club suffixes may extend a team's short official name.
+        shorter, longer = (aa, bb) if len(aa) <= len(bb) else (bb, aa)
+        if len(shorter) >= 4 and shorter in longer:
+            score = max(score, 0.90)
+        return score
+
     def pair_score(a, b, x, y):
-        direct = (SequenceMatcher(None, norm(a), norm(x)).ratio() +
-                  SequenceMatcher(None, norm(b), norm(y)).ratio()) / 2
-        reverse = (SequenceMatcher(None, norm(a), norm(y)).ratio() +
-                   SequenceMatcher(None, norm(b), norm(x)).ratio()) / 2
+        # Both teams must independently match; averaging can hide a wrong opponent.
+        direct = min(team_score(a, x), team_score(b, y))
+        reverse = min(team_score(a, y), team_score(b, x))
         return max(direct, reverse)
 
     if not events:
@@ -869,7 +889,7 @@ async def _enrich_with_sofascore_live(events):
                     "external_period": best[1]["period"] if best else None,
                     "external_clock": best[1]["clock"] if best else None,
                 })
-                if not best or best[0] < 0.86 or (len(ranked) > 1 and best[0] - ranked[1][0] < 0.07):
+                if not best or best[0] < 0.86 or (len(ranked) > 1 and best[0] - ranked[1][0] < 0.10):
                     continue
                 row = best[1]
                 row_key = str(row.get("id") or (row["home"] + "|" + row["away"]))
