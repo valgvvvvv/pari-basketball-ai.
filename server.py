@@ -1085,6 +1085,61 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
         "error": "All known PARI line hosts failed to return a valid events/list JSON response.",
     }
 
+@app.get("/api/pari/match-debug")
+async def pari_match_debug(team: str = "Luxol"):
+    """Return a compact, targeted view of the actual PARI rows for one LIVE match."""
+    data = await _fetch_pari_live_events(catalog_only=False)
+    if not data.get("ok"):
+        return {"ok": False, "error": data.get("error"), "attempts": data.get("attempts", [])}
+
+    def compact(row):
+        if not isinstance(row, dict):
+            return row
+        scalar = {}
+        nested = {}
+        for key, value in row.items():
+            if value is None or isinstance(value, (str, int, float, bool)):
+                scalar[key] = value
+            elif isinstance(value, dict):
+                nested[key] = {"keys": list(value.keys())[:40]}
+            elif isinstance(value, list):
+                nested[key] = {
+                    "length": len(value),
+                    "first": value[0] if value and isinstance(value[0], (str, int, float, bool)) else None,
+                    "first_keys": list(value[0].keys())[:40] if value and isinstance(value[0], dict) else []
+                }
+        return {"scalar_fields": scalar, "nested_fields": nested}
+
+    needle = str(team or "").casefold()
+    matches = []
+    for event in data.get("events", []):
+        names = (str(event.get("team1", "")) + " " + str(event.get("team2", "")) + " " + str(event.get("league", ""))).casefold()
+        if needle and needle not in names:
+            continue
+        related = event.get("related_events", []) or []
+        matches.append({
+            "id": event.get("id"),
+            "teams": [event.get("team1"), event.get("team2")],
+            "league": event.get("league"),
+            "root": compact(event.get("raw", {})),
+            "related_count": len(related),
+            "related_rows": [compact(row) for row in related[:80]],
+            "factor_count": len(event.get("factors", []) or []),
+            "factor_examples": (event.get("factors", []) or [])[:12],
+            "related_factor_count": len(event.get("related_factors", []) or []),
+            "related_factor_examples": (event.get("related_factors", []) or [])[:20],
+        })
+    return {
+        "ok": True,
+        "checked_at_utc": data.get("checked_at_utc"),
+        "total_events": data.get("total_events"),
+        "basketball_events": data.get("basketball_events"),
+        "search": team,
+        "matches": matches,
+        "note": "Only compact fields from matching LIVE PARI basketball events are returned; absent fields are not inferred."
+    }
+
+
 @app.get("/api/pari/diagnostics")
 async def pari_live_diagnostics():
     data = await _fetch_pari_live_events(catalog_only=False)
