@@ -771,24 +771,64 @@ async def _enrich_with_sofascore_live(events):
         # Use SportScore's public basketball live-score feed as a score-only fallback.
         sportscore_errors = []
         try:
+            sport_payloads = []
+            sportscore_raw_counts = []
+            sportscore_status_samples = []
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(8.0, connect=4.0),
                 follow_redirects=True,
                 headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
             ) as client:
-                response = await client.get(
-                    "https://sportscore.com/api/widget/matches/",
-                    params={"sport": "basketball", "limit": 50, "src": "pari-basketball-ai"},
-                )
-                response.raise_for_status()
-                sport_payload = response.json()
-            matches = sport_payload.get("matches", []) if isinstance(sport_payload, dict) else []
+                # The widget feed is a live + recent list. The documented fixtures
+                # endpoint with status=live is a second independent way to obtain
+                # today's in-progress basketball games.
+                requests = [
+                    ("widget", "https://sportscore.com/api/widget/matches/",
+                     {"sport": "basketball", "limit": 50, "src": "pari-basketball-ai"}),
+                    ("fixtures", "https://sportscore.com/api/v1/fixtures/",
+                     {"sport": "basketball", "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                      "status": "live", "limit": 200, "src": "pari-basketball-ai"}),
+                ]
+                for label, endpoint, params in requests:
+                    try:
+                        response = await client.get(endpoint, params=params)
+                        response.raise_for_status()
+                        candidate = response.json()
+                        if isinstance(candidate, dict):
+                            sport_payloads.append(candidate)
+                            rows = candidate.get("matches") or candidate.get("fixtures") or candidate.get("events") or candidate.get("data") or []
+                            if isinstance(rows, dict):
+                                rows = rows.get("matches") or rows.get("fixtures") or rows.get("events") or []
+                            sportscore_raw_counts.append({"endpoint": label, "count": len(rows) if isinstance(rows, list) else 0,
+                                                          "keys": list(candidate.keys())[:12]})
+                            if isinstance(rows, list):
+                                sportscore_status_samples.extend(str(row.get("status") or row.get("status_text") or "")
+                                                                  for row in rows[:8] if isinstance(row, dict))
+                        else:
+                            sportscore_errors.append(label + "_unexpected_json")
+                    except (httpx.HTTPError, ValueError) as exc:
+                        sportscore_errors.append(label + "_" + type(exc).__name__)
+            matches = []
+            for candidate in sport_payloads:
+                rows = candidate.get("matches") or candidate.get("fixtures") or candidate.get("events") or candidate.get("data") or []
+                if isinstance(rows, dict):
+                    rows = rows.get("matches") or rows.get("fixtures") or rows.get("events") or []
+                if isinstance(rows, list):
+                    matches.extend(row for row in rows if isinstance(row, dict))
+            # De-duplicate records returned by both endpoints.
+            unique_matches = {}
+            for item in matches:
+                key = str(item.get("slug") or item.get("id") or
+                          (str(item.get("home") or item.get("homeTeam") or "") + "|" +
+                           str(item.get("away") or item.get("awayTeam") or "")))
+                unique_matches[key] = item
+            matches = list(unique_matches.values())
             external_rows = []
-            for item in matches if isinstance(matches, list) else []:
+            for item in matches:
                 if not isinstance(item, dict):
                     continue
                 status_text = str(item.get("status") or item.get("status_text") or "").casefold()
-                if not any(token in status_text for token in ("live", "in progress", "in_progress", "period", "quarter", "q1", "q2", "q3", "q4", "half time", "halftime")):
+                if not any(token in status_text for token in ("live", "in progress", "in_progress", "inprogress", "period", "quarter", "q1", "q2", "q3", "q4", "half time", "halftime")):
                     continue
                 hs, aws = item.get("home_score"), item.get("away_score")
                 try:
@@ -863,8 +903,10 @@ async def _enrich_with_sofascore_live(events):
                 "statistics_matches": 0, "statistics_errors": [],
                 "unmatched_pari": max(0, len(events) - matched), "ambiguous": 0,
                 "match_diagnostics": diagnostics[:30], "errors": errors[:4],
-                "sportscore_errors": sportscore_errors[:3],
-                "note": "Счёт берётся из SportScore только при однозначном совпадении команд; статистика и игровые часы не выдумываются.",
+                "sportscore_errors": sportscore_errors[:5],
+                "sportscore_endpoint_diagnostics": sportscore_raw_counts,
+                "sportscore_status_samples": sportscore_status_samples[:16],
+                "note": "Счёт берётся из SportScore только при однозначном совпадении команд; статистика и игровые часы не выдумываются. Проверяются live/recent widget и отдельный дневной fixtures endpoint.",
             }
         except Exception as exc:
             sportscore_errors.append(type(exc).__name__)
