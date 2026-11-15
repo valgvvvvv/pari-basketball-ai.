@@ -202,6 +202,8 @@ function showSelectedMatch(ev){
   for(const obj of objects)for(const [key,value] of Object.entries(obj)){
     if(/score|foul|rebound|assist|attempt|throw|possession|percent|three|two|block|steal|turnover|points|stat/i.test(key)&&!/^statisticsTypes$/i.test(key)&&value!=null&&(typeof value!=="object"||Array.isArray(value)))stats.push(key+": "+(Array.isArray(value)?JSON.stringify(value):String(value)));
   }
+  const externalStats=Array.isArray(ev.external_statistics)?ev.external_statistics:[];
+  const externalStatsHtml=externalStats.length?'<details class="source-statistics" open><summary>Статистика матча · SofaScore ('+externalStats.length+')</summary>'+externalStats.map(st=>'<p><b>'+escapeHtml(st.group||"Статистика")+'</b> · '+escapeHtml(st.name||"Показатель")+': '+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+'</p>').join("")+'</details>':"";
   const statsText=[...new Set(stats)].slice(0,24);
   const rootLines=fmtFactors(rootFactors);
   const groupHtml=quarterGroups.map(g=>{
@@ -220,10 +222,11 @@ function showSelectedMatch(ev){
     '<p><b>Текущая четверть:</b> '+(period||"не определена")+'</p>'+
     (groupHtml||'<p class="muted">В дочерних строках не найдено факторов ID 930/931.</p>')+
     '<p class="muted">'+(clock?"Таймер: "+escapeHtml(clock):"Таймер четверти отсутствует в полученных строках PARI.")+'</p>';
+  if(externalStatsHtml) $("matchForecast").insertAdjacentHTML("beforeend",externalStatsHtml);
   if(statsText.length){
-    $("matchForecast").insertAdjacentHTML("beforeend",'<details class="source-statistics"><summary>Подтверждённые статистические поля ('+statsText.length+')</summary><p>'+statsText.map(x=>escapeHtml(x)).join("<br>")+'</p></details>');
-  } else {
-    $("matchForecast").insertAdjacentHTML("beforeend",'<p class="muted">Числовая игровая статистика в ответе PARI не обнаружена; служебное поле statisticsTypes не считается статистикой матча.</p>');
+    $("matchForecast").insertAdjacentHTML("beforeend",'<details class="source-statistics"><summary>Дополнительные числовые поля PARI ('+statsText.length+')</summary><p>'+statsText.map(x=>escapeHtml(x)).join("<br>")+'</p></details>');
+  } else if(!externalStatsHtml) {
+    $("matchForecast").insertAdjacentHTML("beforeend",'<p class="muted">Числовая игровая статистика пока не получена ни из PARI, ни из дополнительного источника.</p>');
   }
   panel.scrollIntoView({behavior:"smooth",block:"start"});
 }
