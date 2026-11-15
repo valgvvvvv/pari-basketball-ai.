@@ -387,20 +387,20 @@ async def pari_discover():
                             "index": inline_index,
                             "chars": len(inline),
                             "loader_markers": {
-                                "create_element_script": bool(re.search(r"createElement\\s*\\(\\s*['\\"]script", inline, re.I)),
-                                "script_src_assignment": bool(re.search(r"\\.src\\s*=", inline, re.I)),
-                                "document_write": bool(re.search(r"document\\.write", inline, re.I)),
-                                "dynamic_import": bool(re.search(r"\\bimport\\s*\\(", inline)),
-                                "fetch": bool(re.search(r"\\bfetch\\s*\\(", inline)),
+                                "create_element_script": bool(re.search(r"createElement\s*\(\s*['\"]script", inline, re.I)),
+                                "script_src_assignment": bool(re.search(r"\.src\s*=", inline, re.I)),
+                                "document_write": bool(re.search(r"document\.write", inline, re.I)),
+                                "dynamic_import": bool(re.search(r"\bimport\s*\(", inline)),
+                                "fetch": bool(re.search(r"\bfetch\s*\(", inline)),
                                 "xmlhttprequest": "XMLHttpRequest" in inline,
                                 "websocket": "WebSocket" in inline,
                                 "service_worker": "serviceWorker" in inline,
-                                "eval_or_function": bool(re.search(r"\\beval\\s*\\(|new\\s+Function", inline)),
+                                "eval_or_function": bool(re.search(r"\beval\s*\(|new\s+Function", inline)),
                                 "base64": "atob(" in inline or "base64" in inline.lower(),
                                 "source_map": "sourceMappingURL=" in inline
                             },
-                            "external_url_hints": list(dict.fromkeys(re.findall(r"https?://[^\\s'\\"]{1,260}", inline)))[:30],
-                            "script_path_hints": list(dict.fromkeys(re.findall(r"['\\"]([^'\\"]{1,240}\\.js(?:\\?[^'\\"]*)?)['\\"]", inline, re.I)))[:30],
+                            "external_url_hints": list(dict.fromkeys(re.findall(r"https?://[^\s'\"<>]{1,260}", inline)))[:30],
+                            "script_path_hints": list(dict.fromkeys(re.findall(r"['\"]([^'\"]{1,240}\.js(?:\?[^'\"]*)?)['\"]", inline, re.I)))[:30],
                             "preview": inline[:7000]
                         })
                     manifest = None
