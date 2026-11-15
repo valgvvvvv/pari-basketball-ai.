@@ -767,8 +767,109 @@ async def _enrich_with_sofascore_live(events):
         errors.append(type(exc).__name__)
 
     if payload is None:
-        return {"source": "sofascore", "status": "unavailable", "matched": 0,
-                "errors": errors[:4]}
+        # SofaScore currently rejects cloud/datacenter requests with HTTP 403.
+        # Use SportScore's public basketball live-score feed as a score-only fallback.
+        sportscore_errors = []
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(8.0, connect=4.0),
+                follow_redirects=True,
+                headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+            ) as client:
+                response = await client.get(
+                    "https://sportscore.com/api/widget/matches/",
+                    params={"sport": "basketball", "limit": 50, "src": "pari-basketball-ai"},
+                )
+                response.raise_for_status()
+                sport_payload = response.json()
+            matches = sport_payload.get("matches", []) if isinstance(sport_payload, dict) else []
+            external_rows = []
+            for item in matches if isinstance(matches, list) else []:
+                if not isinstance(item, dict):
+                    continue
+                status_text = str(item.get("status") or item.get("status_text") or "").casefold()
+                if not any(token in status_text for token in ("live", "in progress", "in_progress", "period", "quarter", "q1", "q2", "q3", "q4", "half time", "halftime")):
+                    continue
+                hs, aws = item.get("home_score"), item.get("away_score")
+                try:
+                    if hs is None or aws is None:
+                        continue
+                    score_pair = [int(float(hs)), int(float(aws))]
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                status_label = str(item.get("status_text") or item.get("status") or "")
+                period_match = re.search(r"(?:q|quarter|period|четверть)\\s*([1-4])|([1-4])(?:st|nd|rd|th)\\s*quarter", status_label, re.I)
+                period = int(period_match.group(1) or period_match.group(2)) if period_match else None
+                clock_match = re.search(r"\\b(\\d{1,2}):([0-5]\\d)\\b", status_label)
+                clock = (clock_match.group(1).zfill(2) + ":" + clock_match.group(2)) if clock_match else None
+                external_rows.append({
+                    "home": str(item.get("home") or ""),
+                    "away": str(item.get("away") or ""),
+                    "score": score_pair,
+                    "period": period,
+                    "clock": clock,
+                    "status": status_label,
+                    "id": item.get("slug"),
+                })
+            used = set()
+            matched = 0
+            diagnostics = []
+            for pari in events:
+                ranked = sorted(
+                    ((pair_score(pari.get("team1"), pari.get("team2"), row["home"], row["away"]), row)
+                     for row in external_rows),
+                    key=lambda x: x[0], reverse=True,
+                )
+                best = ranked[0] if ranked else None
+                diagnostics.append({
+                    "pari_match": str(pari.get("team1") or "") + " — " + str(pari.get("team2") or ""),
+                    "best_external_match": (best[1]["home"] + " — " + best[1]["away"]) if best else None,
+                    "best_confidence": round(best[0], 3) if best else None,
+                    "external_score": best[1]["score"] if best else None,
+                    "external_period": best[1]["period"] if best else None,
+                    "external_clock": best[1]["clock"] if best else None,
+                })
+                if not best or best[0] < 0.86 or (len(ranked) > 1 and best[0] - ranked[1][0] < 0.07):
+                    continue
+                row = best[1]
+                row_key = str(row.get("id") or (row["home"] + "|" + row["away"]))
+                if row_key in used:
+                    continue
+                direct = (SequenceMatcher(None, norm(pari.get("team1")), norm(row["home"])).ratio() +
+                          SequenceMatcher(None, norm(pari.get("team2")), norm(row["away"])).ratio()) / 2
+                reverse = (SequenceMatcher(None, norm(pari.get("team1")), norm(row["away"])).ratio() +
+                           SequenceMatcher(None, norm(pari.get("team2")), norm(row["home"])).ratio()) / 2
+                ordered_score = row["score"] if direct >= reverse else [row["score"][1], row["score"][0]]
+                pari["external_live"] = {
+                    "source": "SportScore", "event_id": row.get("id"),
+                    "match": row["home"] + " — " + row["away"],
+                    "match_confidence": round(best[0], 3), "score": ordered_score,
+                    "period": row["period"], "clock": row["clock"], "status": row["status"],
+                }
+                if pari.get("score") is None:
+                    pari["score"] = ordered_score
+                    pari["score_source"] = "SportScore"
+                if pari.get("period") is None and row.get("period") is not None:
+                    pari["period"] = row["period"]
+                    pari["period_source"] = "SportScore"
+                if pari.get("clock") is None and row.get("clock"):
+                    pari["clock"] = row["clock"]
+                    pari["clock_source"] = "SportScore"
+                used.add(row_key)
+                matched += 1
+            return {
+                "source": "SportScore (fallback)", "status": "ok" if external_rows else "no_live_events",
+                "live_events": len(external_rows), "matched": matched,
+                "statistics_matches": 0, "statistics_errors": [],
+                "unmatched_pari": max(0, len(events) - matched), "ambiguous": 0,
+                "match_diagnostics": diagnostics[:30], "errors": errors[:4],
+                "sportscore_errors": sportscore_errors[:3],
+                "note": "Счёт берётся из SportScore только при однозначном совпадении команд; статистика и игровые часы не выдумываются.",
+            }
+        except Exception as exc:
+            sportscore_errors.append(type(exc).__name__)
+        return {"source": "SofaScore + SportScore", "status": "unavailable", "matched": 0,
+                "errors": errors[:4], "sportscore_errors": sportscore_errors[:3]}
 
     live_rows = []
     for item in payload.get("events", []):
