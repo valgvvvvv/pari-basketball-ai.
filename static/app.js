@@ -243,8 +243,13 @@ function showSelectedMatch(ev){
     '<p class="muted">'+(score&&period&&clock?"Счёт, четверть и таймер доступны.":"Расчёт темпа заблокирован: нет подтверждённого счёта и/или таймера.")+'</p>'+
     (paceEstimate?'<p><b>Предварительная оценка полного тотала по текущему темпу:</b> '+paceEstimate.projection+' очка · ориентировочный диапазон '+paceEstimate.low+'–'+paceEstimate.high+' · сыграно около '+paceEstimate.elapsed+' мин. Это оценка темпа, не обученный прогноз.</p>':'<p class="muted">Оценка пока недоступна: нужны подтверждённые счёт, четверть, таймер и длительность периода. Формат и время не подставляются наугад.</p>')+
     (paceEstimate && matchLines.length ? '<p><b>Направление относительно линий PARI:</b> '+matchLines.map(x=>(paceEstimate.projection>x.line?'ТБ ':'ТМ ')+x.line+' (ориентир '+paceEstimate.projection+')').map(escapeHtml).join(' · ')+'</p>' : '<p class="muted">'+(matchLines.length?'Линия найдена, но данных для сравнения пока недостаточно.':'Линии полного тотала 930/931 не найдены в основной строке PARI.')+'</p>');
+  const quarterEstimate=automaticQuarterForecast(ev);
   $("quarterForecast").innerHTML=
     '<p><b>Текущая четверть:</b> '+(period||"не определена")+'</p>'+
+    (quarterEstimate.ready
+      ? '<p><b>Ориентир по темпу четверти:</b> '+quarterEstimate.projection+' очка · набрано '+quarterEstimate.current+' · сыграно около '+quarterEstimate.elapsed+' мин.</p>'+
+        (quarterEstimate.lines.length?'<p><b>Направление по линиям:</b> '+quarterEstimate.lines.map(x=>(quarterEstimate.projection>x.line?'ТБ ':'ТМ ')+x.line).map(escapeHtml).join(' · ')+'</p>':'<p class="muted">Линия тотала текущей четверти не найдена.</p>')
+      : '<p class="muted">Прогноз четверти пока недоступен: '+escapeHtml(quarterEstimate.reason)+'.</p>')+
     (groupHtml||'<p class="muted">В дочерних строках не найдено факторов ID 930/931.</p>')+
     '<p class="muted">'+(clock?"Таймер: "+escapeHtml(clock):"Таймер четверти отсутствует в полученных строках PARI.")+'</p>';
   if(externalStatsHtml) $("matchForecast").insertAdjacentHTML("beforeend",externalStatsHtml);
@@ -325,6 +330,28 @@ function automaticForecast(ev) {
   if (!estimate) return {ready:false,reason:"Не удалось безопасно рассчитать игровое время"};
   const lines=getMatchTotalLines(ev);
   return {ready:true,estimate,lines,message:"Темп рассчитан; линия матча PARI не найдена"};
+}
+
+function automaticQuarterForecast(ev) {
+  const period=findLivePeriod(ev), clock=findLiveClock(ev), length=findPeriodLengthSeconds(ev);
+  if (!period || !clock || !length) return {ready:false,reason:"нужны четверть, таймер и длительность периода"};
+  const scores=ev.external_live?.period_scores || {};
+  const score=scores[String(period)];
+  if (!Array.isArray(score) || score.length<2) return {ready:false,reason:"нет подтверждённого счёта текущей четверти"};
+  const m=String(clock).match(/^(\\d{1,2}):([0-5]\\d)$/);
+  if (!m) return {ready:false,reason:"неизвестный формат таймера"};
+  const remaining=Number(m[1])*60+Number(m[2]), elapsed=length-remaining;
+  const current=Number(score[0])+Number(score[1]);
+  if (elapsed<=0 || elapsed>length || !Number.isFinite(current)) return {ready:false,reason:"недостаточно времени для расчёта"};
+  const projection=Math.round(current/elapsed*length*10)/10;
+  const groups=(ev.related_factor_groups||[]).filter(g=>String(g.name||"").toLowerCase().includes(String(period)));
+  const lines=[];
+  for(const group of groups) for(const factor of (group.factors||[])) {
+    if(!factor || !["930","931"].includes(String(factor.f))) continue;
+    const line=factor.pt!=null?Number(factor.pt):(factor.p!=null?Number(factor.p)/100:NaN);
+    if(Number.isFinite(line)&&line>0&&line<150&&!lines.some(x=>x.line===line)) lines.push({line});
+  }
+  return {ready:true,projection,current,elapsed:Math.round(elapsed/60*10)/10,lines};
 }
 let liveRefreshInFlight = false;
 let nextLiveRefreshDelay = 30000;
