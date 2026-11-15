@@ -308,6 +308,18 @@ async def pari_discover():
             parser.feed(page.text)
             from urllib.parse import urljoin, urlparse
             scripts = []
+            asset_refs = list(parser.scripts)
+            for link in parser.links:
+                href = link.get("href", "")
+                rel = link.get("rel", "").lower()
+                if href and (".js" in href.lower() or "modulepreload" in rel or link.get("as") == "script"):
+                    asset_refs.append(href)
+            for src in asset_refs:
+                absolute = urljoin(str(page.url), src)
+                host = (urlparse(absolute).hostname or "").lower()
+                if host == "pari.ru" or host.endswith(".pari.ru"):
+                    scripts.append(absolute)
+            scripts = list(dict.fromkeys(scripts))[:12]
             for src in parser.scripts:
                 absolute = urljoin(str(page.url), src)
                 if urlparse(absolute).hostname in {"pari.ru", "www.pari.ru"}:
