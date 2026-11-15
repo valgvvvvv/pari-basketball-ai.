@@ -829,7 +829,15 @@ async def _enrich_with_sofascore_live(events):
                         period_length_seconds //= 1000
             except (TypeError, ValueError, OverflowError):
                 period_length_seconds = None
-        period_scores = {}
+        if clock is None and period_length_seconds:
+            try:
+                started = float(time_data.get("currentPeriodStartTimestamp") or 0)
+                if started > 0:
+                    remaining = max(0, int(period_length_seconds - (datetime.now(timezone.utc).timestamp() - started)))
+                    clock = f"{remaining // 60:02d}:{remaining % 60:02d}"
+            except (TypeError, ValueError, OverflowError):
+                clock = None
+        period_scores = {};
         for n in range(1, 5):
             hv = hs.get("period" + str(n)) if isinstance(hs, dict) else None
             av = aws.get("period" + str(n)) if isinstance(aws, dict) else None
