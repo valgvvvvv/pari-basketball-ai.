@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PARI Basketball AI</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand"><div class="brand-mark">P</div><div><b>PARI Basketball AI</b><small>ANALYTICS ENGINE · 0.1</small></div></div>
+    <nav>
+      <a class="active" href="#dashboard">Обзор</a>
+      <a href="#analysis">Анализ матча</a>
+      <a href="#quarters">Тоталы четвертей</a>
+      <a href="#history">История прогнозов</a>
+      <a href="#models">Модели и данные</a>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="status-dot"></div><span>Расчётное ядро работает</span>
+      <small id="feedStatus">PARI LIVE: источник не подключён</small>
+    </div>
+  </aside>
+  <main>
+    <header class="topbar"><div><span class="eyebrow">BASKETBALL INTELLIGENCE</span><h1>Центр анализа</h1></div><div class="top-actions"><span class="pill warn">Демо / ручной ввод</span><span class="avatar">AI</span></div></header>
+    <section class="hero" id="dashboard">
+      <div><span class="eyebrow">МАТЕМАТИЧЕСКАЯ ПЛАТФОРМА</span><h2>Находим закономерности.<br><em>Измеряем вероятность.</em></h2>
+      <p>Анализ общего тотала и четвертей с прозрачными расчётами, симуляциями и контролем качества исходных данных.</p>
+      <a class="primary-link" href="#analysis">Открыть анализ <span>↗</span></a></div>
+      <div class="hero-art"><div class="orb orb1"></div><div class="orb orb2"></div><div class="court"><div class="center-circle"></div><div class="court-line"></div><div class="hoop"></div></div><div class="hero-stat"><small>МОДЕЛЬНЫЙ ДВИЖОК</small><b>MC / BAYES / PACE</b><span>готов к расчётам</span></div></div>
+    </section>
+    <section class="metrics">
+      <div class="metric"><small>LIVE-ИСТОЧНИК</small><b class="amber">Не подключён</b><span>Ожидает разрешённый feed</span></div>
+      <div class="metric"><small>МОДЕЛЕЙ В ЯДРЕ</small><b>6</b><span>Базовые независимые методы</span></div>
+      <div class="metric"><small>СИМУЛЯЦИИ</small><b>20 000</b><span>Настраивается до 100 000</span></div>
+      <div class="metric"><small>ИСТОРИЯ</small><b id="historyCount">0</b><span>Локально сохранённых анализов</span></div>
+    </section>
+    <section class="panel" id="analysis">
+      <div class="section-head"><div><span class="eyebrow">LIVE MATCH ANALYZER</span><h2>Анализ матча</h2><p>Внесите актуальный снимок PARI. Приложение не подменяет его старыми данными.</p></div><span class="pill">РУЧНОЙ ВВОД</span></div>
+      <form id="analysisForm">
+        <div class="form-grid">
+          <label>Команда 1<input id="team1" value="Юнион Креминь" required></label>
+          <label>Команда 2<input id="team2" value="Вела Баскет" required></label>
+          <label>Очки команды 1<input id="score1" type="number" min="0" value="75" required></label>
+          <label>Очки команды 2<input id="score2" type="number" min="0" value="82" required></label>
+          <label>Текущая четверть<select id="period"><option value="1">1-я</option><option value="2">2-я</option><option value="3">3-я</option><option value="4" selected>4-я</option></select></label>
+          <label>Время четверти (MM:SS)<input id="clock" value="04:01" pattern="[0-9]{1,2}:[0-5][0-9]" required></label>
+          <label>Длительность четверти<select id="periodMinutes"><option value="10" selected>10 минут</option><option value="12">12 минут</option></select></label>
+          <label>Линия общего тотала<input id="line" type="number" step="0.5" value="187.5" required></label>
+          <label>Коэффициент ТБ<input id="overOdds" type="number" step="0.01" value="1.80"></label>
+          <label>Коэффициент ТМ<input id="underOdds" type="number" step="0.01" value="1.90"></label>
+          <label>Суммарные фолы (если известны)<input id="fouls" type="number" min="0" value="12"></label>
+          <label>Число симуляций<select id="sims"><option>10000</option><option selected>20000</option><option>50000</option><option>100000</option></select></label>
+        </div>
+        <div class="form-actions"><button class="btn-primary" type="submit">Рассчитать прогноз <span>→</span></button><button class="btn-ghost" type="button" id="resetBtn">Сбросить</button></div>
+      </form>
+      <div class="result" id="result" hidden>
+        <div class="result-top"><div><span class="eyebrow">MODEL OUTPUT</span><h3 id="matchTitle">Матч</h3></div><span class="pill success" id="grade">Сигнал</span></div>
+        <div class="prediction"><div><small>НАПРАВЛЕНИЕ МОДЕЛИ</small><strong id="direction">ТМ</strong><span id="lineLabel">Линия 187.5</span></div><div><small>ВЕРОЯТНОСТЬ МОДЕЛИ</small><strong id="probability">—</strong><span>Монте-Карло</span></div><div><small>ОЖИДАЕМЫЙ ТОТАЛ</small><strong id="expected">—</strong><span id="remaining">—</span></div></div>
+        <div class="prob-bars"><div class="bar-label"><span>ТБ</span><b id="overPct">—</b></div><div class="bar"><i id="overBar"></i></div><div class="bar-label"><span>ТМ</span><b id="underPct">—</b></div><div class="bar"><i id="underBar"></i></div></div>
+        <div class="result-grid"><div class="result-card"><small>ТЕМП</small><b id="pace">—</b><span>очков / мин</span></div><div class="result-card"><small>ОСТАЛОСЬ НАБРАТЬ (ОЖИД.)</small><b id="mu">—</b><span>очков</span></div><div class="result-card"><small>ДИАПАЗОН 80%</small><b id="range80">—</b><span>симуляции</span></div><div class="result-card"><small>ДИАПАЗОН 95%</small><b id="range95">—</b><span>симуляции</span></div></div>
+        <div class="explain"><h4>Как получен прогноз</h4><p id="explanation"></p><ul id="warnings"></ul></div>
+        <div class="result-foot"><span id="market">Рыночная вероятность: —</span><span id="simCount">— симуляций</span></div>
+      </div>
+    </section>
+    <section class="two-panels">
+      <div class="panel" id="quarters"><span class="eyebrow">QUARTER TOTALS</span><h2>Анализ четверти</h2><p>Отдельный расчёт тотала текущей четверти будет расширен после подключения четвертной статистики. Сейчас используйте время и счёт текущего матча для общей модели.</p><div class="mini-note">Следующий модуль: темп четверти · линия четверти · вероятность ТБ/ТМ · диапазон очков.</div></div>
+      <div class="panel" id="models"><span class="eyebrow">MODEL STACK</span><h2>Модельное ядро</h2><div class="model-list"><div><b>01</b><span>Линейный темп</span><i>Активна</i></div><div><b>02</b><span>Пуассон</span><i>Активна</i></div><div><b>03</b><span>Монте-Карло</span><i>Активна</i></div><div><b>04</b><span>Динамика концовки</span><i>Базовая</i></div><div><b>05</b><span>Модель владений</span><i class="muted">Нужна статистика</i></div><div><b>06</b><span>Ансамбль / калибровка</span><i class="muted">Нужна история</i></div></div></div>
+    </section>
+    <section class="panel" id="history"><div class="section-head"><div><span class="eyebrow">TRACK RECORD</span><h2>История анализов</h2></div><button class="btn-ghost" id="clearHistory">Очистить</button></div><div id="historyList" class="history-list"><p class="muted">Пока нет сохранённых расчётов.</p></div></section>
+    <footer><span>PARI Basketball AI · MVP 0.1</span><span>Аналитический инструмент. Вероятности не гарантируют результат.</span></footer>
+  </main>
+</div>
+<script src="/static/app.js"></script>
+</body></html>
