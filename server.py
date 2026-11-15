@@ -733,8 +733,29 @@ async def pari_live_events():
                     for event in all_events
                     if isinstance(event, dict) and event.get("sportId") is not None
                 })
-                # PARI shared-platform basketball IDs found in an independently
-                # published parser. Return the observed IDs too, so changes are visible.
+                # Compact structural diagnostics: current PARI responses may use
+                # different sport identifiers or nested sport metadata.
+                def compact_event(event):
+                    if not isinstance(event, dict):
+                        return event
+                    scalar = {}
+                    nested = {}
+                    for key, value in event.items():
+                        if value is None or isinstance(value, (str, int, float, bool)):
+                            scalar[key] = value
+                        elif isinstance(value, dict):
+                            nested[key] = list(value.keys())[:20]
+                        elif isinstance(value, list):
+                            nested[key] = {"type": "list", "length": len(value),
+                                           "first_item_keys": list(value[0].keys())[:20]
+                                           if value and isinstance(value[0], dict) else []}
+                    return {"scalar_fields": scalar, "nested_fields": nested}
+                sport_id_counts = {}
+                for event in all_events:
+                    if isinstance(event, dict) and event.get("sportId") is not None:
+                        sid = str(event.get("sportId"))
+                        sport_id_counts[sid] = sport_id_counts.get(sid, 0) + 1
+                # Legacy IDs from an independent parser are tentative until current metadata is inspected.
                 basketball_ids = {"15872", "15873"}
                 basketball = []
                 for event in all_events:
@@ -771,9 +792,16 @@ async def pari_live_events():
                     "total_events": len(all_events),
                     "basketball_events": len(basketball),
                     "sport_ids": sport_ids,
+                    "sport_id_count": len(sport_ids),
+                    "sport_id_counts_top": sorted(
+                        [{"sport_id": k, "events": v} for k, v in sport_id_counts.items()],
+                        key=lambda x: x["events"], reverse=True
+                    )[:30],
+                    "sample_event_shapes": [compact_event(e) for e in all_events[:5]],
+                    "sample_factor_shape": compact_event(factors[0]) if isinstance(factors, list) and factors else None,
                     "events": basketball,
                     "attempts": attempts,
-                    "note": "The feed response was received. Basketball classification uses sportId 15872/15873 and must be validated against current PARI categories.",
+                    "note": "Feed connection is verified; current sport classification is pending inspection of sample_event_shapes.",
                 }
             except httpx.HTTPError as exc:
                 attempts.append({"host": host, "error": type(exc).__name__})
