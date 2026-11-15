@@ -709,6 +709,7 @@ async def _enrich_with_sofascore_live(events):
     urls = (
         "https://www.sofascore.com/api/v1/sport/basketball/events/live",
         "https://www.sofascore.com/api/v1/sport/basketball/events/live",
+        "https://api.sofascore.com/api/v1/sport/basketball/events/live",
     )
     payload = None
     errors = []
@@ -759,11 +760,14 @@ async def _enrich_with_sofascore_live(events):
             time_data = {}
         description = str(status.get("description") or status.get("code") or "")
         period = None
-        pm = re.search(r"(?:q|quarter|period|период|четверть)\s*([1-4])", description, re.I)
+        period_value = item.get("lastPeriod") or status.get("period") or status.get("description")
+        if isinstance(period_value, dict):
+            period_value = period_value.get("current") or period_value.get("name")
+        pm = re.search(r"(?:q|quarter|period|период|четверть)\s*([1-4])|period([1-4])", str(period_value), re.I)
         if pm:
-            period = int(pm.group(1))
-        elif description.strip().isdigit() and 1 <= int(description.strip()) <= 4:
-            period = int(description.strip())
+            period = int(pm.group(1) or pm.group(2))
+        elif str(period_value).strip().isdigit() and 1 <= int(str(period_value).strip()) <= 4:
+            period = int(str(period_value).strip())
         clock = None
         for key in ("currentPeriodTime", "clock", "timer", "timeRemaining", "periodTime"):
             value = time_data.get(key, item.get(key))
@@ -772,6 +776,20 @@ async def _enrich_with_sofascore_live(events):
                 if match:
                     clock = match.group(1).zfill(2) + ":" + match.group(2)
                     break
+        # SofaScore commonly exposes the period start timestamp and period length
+        # instead of a countdown string. Derive the countdown only when both are
+        # present in the source; never assume a 10- or 12-minute quarter.
+        if clock is None:
+            try:
+                started = float(time_data.get("currentPeriodStartTimestamp") or 0)
+                period_length = float(time_data.get("max") or time_data.get("periodLength") or 0)
+                if started > 0 and period_length > 0:
+                    if period_length > 100000:
+                        period_length /= 1000.0
+                    remaining = max(0, int(period_length - (datetime.now(timezone.utc).timestamp() - started)))
+                    clock = f"{remaining // 60:02d}:{remaining % 60:02d}"
+            except (TypeError, ValueError, OverflowError):
+                clock = None
         tournament = item.get("tournament") or {}
         live_rows.append({
             "home": str(home.get("name") or ""),
