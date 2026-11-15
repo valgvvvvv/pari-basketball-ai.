@@ -12,6 +12,7 @@
     <nav>
       <a class="active" href="#dashboard">Обзор</a>
       <a href="#analysis">Анализ матча</a>
+      <a href="#source">Источник PARI</a>
       <a href="#quarters">Тоталы четвертей</a>
       <a href="#history">История прогнозов</a>
       <a href="#models">Модели и данные</a>
@@ -35,6 +36,13 @@
       <div class="metric"><small>СИМУЛЯЦИИ</small><b>20 000</b><span>Настраивается до 100 000</span></div>
       <div class="metric"><small>ИСТОРИЯ</small><b id="historyCount">0</b><span>Локально сохранённых анализов</span></div>
     </section>
+    <section class="panel" id="source">
+      <div class="section-head"><div><span class="eyebrow">SOURCE CONNECTIVITY</span><h2>Подключение PARI LIVE</h2><p>Проверяем публичные JavaScript-модули PARI и ищем сетевые маршруты, из которых загружаются события. Пока API не подтверждён, матчи не выдаются как подключённые.</p></div><span class="pill warn">Поиск источника</span></div>
+      <div class="form-actions"><button class="btn-primary" type="button" id="discoverSource">Найти API PARI <span>→</span></button></div>
+      <p class="muted" id="sourceDiscoverStatus" aria-live="polite">Проверка ещё не запускалась.</p>
+      <pre id="sourceDiscoverOutput" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;color:#a9b8cb;font-size:11px"></pre>
+    </section>
+
     <section class="panel" id="analysis">
       <div class="section-head"><div><span class="eyebrow">LIVE MATCH ANALYZER</span><h2>Анализ матча</h2><p>Внесите актуальный снимок PARI. Приложение не подменяет его старыми данными.</p></div><span class="pill">РУЧНОЙ ВВОД</span></div>
       <form id="analysisForm">
