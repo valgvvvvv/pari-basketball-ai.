@@ -3,7 +3,9 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional
-import math, random, os
+import math, random, os, hashlib, re
+from datetime import datetime, timezone
+import httpx
 
 app = FastAPI(title="PARI Basketball AI", version="0.1.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -182,3 +184,61 @@ def api_analyze_quarter(req: QuarterAnalyzeRequest):
         "warnings": ["Оценка основана на темпе текущей четверти и приближённой симуляции.",
                      "Не учитываются владения, составы, фолы по командам и игровые события; модель пока не обучена на истории лиги."]
     }
+
+
+@app.get("/api/pari/source-check")
+async def pari_source_check():
+    """Проверка прямого доступа к публичной LIVE-странице PARI без использования кэша."""
+    url = "https://pari.ru/live/basketball"
+    requested_at = datetime.now(timezone.utc)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; PARI-Basketball-AI/0.1; live-source-check)",
+        "Accept": "text/html,application/xhtml+xml",
+        "Cache-Control": "no-cache, no-store, max-age=0",
+        "Pragma": "no-cache",
+    }
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(15.0, connect=8.0),
+            follow_redirects=True,
+            headers=headers,
+        ) as client:
+            response = await client.get(url, params={"_fresh_check": str(int(requested_at.timestamp() * 1000))})
+        received_at = datetime.now(timezone.utc)
+        body = response.text
+        title_match = re.search(r"<title[^>]*>(.*?)</title>", body, re.I | re.S)
+        title = re.sub(r"\\s+", " ", title_match.group(1)).strip()[:180] if title_match else None
+        age_header = response.headers.get("age")
+        age_seconds = int(age_header) if age_header and age_header.isdigit() else None
+        date_header = response.headers.get("date")
+        upstream_age = None
+        if date_header:
+            try:
+                upstream_date = datetime.strptime(date_header, "%a, %d %b %Y %H:%M:%S %Z").replace(tzinfo=timezone.utc)
+                upstream_age = max(0, int((received_at - upstream_date).total_seconds()))
+            except Exception:
+                pass
+        # Не называем старый ответ свежим: CDN Age или HTTP Date проверяются отдельно.
+        freshness_ok = response.status_code == 200 and (age_seconds is None or age_seconds <= 60) and (upstream_age is None or upstream_age <= 180)
+        return {
+            "ok": response.status_code == 200,
+            "source": "https://pari.ru/live/basketball",
+            "http_status": response.status_code,
+            "content_type": response.headers.get("content-type"),
+            "bytes": len(response.content),
+            "title": title,
+            "fetched_at_utc": received_at.isoformat(),
+            "request_started_at_utc": requested_at.isoformat(),
+            "fetch_duration_ms": round((received_at - requested_at).total_seconds() * 1000),
+            "http_age_seconds": age_seconds,
+            "http_date_age_seconds": upstream_age,
+            "etag": response.headers.get("etag"),
+            "last_modified": response.headers.get("last-modified"),
+            "content_sha256": hashlib.sha256(response.content).hexdigest(),
+            "freshness_check": "fresh" if freshness_ok else "stale_or_unverified",
+            "note": "Проверяет доступность и свежесть HTTP-ответа; ещё не подтверждает разбор LIVE-событий и время обновления каждого матча.",
+        }
+    except httpx.TimeoutException:
+        return {"ok": False, "source": url, "freshness_check": "unavailable", "error": "PARI не ответил за 15 секунд", "checked_at_utc": datetime.now(timezone.utc).isoformat()}
+    except httpx.HTTPError as exc:
+        return {"ok": False, "source": url, "freshness_check": "unavailable", "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
