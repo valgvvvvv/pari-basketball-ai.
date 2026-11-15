@@ -801,11 +801,13 @@ async def _enrich_with_sofascore_live(events):
     # Query SportScore as a complementary source whenever at least one PARI
     # fixture still lacks a score. A single scored SofaScore event must not disable
     # fallback enrichment for every other live match.
-    pari_has_missing_scores = any(
+    pari_needs_external_enrichment = any(
         not (isinstance(event.get("score"), (list, tuple)) and len(event.get("score")) >= 2)
+        or event.get("clock") is None
+        or event.get("period") is None
         for event in events
     )
-    if (not sofascore_has_scored_events) or pari_has_missing_scores:
+    if (not sofascore_has_scored_events) or pari_needs_external_enrichment:
         # Keep SofaScore as a source too; SportScore fills gaps per fixture.
         sportscore_errors = []
         try:
@@ -1000,8 +1002,18 @@ async def _enrich_with_sofascore_live(events):
                     ss_away_name = str(ss_away.get("name") or "")
                     if not ss_home_name or not ss_away_name:
                         continue
-                    if any(pair_score(ss_home_name, ss_away_name, r["home"], r["away"]) >= 0.94
-                           for r in external_rows):
+                    duplicate = next((r for r in external_rows
+                                      if pair_score(ss_home_name, ss_away_name, r["home"], r["away"]) >= 0.94), None)
+                    if duplicate:
+                        # Fill gaps in the SportScore candidate with independently
+                        # matched SofaScore values, without overwriting existing data.
+                        if duplicate.get("score") is None: duplicate["score"] = ss_score
+                        if not duplicate.get("clock"): duplicate["clock"] = None
+                        if duplicate.get("period") is None:
+                            duplicate["period"] = ss_item.get("lastPeriod")
+                        if not duplicate.get("period_length_seconds"):
+                            duplicate["period_length_seconds"] = None
+                        duplicate.setdefault("sources", []).append("SofaScore")
                         continue
                     ss_status = ss_item.get("status") or {}
                     ss_time = ss_item.get("time") or {}
@@ -1214,7 +1226,7 @@ async def _enrich_with_sofascore_live(events):
                 if row.get("score") is None:
                     ordered_score = pari.get("score")
                 pari["external_live"] = {
-                    "source": "SportScore", "event_id": row.get("id"),
+                    "source": ("SofaScore" if str(row.get("id") or "").startswith("sofascore:") else "SportScore"), "event_id": row.get("id"),
                     "match": row["home"] + " — " + row["away"],
                     "match_confidence": round(best[0], 3), "score": ordered_score,
                     "period": row["period"], "clock": row["clock"],
