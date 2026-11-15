@@ -382,6 +382,24 @@ async def pari_discover():
                     for ref in refs:
                         asset_refs.append(ref)
                     inline_analysis = []
+                    # Agent hosts/config are injected into page runtime, not necessarily bootstrap.js.
+                    runtime_source = body + "\n" + "\n".join(parser.inline_scripts)
+                    runtime_hosts = list(dict.fromkeys(re.findall(
+                        r"(?i)(?:[a-z0-9-]+\.)+pb06e2-resources\.(?:ru|com)", runtime_source
+                    )))[:100]
+                    runtime_windows = []
+                    for token in ("urlsPreloadRaw", "_buildInfo", "commonApi", "lineQueues",
+                                  "commonQueues", "clientsapi", "line-vk", "fastviewdata"):
+                        pos = 0
+                        hits = 0
+                        while hits < 2:
+                            pos = runtime_source.find(token, pos)
+                            if pos < 0:
+                                break
+                            runtime_windows.append({"token": token,
+                                "snippet": runtime_source[max(0,pos-450):min(len(runtime_source),pos+950)]})
+                            pos += len(token)
+                            hits += 1
                     for inline_index, inline in enumerate(parser.inline_scripts):
                         inline_hints.extend(find_hints(inline))
                         config_match = re.search(r"urlsPreloadRaw='(\{.*?\})';if\(urlsPreloadRaw\)", inline, re.S)
@@ -447,6 +465,8 @@ async def pari_discover():
                             "captcha": bool(re.search(r"captcha|challenge|cloudflare|access denied", body, re.I))
                         },
                         "inline_route_hints": find_hints(" ".join(parser.inline_scripts))[:80],
+                        "runtime_host_hints": runtime_hosts,
+                        "runtime_config_context_windows": runtime_windows[:18],
                         "inline_script_analysis": inline_analysis,
                         "html_preview": body[:1200]
                     })
@@ -523,7 +543,7 @@ async def pari_discover():
                         ]
                         item["semantic_chunk_candidates"] = [
                             {"chunk_id": chunk_id, "filename": filename}
-                            for chunk_id, filename in semantic_candidates[:12]
+                            for chunk_id, filename in semantic_candidates[:24]
                         ]
                         chunk_candidates = []
                         for chunk_id in ("43010", "5793", "50480"):
@@ -552,7 +572,9 @@ async def pari_discover():
                                     # diagnostic can identify actual public feed calls, not just keywords.
                                     context_tokens = ("getApiState", "clientCommonAgent", "lineAgents", "commonApi",
                                                       "getServer", "sportEvents", "eventsFilter", "fetch(", "axios",
-                                                      "ApiRequest", "apiUrl", "baseURL", "request(")
+                                                      "ApiRequest", "apiUrl", "baseURL", "request(",
+                                                      "getServerAgentSettings", "serverAgentSettings",
+                                                      "lineQueues", "commonQueues", "requestInterval", "coreSetup")
                                     context_windows = []
                                     for token in context_tokens:
                                         pos = 0
@@ -618,16 +640,16 @@ async def pari_discover():
         hints = list(dict.fromkeys(inline_hints + bundle_hints))
         return {
             "ok": any(x.get("status") == 200 for x in pages),
-            "diagnostic_version": 8, "pages": pages,
+            "diagnostic_version": 9, "pages": pages,
             "asset_refs_found": len(asset_refs), "first_party_assets_scanned": len(scanned),
             "scanned_assets": scanned, "bootstrap_scans": bootstrap_scans, "chunk_scans": chunk_scans, "bootstrap_urls_found": len(set(bootstrap_urls)), "inline_route_hints": list(dict.fromkeys(inline_hints))[:100],
             "route_candidates": hints[:200], "confirmed_api": False,
-            "note": "Версия 8 проверяет до трёх официальных CDN-зеркал PARI, извлекает webpack-карту и дополнительно сканирует до пяти lazy-чанков с именами live/line/event/sport/market/common/api. Для чанков показывает счётчики полей event/team/score/clock/market и ограниченные фрагменты кода вокруг них. Это только признаки модели данных, не доказательство LIVE-feed; API подтверждается только реальными ответами и повторным изменением счёта/времени/коэффициентов."
+            "note": "Версия 9 дополнительно извлекает хосты и контекст конфигурации из HTML runtime (urlsPreloadRaw, _buildInfo, commonApi, lineQueues, commonQueues), показывает карту semantic lazy-чанков и ищет настройки инициализации серверных агентов. Фрагменты кода — только диагностические признаки; LIVE-feed подтверждается только реальным ответом и повторным изменением счёта/времени/коэффициентов."
         }
     except httpx.TimeoutException:
-        return {"ok": False, "diagnostic_version": 8, "error": "PARI diagnostic timed out", "checked_at_utc": datetime.now(timezone.utc).isoformat()}
+        return {"ok": False, "diagnostic_version": 9, "error": "PARI diagnostic timed out", "checked_at_utc": datetime.now(timezone.utc).isoformat()}
     except httpx.HTTPError as exc:
-        return {"ok": False, "diagnostic_version": 8, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
+        return {"ok": False, "diagnostic_version": 9, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
     except Exception as exc:
         # Keep the diagnostic response machine-readable instead of returning an opaque 500.
-        return {"ok": False, "diagnostic_version": 8, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
+        return {"ok": False, "diagnostic_version": 9, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
