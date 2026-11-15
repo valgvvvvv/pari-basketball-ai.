@@ -957,7 +957,98 @@ async def _enrich_with_sofascore_live(events):
                     "clock": clock,
                     "status": status_label,
                     "id": item.get("slug"),
+                    "period_length_seconds": None,
+                    "detail_source": None,
                 })
+
+            # The list endpoint is score/status oriented. For live rows without a
+            # countdown, ask SportScore's documented single-match detail endpoint.
+            # This is a bounded, read-only enrichment; only explicit clock and
+            # period-duration fields are accepted (never infer 10/12-minute periods).
+            detail_targets = [row for row in external_rows if not row.get("clock") and row.get("id")]
+            if detail_targets:
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(5.0, connect=3.0),
+                    follow_redirects=True,
+                    headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+                ) as detail_client:
+                    semaphore = asyncio.Semaphore(4)
+
+                    async def enrich_sportscore_detail(row):
+                        async with semaphore:
+                            try:
+                                response = await detail_client.get(
+                                    "https://sportscore.com/api/widget/match/",
+                                    params={"sport": "basketball", "slug": str(row["id"]),
+                                            "src": "pari-basketball-ai"},
+                                )
+                                if response.status_code != 200:
+                                    return
+                                payload = response.json()
+                                # Walk nested detail envelopes without assuming a
+                                # single response wrapper/schema.
+                                objects, seen = [], set()
+                                def walk(value, depth=0):
+                                    if depth > 7 or not isinstance(value, (dict, list)) or id(value) in seen:
+                                        return
+                                    seen.add(id(value))
+                                    if isinstance(value, dict):
+                                        objects.append(value)
+                                        for child in value.values():
+                                            walk(child, depth + 1)
+                                    else:
+                                        for child in value:
+                                            walk(child, depth + 1)
+                                walk(payload)
+
+                                clock_keys = re.compile(
+                                    r"(clock|timer|countdown|remaining.?time|time.?remaining|"
+                                    r"current.?period.?time|period.?time|game.?time)", re.I
+                                )
+                                duration_keys = re.compile(
+                                    r"(period.?length|quarter.?length|period.?duration|quarter.?duration|"
+                                    r"period.?seconds|quarter.?seconds)", re.I
+                                )
+                                for obj in objects:
+                                    for key, value in obj.items():
+                                        if value is None:
+                                            continue
+                                        if not row.get("clock") and clock_keys.search(str(key)):
+                                            candidate = str(value).strip()
+                                            if not re.match(r"^\\d{4}-\\d{2}-\\d{2}[T ]", candidate):
+                                                match = re.fullmatch(r"(\\d{1,2}):([0-5]\\d)", candidate)
+                                                if match:
+                                                    seconds = int(match.group(1)) * 60 + int(match.group(2))
+                                                    if 0 <= seconds <= 900:
+                                                        row["clock"] = f"{seconds // 60:02d}:{seconds % 60:02d}"
+                                                elif isinstance(value, (int, float)) or candidate.isdigit():
+                                                    try:
+                                                        seconds = int(float(value))
+                                                        if 0 <= seconds <= 900:
+                                                            row["clock"] = f"{seconds // 60:02d}:{seconds % 60:02d}"
+                                                    except (TypeError, ValueError, OverflowError):
+                                                        pass
+                                        if row.get("period_length_seconds") is None and duration_keys.search(str(key)):
+                                            try:
+                                                raw = str(value).strip()
+                                                if re.fullmatch(r"\\d{1,2}:[0-5]\\d", raw):
+                                                    mm, ss = raw.split(":")
+                                                    seconds = int(mm) * 60 + int(ss)
+                                                else:
+                                                    seconds = int(float(value))
+                                                    if seconds > 100000:
+                                                        seconds //= 1000
+                                                if 300 <= seconds <= 900:
+                                                    row["period_length_seconds"] = seconds
+                                            except (TypeError, ValueError, OverflowError):
+                                                pass
+                                if row.get("clock") or row.get("period_length_seconds"):
+                                    row["detail_source"] = "SportScore match detail"
+                            except (httpx.HTTPError, ValueError, TypeError):
+                                return
+
+                    await asyncio.gather(*(enrich_sportscore_detail(row) for row in detail_targets[:20]))
+
             used = set()
             matched = 0
             ambiguous = 0
