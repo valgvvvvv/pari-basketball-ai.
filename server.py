@@ -949,15 +949,20 @@ async def _enrich_with_sofascore_live(events):
                                 break
                         except (TypeError, ValueError, OverflowError):
                             pass
+                # Keep quarter scores only when explicitly supplied by SportScore.
+                period_scores = {}
+                for n in range(1, 5):
+                    hv = hs.get("period" + str(n)) if isinstance(hs, dict) else None
+                    av = aws.get("period" + str(n)) if isinstance(aws, dict) else None
+                    if hv is None: hv = item.get("home_period" + str(n), item.get("homePeriod" + str(n)))
+                    if av is None: av = item.get("away_period" + str(n), item.get("awayPeriod" + str(n)))
+                    hpn, apn = score_number(hv), score_number(av)
+                    if hpn is not None and apn is not None: period_scores[str(n)] = [hpn, apn]
                 external_rows.append({
-                    "home": home_name,
-                    "away": away_name,
-                    "score": score_pair,
-                    "period": period,
-                    "clock": clock,
-                    "status": status_label,
-                    "id": item.get("slug"),
-                    "period_length_seconds": None,
+                    "home": home_name, "away": away_name, "score": score_pair,
+                    "period_scores": period_scores, "period": period, "clock": clock,
+                    "status": status_label, "id": item.get("slug"),
+                    "provider_id": item.get("id"), "period_length_seconds": None,
                     "detail_source": None,
                 })
 
@@ -1009,39 +1014,68 @@ async def _enrich_with_sofascore_live(events):
                                     r"(period.?length|quarter.?length|period.?duration|quarter.?duration|"
                                     r"period.?seconds|quarter.?seconds)", re.I
                                 )
+                                def clock_seconds(value):
+                                    if isinstance(value, dict):
+                                        minute = value.get("minutes", value.get("minute", value.get("min")))
+                                        second = value.get("seconds", value.get("second", value.get("sec")))
+                                        if minute is not None and second is not None:
+                                            try:
+                                                total = int(float(minute))*60 + int(float(second))
+                                                return total if 0 <= total <= 900 else None
+                                            except (TypeError, ValueError, OverflowError):
+                                                return None
+                                        for nested_key in ("remaining", "remaining_seconds", "seconds_remaining", "value", "time", "clock"):
+                                            if value.get(nested_key) is not None:
+                                                found = clock_seconds(value[nested_key])
+                                                if found is not None: return found
+                                        return None
+                                    candidate = str(value).strip()
+                                    if re.match(r"^\\d{4}-\\d{2}-\\d{2}[T ]", candidate): return None
+                                    match = re.fullmatch(r"(\\d{1,2}):([0-5]\\d)", candidate)
+                                    if match:
+                                        total = int(match.group(1))*60 + int(match.group(2))
+                                        return total if 0 <= total <= 900 else None
+                                    if isinstance(value, (int, float)) or candidate.isdigit():
+                                        try:
+                                            total = int(float(value))
+                                            return total if 0 <= total <= 900 else None
+                                        except (TypeError, ValueError, OverflowError): return None
+                                    return None
+
+                                def duration_seconds(value):
+                                    if isinstance(value, dict):
+                                        for nested_key in ("seconds", "duration", "value", "max"):
+                                            if value.get(nested_key) is not None:
+                                                found = duration_seconds(value[nested_key])
+                                                if found is not None: return found
+                                        return None
+                                    raw = str(value).strip()
+                                    if re.fullmatch(r"\\d{1,2}:[0-5]\\d", raw):
+                                        mm, ss = raw.split(":")
+                                        return int(mm)*60 + int(ss)
+                                    try:
+                                        seconds = int(float(value))
+                                        if seconds > 100000: seconds //= 1000
+                                        return seconds if 300 <= seconds <= 900 else None
+                                    except (TypeError, ValueError, OverflowError): return None
+
                                 for obj in objects:
                                     for key, value in obj.items():
-                                        if value is None:
-                                            continue
+                                        if value is None: continue
                                         if not row.get("clock") and clock_keys.search(str(key)):
-                                            candidate = str(value).strip()
-                                            if not re.match(r"^\d{4}-\d{2}-\d{2}[T ]", candidate):
-                                                match = re.fullmatch(r"(\d{1,2}):([0-5]\d)", candidate)
-                                                if match:
-                                                    seconds = int(match.group(1)) * 60 + int(match.group(2))
-                                                    if 0 <= seconds <= 900:
-                                                        row["clock"] = f"{seconds // 60:02d}:{seconds % 60:02d}"
-                                                elif isinstance(value, (int, float)) or candidate.isdigit():
-                                                    try:
-                                                        seconds = int(float(value))
-                                                        if 0 <= seconds <= 900:
-                                                            row["clock"] = f"{seconds // 60:02d}:{seconds % 60:02d}"
-                                                    except (TypeError, ValueError, OverflowError):
-                                                        pass
+                                            seconds = clock_seconds(value)
+                                            if seconds is not None:
+                                                row["clock"] = f"{seconds // 60:02d}:{seconds % 60:02d}"
                                         if row.get("period_length_seconds") is None and duration_keys.search(str(key)):
-                                            try:
-                                                raw = str(value).strip()
-                                                if re.fullmatch(r"\d{1,2}:[0-5]\d", raw):
-                                                    mm, ss = raw.split(":")
-                                                    seconds = int(mm) * 60 + int(ss)
-                                                else:
-                                                    seconds = int(float(value))
-                                                    if seconds > 100000:
-                                                        seconds //= 1000
-                                                if 300 <= seconds <= 900:
-                                                    row["period_length_seconds"] = seconds
-                                            except (TypeError, ValueError, OverflowError):
-                                                pass
+                                            seconds = duration_seconds(value)
+                                            if seconds is not None: row["period_length_seconds"] = seconds
+                                        if isinstance(value, dict) and re.search(r"(home.?score|away.?score|period.?scores|scores)", str(key), re.I):
+                                            for n in range(1, 5):
+                                                hp = value.get("home" + str(n)) or value.get("home_period" + str(n)) or value.get("period" + str(n) + "_home")
+                                                ap = value.get("away" + str(n)) or value.get("away_period" + str(n)) or value.get("period" + str(n) + "_away")
+                                                hpn, apn = score_number(hp), score_number(ap)
+                                                if hpn is not None and apn is not None:
+                                                    row.setdefault("period_scores", {})[str(n)] = [hpn, apn]
                                 if row.get("clock") or row.get("period_length_seconds"):
                                     row["detail_source"] = "SportScore match detail"
                             except (httpx.HTTPError, ValueError, TypeError):
@@ -1098,6 +1132,7 @@ async def _enrich_with_sofascore_live(events):
                     "match": row["home"] + " — " + row["away"],
                     "match_confidence": round(best[0], 3), "score": ordered_score,
                     "period": row["period"], "clock": row["clock"],
+                    "period_scores": row.get("period_scores", {}),
                     "period_length_seconds": row.get("period_length_seconds"),
                     "clock_detail_source": row.get("detail_source"),
                     "status": row["status"],
