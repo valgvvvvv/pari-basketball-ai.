@@ -531,7 +531,7 @@ async def pari_discover():
                             if semantic_name:
                                 chunk_candidates.append((chunk_id, semantic_name + ".js"))
                             chunk_candidates.append((chunk_id, chunk_id + ".js"))
-                        chunk_candidates.extend(semantic_candidates[:8])
+                        chunk_candidates.extend(semantic_candidates[:5])
                         base = bootstrap_url.rsplit("/", 1)[0] + "/"
                         seen_chunk_urls = set()
                         for chunk_id, filename in chunk_candidates:
