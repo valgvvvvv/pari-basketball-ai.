@@ -974,6 +974,8 @@ async def _enrich_with_sofascore_live(events):
                         pari["external_statistics"] = normalized
                         pari["statistics_source"] = "SofaScore"
                         stats_matched += 1
+        except Exception as exc:
+            stats_errors.append("stats_" + type(exc).__name__)
 
     return {
         "source": "SofaScore",
