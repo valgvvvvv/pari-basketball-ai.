@@ -570,24 +570,46 @@ async def pari_discover():
                                     chunk_item["keyword_counts"] = {word: len(re.findall(word, chunk_source, re.I)) for word in ("clientsapi", "commonApi", "line", "live", "event", "market", "odds", "graphql", "websocket", "fetch")}
                                     # Surface code around request/configuration primitives so the next
                                     # diagnostic can identify actual public feed calls, not just keywords.
-                                    context_tokens = ("getApiState", "clientCommonAgent", "lineAgents", "commonApi",
-                                                      "getServer", "sportEvents", "eventsFilter", "fetch(", "axios",
-                                                      "ApiRequest", "apiUrl", "baseURL", "request(",
-                                                      "getServerAgentSettings", "serverAgentSettings",
-                                                      "lineQueues", "commonQueues", "requestInterval", "coreSetup")
+                                    # Prioritize service wiring and request dispatch: the previous 24-window cap
+                                    # could hide getServerAgentSettings behind generic fetch/getApiState hits.
+                                    context_tokens = (
+                                        "getServerAgentSettings", "handleAgentsUpdate", "coreSetup",
+                                        "queryCustomService", "serverAgentSettings", "additionalRequestParams",
+                                        "resultsByService", "unknownServicesByGetApiState", "requestInterval",
+                                        "clientCommonAgent", "lineAgents", "commonApi", "lineQueues", "commonQueues",
+                                        "sportEvents", "sportCompetitionAndCompetitionGroup", "eventsFilter",
+                                        "eventView", "main_sports_search", "getApiState", "ApiRequest",
+                                        "apiUrl", "baseURL", "fetch(", "axios", "request("
+                                    )
                                     context_windows = []
+                                    targeted_windows = []
                                     for token in context_tokens:
                                         pos = 0
                                         hits = 0
-                                        while hits < 3:
+                                        while hits < 6:
                                             pos = chunk_source.find(token, pos)
                                             if pos < 0:
                                                 break
-                                            context_windows.append({"token": token,
-                                                                    "snippet": chunk_source[max(0, pos-500):min(len(chunk_source), pos+1100)]})
+                                            window = {"token": token,
+                                                      "snippet": chunk_source[max(0, pos-900):min(len(chunk_source), pos+2200)]}
+                                            context_windows.append(window)
+                                            if token in ("getServerAgentSettings", "handleAgentsUpdate", "coreSetup",
+                                                         "queryCustomService", "serverAgentSettings", "additionalRequestParams",
+                                                         "resultsByService", "sportEvents", "sportCompetitionAndCompetitionGroup",
+                                                         "eventsFilter", "eventView", "main_sports_search"):
+                                                targeted_windows.append(window)
                                             pos += len(token)
                                             hits += 1
-                                    chunk_item["api_context_windows"] = context_windows[:24]
+                                    chunk_item["api_context_windows"] = context_windows[:80]
+                                    chunk_item["targeted_context_windows"] = targeted_windows[:50]
+                                    service_terms = ("sportEvents", "sportCompetitionAndCompetitionGroup",
+                                                     "queryCustomService", "commandName", "serviceName",
+                                                     "additionalRequestParams", "getServerAgentSettings",
+                                                     "requestInterval", "eventView", "main_sports_search")
+                                    chunk_item["service_keyword_counts"] = {
+                                        term: len(re.findall(re.escape(term), chunk_source, re.I))
+                                        for term in service_terms
+                                    }
                                     # Detect data-model vocabulary and show bounded source context.
                                     # These are code clues, not proof that the values are live.
                                     data_patterns = {
@@ -640,16 +662,16 @@ async def pari_discover():
         hints = list(dict.fromkeys(inline_hints + bundle_hints))
         return {
             "ok": any(x.get("status") == 200 for x in pages),
-            "diagnostic_version": 9, "pages": pages,
+            "diagnostic_version": 10, "pages": pages,
             "asset_refs_found": len(asset_refs), "first_party_assets_scanned": len(scanned),
             "scanned_assets": scanned, "bootstrap_scans": bootstrap_scans, "chunk_scans": chunk_scans, "bootstrap_urls_found": len(set(bootstrap_urls)), "inline_route_hints": list(dict.fromkeys(inline_hints))[:100],
             "route_candidates": hints[:200], "confirmed_api": False,
-            "note": "Версия 9 дополнительно извлекает хосты и контекст конфигурации из HTML runtime (urlsPreloadRaw, _buildInfo, commonApi, lineQueues, commonQueues), показывает карту semantic lazy-чанков и ищет настройки инициализации серверных агентов. Фрагменты кода — только диагностические признаки; LIVE-feed подтверждается только реальным ответом и повторным изменением счёта/времени/коэффициентов."
+            "note": "Версия 10 приоритизирует полный контекст getServerAgentSettings/coreSetup, пользовательских service mappings и диспетчеризации запросов; это всё ещё анализ кода, а не подтверждение LIVE-feed. Feed подтверждается только реальным ответом и повторным изменением счёта/времени/коэффициентов."
         }
     except httpx.TimeoutException:
-        return {"ok": False, "diagnostic_version": 9, "error": "PARI diagnostic timed out", "checked_at_utc": datetime.now(timezone.utc).isoformat()}
+        return {"ok": False, "diagnostic_version": 10, "error": "PARI diagnostic timed out", "checked_at_utc": datetime.now(timezone.utc).isoformat()}
     except httpx.HTTPError as exc:
-        return {"ok": False, "diagnostic_version": 9, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
+        return {"ok": False, "diagnostic_version": 10, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
     except Exception as exc:
         # Keep the diagnostic response machine-readable instead of returning an opaque 500.
-        return {"ok": False, "diagnostic_version": 9, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
+        return {"ok": False, "diagnostic_version": 10, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
