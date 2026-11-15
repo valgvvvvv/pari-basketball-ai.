@@ -679,7 +679,7 @@ async def pari_discover():
 
 # PARI public LIVE events feed. The endpoint is read-only; no account or betting actions.
 @app.get("/api/pari/live")
-async def pari_live_events():
+async def pari_live_events(catalog_only: bool = False):
     from urllib.parse import urljoin
     # Try the host that most recently returned a valid feed first.
     hosts = [
@@ -879,6 +879,17 @@ async def pari_live_events():
                     })
                     for e in roots[:2]:
                         root_samples.append({"sport_id": sid, **root_preview(e)})
+                if catalog_only:
+                    live_catalog = [row for row in sport_catalog if row["live_roots"] > 0]
+                    return {
+                        "ok": True,
+                        "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+                        "total_events": len(all_events),
+                        "sport_id_count": len(sport_ids),
+                        "live_sport_id_count": len(live_catalog),
+                        "live_sport_catalog": live_catalog,
+                        "note": "Compact audit: every sportId with at least one live root match, including team examples."
+                    }
                 return {
                     "ok": True,
                     "connected": True,
