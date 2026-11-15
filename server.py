@@ -798,9 +798,9 @@ async def _enrich_with_sofascore_live(events):
                 except (TypeError, ValueError, OverflowError):
                     continue
                 status_label = str(item.get("status_text") or item.get("status") or "")
-                period_match = re.search(r"(?:q|quarter|period|четверть)\\s*([1-4])|([1-4])(?:st|nd|rd|th)\\s*quarter", status_label, re.I)
+                period_match = re.search(r"(?:q|quarter|period|четверть)\s*([1-4])|([1-4])(?:st|nd|rd|th)\s*quarter", status_label, re.I)
                 period = int(period_match.group(1) or period_match.group(2)) if period_match else None
-                clock_match = re.search(r"\\b(\\d{1,2}):([0-5]\\d)\\b", status_label)
+                clock_match = re.search(r"\b(\d{1,2}):([0-5]\d)\b", status_label)
                 clock = (clock_match.group(1).zfill(2) + ":" + clock_match.group(2)) if clock_match else None
                 external_rows.append({
                     "home": str(item.get("home") or ""),
