@@ -12,6 +12,19 @@ import httpx
 app = FastAPI(title="PARI Basketball AI", version="0.1.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+class _AssetParser(HTMLParser):
+    """Extract asset references from the PARI HTML shell without executing scripts."""
+    def __init__(self):
+        super().__init__()
+        self.scripts = []
+        self.links = []
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag.lower() == "script" and attrs.get("src"):
+            self.scripts.append(attrs["src"])
+        if tag.lower() == "link" and attrs.get("href"):
+            self.links.append({"href": attrs["href"], "rel": attrs.get("rel", ""), "as": attrs.get("as", ""), "type": attrs.get("type", "")})
+
 class QuarterAnalyzeRequest(BaseModel):
     team1: str = "Команда 1"
     team2: str = "Команда 2"
@@ -227,7 +240,10 @@ async def pari_source_check():
         parser = _TextOnly()
         parser.feed(body)
         visible_text = re.sub(r"\s+", " ", unescape(" ".join(parser.parts))).strip()
-        script_sources = re.findall(r'<script[^>]+src="([^"]+)"', body, re.I)[:12]
+        asset_parser = _AssetParser()
+        asset_parser.feed(body)
+        script_sources = asset_parser.scripts[:20]
+        link_assets = asset_parser.links[:30]
         score_time_patterns = len(re.findall(r"(?<!\d)\d{1,2}:\d{2}(?!\d)", visible_text))
         age_header = response.headers.get("age")
         age_seconds = int(age_header) if age_header and age_header.isdigit() else None
@@ -262,6 +278,7 @@ async def pari_source_check():
             "score_or_clock_patterns": score_time_patterns,
             "visible_text_preview": visible_text[:2400],
             "script_sources": script_sources,
+            "link_assets": link_assets,
             "fetched_at_utc": received_at.isoformat(),
             "request_started_at_utc": requested_at.isoformat(),
             "fetch_duration_ms": round((received_at - requested_at).total_seconds() * 1000),
@@ -277,3 +294,56 @@ async def pari_source_check():
         return {"ok": False, "source": url, "freshness_check": "unavailable", "error": "PARI не ответил за 15 секунд", "checked_at_utc": datetime.now(timezone.utc).isoformat()}
     except httpx.HTTPError as exc:
         return {"ok": False, "source": url, "freshness_check": "unavailable", "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/api/pari/discover")
+async def pari_discover():
+    """Inspect PARI public JS bundles for same-origin API route candidates."""
+    page_url = "https://pari.ru/live/basketball"
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; PARI-Basketball-AI/0.1; asset-discovery)", "Accept": "text/html,application/xhtml+xml,*/*", "Cache-Control": "no-cache"}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=8.0), follow_redirects=True, headers=headers) as client:
+            page = await client.get(page_url)
+            parser = _AssetParser()
+            parser.feed(page.text)
+            from urllib.parse import urljoin, urlparse
+            scripts = []
+            for src in parser.scripts:
+                absolute = urljoin(str(page.url), src)
+                if urlparse(absolute).hostname in {"pari.ru", "www.pari.ru"}:
+                    scripts.append(absolute)
+            scripts = list(dict.fromkeys(scripts))[:12]
+            scanned, candidates = [], []
+            for asset_url in scripts:
+                try:
+                    asset = await client.get(asset_url)
+                    if asset.status_code != 200:
+                        scanned.append({"url": asset_url, "status": asset.status_code})
+                        continue
+                    js = asset.text[:4000000]
+                    found = []
+                    for quote in ("\\"", "'"):
+                        pos = 0
+                        while True:
+                            start = js.find(quote, pos)
+                            if start < 0: break
+                            end = js.find(quote, start + 1)
+                            if end < 0: break
+                            value = js[start + 1:end]
+                            low = value.lower()
+                            if value.startswith("/") and len(value) < 181 and any(k in low for k in ("api", "graphql", "live", "event", "market", "line", "odds", "sport", "basket")):
+                                found.append(value)
+                            elif value.startswith("https://") and len(value) < 241 and any(k in low for k in ("api", "graphql", "live", "event", "market", "line", "odds", "sport", "basket")):
+                                if "pari.ru" in value:
+                                    found.append(value)
+                            pos = end + 1
+                    found = list(dict.fromkeys(found))
+                    candidates.extend(found)
+                    scanned.append({"url": asset_url, "status": asset.status_code, "bytes": len(asset.content), "route_candidates": found[:80]})
+                except httpx.HTTPError as exc:
+                    scanned.append({"url": asset_url, "error": type(exc).__name__})
+        return {"ok": page.status_code == 200, "page_status": page.status_code, "page_url": str(page.url), "html_bytes": len(page.content), "script_assets": scripts, "link_assets": parser.links[:30], "scanned_bundles": scanned, "route_candidates": list(dict.fromkeys(candidates))[:200], "note": "Кандидаты извлечены из публичных JS-файлов; это ещё не подтверждённый API."}
+    except httpx.TimeoutException:
+        return {"ok": False, "error": "PARI asset discovery timed out"}
+    except httpx.HTTPError as exc:
+        return {"ok": False, "error": type(exc).__name__}
