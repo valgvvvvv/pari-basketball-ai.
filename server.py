@@ -773,13 +773,17 @@ async def pari_live_events():
                 basketball = []
                 def repair_team_encoding(value):
                     value = str(value or "")
-                    # PARI sometimes returns UTF-8 Cyrillic decoded as Windows-1251/Latin-1.
-                    try:
-                        repaired = value.encode("latin1").decode("utf-8")
-                        if repaired.count("Р") + repaired.count("С") < value.count("Р") + value.count("С"):
-                            return repaired
-                    except (UnicodeEncodeError, UnicodeDecodeError):
-                        pass
+                    # PARI payload strings are UTF-8 bytes that were decoded as CP1251.
+                    # Re-encode using CP1251 (not Latin-1: Cyrillic characters are outside Latin-1).
+                    for codec in ("cp1251", "latin1"):
+                        try:
+                            repaired = value.encode(codec).decode("utf-8")
+                            bad_before = value.count("Р") + value.count("С") + value.count("�")
+                            bad_after = repaired.count("Р") + repaired.count("С") + repaired.count("�")
+                            if bad_after < bad_before:
+                                return repaired
+                        except (UnicodeEncodeError, UnicodeDecodeError):
+                            continue
                     return value
                 for event in all_events:
                     if not isinstance(event, dict):
@@ -805,8 +809,20 @@ async def pari_live_events():
                         "score": event.get("score") or event.get("scoreInfo"),
                         "period": event.get("period") or event.get("periodName"),
                         "clock": event.get("time") or event.get("timer"),
+                        "statistics_types": event.get("statisticsTypes"),
+                        "live_fields": {
+                            key: value for key, value in event.items()
+                            if any(token in key.lower() for token in (
+                                "score", "period", "quarter", "clock", "timer", "time",
+                                "team1s", "team2s", "team1m", "team2m", "foul", "stat"
+                            ))
+                        },
                         "raw": event,
                         "factors": factor_map.get(str(event_id), []),
+                        "match_total_candidates": [
+                            factor for factor in factor_map.get(str(event_id), [])
+                            if isinstance(factor, dict) and str(factor.get("f")) in ("930", "931")
+                        ],
                     })
                 attempts.append({
                     "host": host,
