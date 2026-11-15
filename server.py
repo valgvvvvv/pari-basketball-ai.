@@ -13,17 +13,51 @@ app = FastAPI(title="PARI Basketball AI", version="0.1.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 class _AssetParser(HTMLParser):
-    """Extract asset references from the PARI HTML shell without executing scripts."""
+    """Collect external and inline scripts, preload assets and metadata."""
     def __init__(self):
         super().__init__()
         self.scripts = []
         self.links = []
+        self.inline_scripts = []
+        self.meta = []
+        self.other_assets = []
+        self._in_script = False
+        self._script_parts = []
+
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
-        if tag.lower() == "script" and attrs.get("src"):
-            self.scripts.append(attrs["src"])
-        if tag.lower() == "link" and attrs.get("href"):
-            self.links.append({"href": attrs["href"], "rel": attrs.get("rel", ""), "as": attrs.get("as", ""), "type": attrs.get("type", "")})
+        tag = tag.lower()
+        if tag == "script":
+            if attrs.get("src"):
+                self.scripts.append(attrs["src"])
+            else:
+                self._in_script = True
+                self._script_parts = []
+        elif tag == "link" and attrs.get("href"):
+            self.links.append({
+                "href": attrs["href"], "rel": attrs.get("rel", ""),
+                "as": attrs.get("as", ""), "type": attrs.get("type", ""),
+                "crossorigin": attrs.get("crossorigin", "")
+            })
+        elif tag == "meta":
+            self.meta.append({k: v for k, v in attrs.items() if k in ("name", "property", "content", "http-equiv")})
+        else:
+            for key in ("src", "href", "data-src", "data-href"):
+                value = attrs.get(key)
+                if value and (".js" in value.lower() or ".json" in value.lower()):
+                    self.other_assets.append({"tag": tag, "attribute": key, "url": value})
+
+    def handle_data(self, data):
+        if self._in_script:
+            self._script_parts.append(data)
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "script" and self._in_script:
+            value = "".join(self._script_parts).strip()
+            if value:
+                self.inline_scripts.append(value)
+            self._in_script = False
+            self._script_parts = []
 
 class QuarterAnalyzeRequest(BaseModel):
     team1: str = "Команда 1"
