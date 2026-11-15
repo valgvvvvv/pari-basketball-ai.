@@ -618,16 +618,16 @@ async def pari_discover():
         hints = list(dict.fromkeys(inline_hints + bundle_hints))
         return {
             "ok": any(x.get("status") == 200 for x in pages),
-            "diagnostic_version": 7, "pages": pages,
+            "diagnostic_version": 8, "pages": pages,
             "asset_refs_found": len(asset_refs), "first_party_assets_scanned": len(scanned),
             "scanned_assets": scanned, "bootstrap_scans": bootstrap_scans, "chunk_scans": chunk_scans, "bootstrap_urls_found": len(set(bootstrap_urls)), "inline_route_hints": list(dict.fromkeys(inline_hints))[:100],
             "route_candidates": hints[:200], "confirmed_api": False,
-            "note": "Версия 7 проверяет до трёх официальных CDN-зеркал PARI с коротким таймаутом на каждое; при успехе скачивает чанки только с первого рабочего зеркала. Она извлекает реальные имена webpack-файлов из runtime-карты и проверяет семантические URL чанков; Версия 4 извлекает публичный bootstrap.js из CDN, указанного конфигурацией PARI, и ищет в нём маршруты/хосты данных. Найденные строки — только кандидаты; API подтверждается проверкой реальных ответов и изменения LIVE-данных."
+            "note": "Версия 8 проверяет до трёх официальных CDN-зеркал PARI, извлекает webpack-карту и дополнительно сканирует до пяти lazy-чанков с именами live/line/event/sport/market/common/api. Для чанков показывает счётчики полей event/team/score/clock/market и ограниченные фрагменты кода вокруг них. Это только признаки модели данных, не доказательство LIVE-feed; API подтверждается только реальными ответами и повторным изменением счёта/времени/коэффициентов."
         }
     except httpx.TimeoutException:
-        return {"ok": False, "diagnostic_version": 7, "error": "PARI diagnostic timed out", "checked_at_utc": datetime.now(timezone.utc).isoformat()}
+        return {"ok": False, "diagnostic_version": 8, "error": "PARI diagnostic timed out", "checked_at_utc": datetime.now(timezone.utc).isoformat()}
     except httpx.HTTPError as exc:
-        return {"ok": False, "diagnostic_version": 7, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
+        return {"ok": False, "diagnostic_version": 8, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
     except Exception as exc:
         # Keep the diagnostic response machine-readable instead of returning an opaque 500.
-        return {"ok": False, "diagnostic_version": 7, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
+        return {"ok": False, "diagnostic_version": 8, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
