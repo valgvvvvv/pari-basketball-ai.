@@ -675,3 +675,112 @@ async def pari_discover():
     except Exception as exc:
         # Keep the diagnostic response machine-readable instead of returning an opaque 500.
         return {"ok": False, "diagnostic_version": 10, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
+
+
+# PARI public LIVE events feed. The endpoint is read-only; no account or betting actions.
+@app.get("/api/pari/live")
+async def pari_live_events():
+    from urllib.parse import urljoin
+    hosts = [
+        "https://line-vk01-w.pb06e2-resources.ru",
+        "https://line-vk02-w.pb06e2-resources.ru",
+        "https://line-lb01-w.pb06e2-resources.com",
+        "https://line-lb51-w.pb06e2-resources.com",
+    ]
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.7",
+        "Referer": "https://pari.ru/live/basketball",
+        "Origin": "https://pari.ru",
+        "Cache-Control": "no-cache",
+    }
+    attempts = []
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(12.0, connect=6.0),
+        follow_redirects=True,
+        headers=headers,
+    ) as client:
+        for host in hosts:
+            url = host + "/events/list"
+            try:
+                response = await client.get(
+                    url,
+                    params={"lang": "ru", "scopeMarket": "2300"},
+                )
+                item = {"host": host, "status": response.status_code}
+                if response.status_code != 200:
+                    item["error"] = "HTTP response is not 200"
+                    attempts.append(item)
+                    continue
+                try:
+                    payload = response.json()
+                except Exception:
+                    item["error"] = "Response is not JSON"
+                    item["content_type"] = response.headers.get("content-type")
+                    attempts.append(item)
+                    continue
+                all_events = payload.get("events", []) if isinstance(payload, dict) else []
+                if not isinstance(all_events, list):
+                    all_events = []
+                factors = payload.get("customFactors", []) if isinstance(payload, dict) else []
+                factor_map = {}
+                for row in factors if isinstance(factors, list) else []:
+                    if isinstance(row, dict) and row.get("e") is not None:
+                        factor_map[str(row.get("e"))] = row.get("factors", [])
+                sport_ids = sorted({
+                    str(event.get("sportId"))
+                    for event in all_events
+                    if isinstance(event, dict) and event.get("sportId") is not None
+                })
+                # PARI shared-platform basketball IDs found in an independently
+                # published parser. Return the observed IDs too, so changes are visible.
+                basketball_ids = {"15872", "15873"}
+                basketball = []
+                for event in all_events:
+                    if not isinstance(event, dict):
+                        continue
+                    if str(event.get("sportId", "")) not in basketball_ids:
+                        continue
+                    event_id = event.get("id")
+                    basketball.append({
+                        "id": str(event_id) if event_id is not None else "",
+                        "team1": str(event.get("team1") or event.get("team1Name") or ""),
+                        "team2": str(event.get("team2") or event.get("team2Name") or ""),
+                        "sport_id": str(event.get("sportId")),
+                        "league": str(event.get("name") or event.get("competitionName") or ""),
+                        "start_time": event.get("startTime"),
+                        "score": event.get("score") or event.get("scoreInfo"),
+                        "period": event.get("period") or event.get("periodName"),
+                        "clock": event.get("time") or event.get("timer"),
+                        "raw": event,
+                        "factors": factor_map.get(str(event_id), []),
+                    })
+                attempts.append({
+                    "host": host,
+                    "status": 200,
+                    "total_events": len(all_events),
+                    "basketball_events": len(basketball),
+                    "sport_ids": sport_ids,
+                })
+                return {
+                    "ok": True,
+                    "connected": True,
+                    "source": url + "?lang=ru&scopeMarket=2300",
+                    "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+                    "total_events": len(all_events),
+                    "basketball_events": len(basketball),
+                    "sport_ids": sport_ids,
+                    "events": basketball,
+                    "attempts": attempts,
+                    "note": "The feed response was received. Basketball classification uses sportId 15872/15873 and must be validated against current PARI categories.",
+                }
+            except httpx.HTTPError as exc:
+                attempts.append({"host": host, "error": type(exc).__name__})
+    return {
+        "ok": False,
+        "connected": False,
+        "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+        "attempts": attempts,
+        "error": "All known PARI line hosts failed to return a valid events/list JSON response.",
+    }
