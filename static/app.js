@@ -210,7 +210,9 @@ function showSelectedMatch(ev){
   $("selectedMatchTitle").textContent=(ev.team1||"Команда 1")+" — "+(ev.team2||"Команда 2");
   const objects=collectEventObjects({root:ev.raw||{},related:ev.related_events||[],live:ev.live_fields||{}});
   const score=findLiveScore(ev),period=findLivePeriod(ev),clock=findLiveClock(ev);
-  const paceEstimate=estimateLiveTotal(ev,score,period,clock);
+  const periodLength=findPeriodLengthSeconds(ev);
+  const paceEstimate=periodLength ? estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength}},score,period,clock) : null;
+  const matchLines=getMatchTotalLines(ev);
   const childCount=(ev.related_events||[]).length;
   const fieldNames=[...new Set(objects.flatMap(o=>Object.keys(o)))];
   const rootFactors=(ev.factors||[]).filter(x=>x&&["930","931"].includes(String(x.f)));
@@ -239,7 +241,8 @@ function showSelectedMatch(ev){
     '<p class="muted">'+(rootLines.length?rootLines.map(escapeHtml).join("<br>"):"В основной строке нет факторов ID 930/931.")+'</p>'+
     '<p class="muted">Это пока не подтверждённая расшифровка типа рынка: ID фактора и линия показываются как получены от PARI.</p>'+
     '<p class="muted">'+(score&&period&&clock?"Счёт, четверть и таймер доступны.":"Расчёт темпа заблокирован: нет подтверждённого счёта и/или таймера.")+'</p>'+
-    (paceEstimate?'<p><b>Предварительная оценка полного тотала по текущему темпу:</b> '+paceEstimate.projection+' очка · ориентировочный диапазон '+paceEstimate.low+'–'+paceEstimate.high+' · сыграно около '+paceEstimate.elapsed+' мин. Это оценка темпа, не обученный прогноз.</p>':'<p class="muted">Оценка полного тотала появится после получения подтверждённого счёта, игрового таймера и длительности четверти.</p>');
+    (paceEstimate?'<p><b>Предварительная оценка полного тотала по текущему темпу:</b> '+paceEstimate.projection+' очка · ориентировочный диапазон '+paceEstimate.low+'–'+paceEstimate.high+' · сыграно около '+paceEstimate.elapsed+' мин. Это оценка темпа, не обученный прогноз.</p>':'<p class="muted">Оценка пока недоступна: нужны подтверждённые счёт, четверть, таймер и длительность периода. Формат и время не подставляются наугад.</p>')+
+    (paceEstimate && matchLines.length ? '<p><b>Направление относительно линий PARI:</b> '+matchLines.map(x=>(paceEstimate.projection>x.line?'ТБ ':'ТМ ')+x.line+' (ориентир '+paceEstimate.projection+')').map(escapeHtml).join(' · ')+'</p>' : '<p class="muted">'+(matchLines.length?'Линия найдена, но данных для сравнения пока недостаточно.':'Линии полного тотала 930/931 не найдены в основной строке PARI.')+'</p>');
   $("quarterForecast").innerHTML=
     '<p><b>Текущая четверть:</b> '+(period||"не определена")+'</p>'+
     (groupHtml||'<p class="muted">В дочерних строках не найдено факторов ID 930/931.</p>')+
@@ -273,6 +276,56 @@ function eventScore(ev) {
 }
 function eventPeriod(ev) { return ev.period ?? ev.external_live?.period ?? ev.live_period ?? null; }
 function eventClock(ev) { return ev.clock ?? ev.external_live?.clock ?? ev.live_clock ?? null; }
+
+function findPeriodLengthSeconds(ev) {
+  const raw = ev.raw || {};
+  const candidates = [ev.external_live?.period_length_seconds, ev.period_length_seconds,
+    raw.periodLength, raw.period_length, raw.periodDuration, raw.period_duration,
+    ev.live_fields?.periodLength, ev.live_fields?.period_length];
+  for (const value of candidates) {
+    if (value == null) continue;
+    if (typeof value === "string" && /^\d{1,2}:[0-5]\d$/.test(value.trim())) {
+      const [m,s] = value.trim().split(":").map(Number);
+      const seconds = m*60+s;
+      if (seconds >= 300 && seconds <= 900) return seconds;
+    }
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) {
+      const seconds = n > 100000 ? Math.round(n/1000) : Math.round(n);
+      if (seconds >= 300 && seconds <= 900) return seconds;
+    }
+  }
+  return null;
+}
+
+function getMatchTotalLines(ev) {
+  const factors = [...(Array.isArray(ev.match_total_candidates) ? ev.match_total_candidates : []),
+    ...(Array.isArray(ev.factors) ? ev.factors.filter(x => x && ["930","931"].includes(String(x.f))) : [])];
+  const seen = new Set(), lines = [];
+  for (const factor of factors) {
+    const line = factor.pt != null ? Number(factor.pt) : (factor.p != null ? Number(factor.p)/100 : NaN);
+    if (!Number.isFinite(line) || line <= 0 || line > 400) continue;
+    const key = line.toFixed(2);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    lines.push({line, odds: factor.v == null ? null : String(factor.v), factorId:String(factor.f)});
+  }
+  return lines.sort((a,b)=>a.line-b.line);
+}
+
+function automaticForecast(ev) {
+  const score=findLiveScore(ev), period=findLivePeriod(ev), clock=findLiveClock(ev);
+  const periodLength=findPeriodLengthSeconds(ev), missing=[];
+  if (!score) missing.push("счёт");
+  if (!period) missing.push("четверть");
+  if (!clock) missing.push("таймер");
+  if (!periodLength) missing.push("длительность четверти");
+  if (missing.length) return {ready:false,reason:"Нет подтверждённых данных: "+missing.join(", ")};
+  const estimate=estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength}},score,period,clock);
+  if (!estimate) return {ready:false,reason:"Не удалось безопасно рассчитать игровое время"};
+  const lines=getMatchTotalLines(ev);
+  return {ready:true,estimate,lines,message:"Темп рассчитан; линия матча PARI не найдена"};
+}
 let liveRefreshInFlight = false;
 let nextLiveRefreshDelay = 30000;
 async function refreshLiveMatches() {
@@ -319,8 +372,19 @@ async function refreshLiveMatches() {
         const score = eventScore(ev);
         const totalMarkets = (ev.match_total_candidates || []).map(f => f.pt ? ("Тотал " + f.pt + " @ " + f.v) : ("Коэф. " + f.v));
         const details = [ev.league || ev.sport_name, score, eventPeriod(ev), eventClock(ev), ...totalMarkets].filter(Boolean).map(escapeHtml).join(" · ");
+        const forecast = automaticForecast(ev);
+        let forecastHtml = "";
+        if (forecast.ready) {
+          const estimate = forecast.estimate;
+          const lineText = forecast.lines.length
+            ? forecast.lines.map(x => (estimate.projection > x.line ? "ТБ " : "ТМ ") + x.line + " · ориентир " + estimate.projection).join(" | ")
+            : forecast.message;
+          forecastHtml = '<span class="live-match-meta forecast-live">Предварительный ориентир: ' + escapeHtml(lineText) + '</span>';
+        } else {
+          forecastHtml = '<span class="live-match-meta forecast-pending">Прогноз ожидает данные: ' + escapeHtml(forecast.reason) + '</span>';
+        }
         return '<button type="button" class="live-match" data-event-id="' + escapeHtml(ev.id) + '">' +
-          '<span class="live-match-title">' + teams + '</span><span class="live-match-meta">' + (details || "Событие получено из LIVE API PARI") + '</span></button>';
+          '<span class="live-match-title">' + teams + '</span><span class="live-match-meta">' + (details || "Событие получено из LIVE API PARI") + '</span>' + forecastHtml + '</button>';
       }).join("") : '<p class="muted">В текущем ответе нет подтверждённых баскетбольных LIVE-матчей.</p>';
       liveList.querySelectorAll(".live-match").forEach(el => el.addEventListener("click", () => {
         const ev = (window.pariLiveEvents || []).find(x => String(x.id) === el.dataset.eventId);
