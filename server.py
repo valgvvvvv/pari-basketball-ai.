@@ -897,6 +897,7 @@ async def _enrich_with_sofascore_live(events):
                 })
             used = set()
             matched = 0
+            ambiguous = 0
             diagnostics = []
             for pari in events:
                 ranked = sorted(
@@ -905,19 +906,31 @@ async def _enrich_with_sofascore_live(events):
                     key=lambda x: x[0], reverse=True,
                 )
                 best = ranked[0] if ranked else None
-                diagnostics.append({
+                diagnostic = {
                     "pari_match": str(pari.get("team1") or "") + " — " + str(pari.get("team2") or ""),
                     "best_external_match": (best[1]["home"] + " — " + best[1]["away"]) if best else None,
                     "best_confidence": round(best[0], 3) if best else None,
                     "external_score": best[1]["score"] if best else None,
                     "external_period": best[1]["period"] if best else None,
                     "external_clock": best[1]["clock"] if best else None,
-                })
-                if not best or best[0] < 0.86 or (len(ranked) > 1 and best[0] - ranked[1][0] < 0.10):
+                    "applied": False,
+                    "rejection_reason": None,
+                }
+                diagnostics.append(diagnostic)
+                if not best:
+                    diagnostic["rejection_reason"] = "no_external_candidate"
+                    continue
+                if best[0] < 0.86:
+                    diagnostic["rejection_reason"] = "both_team_names_not_confirmed"
+                    continue
+                if len(ranked) > 1 and best[0] - ranked[1][0] < 0.10:
+                    diagnostic["rejection_reason"] = "ambiguous_external_candidates"
+                    ambiguous += 1
                     continue
                 row = best[1]
                 row_key = str(row.get("id") or (row["home"] + "|" + row["away"]))
                 if row_key in used:
+                    diagnostic["rejection_reason"] = "external_match_already_assigned"
                     continue
                 direct = team_score(pari.get("team1"), row["home"]) + team_score(pari.get("team2"), row["away"])
                 reverse = team_score(pari.get("team1"), row["away"]) + team_score(pari.get("team2"), row["home"])
@@ -938,12 +951,14 @@ async def _enrich_with_sofascore_live(events):
                     pari["clock"] = row["clock"]
                     pari["clock_source"] = "SportScore"
                 used.add(row_key)
+                diagnostic["applied"] = True
+                diagnostic["accepted_external_match"] = row["home"] + " — " + row["away"]
                 matched += 1
             return {
                 "source": "SportScore (fallback)", "status": "ok" if external_rows else "no_live_events",
                 "live_events": len(external_rows), "matched": matched,
                 "statistics_matches": 0, "statistics_errors": [],
-                "unmatched_pari": max(0, len(events) - matched), "ambiguous": 0,
+                "unmatched_pari": max(0, len(events) - matched), "ambiguous": ambiguous,
                 "match_diagnostics": diagnostics[:30], "errors": errors[:4],
                 "sportscore_errors": sportscore_errors[:5],
                 "sportscore_endpoint_diagnostics": sportscore_raw_counts,
