@@ -478,13 +478,14 @@ async def pari_discover():
 
             bootstrap_scans = []
             chunk_scans = []
-            for bootstrap_url in list(dict.fromkeys(bootstrap_urls))[:1]:
+            # Try all three official PARI static CDN mirrors; a timeout on the primary must not stop discovery.
+            for bootstrap_url in list(dict.fromkeys(bootstrap_urls))[:3]:
                 parsed = urlparse(bootstrap_url)
                 host = (parsed.hostname or "").lower()
                 if parsed.scheme != "https" or not (host.endswith(".pb06e2-resources.ru") or host.endswith(".pb06e2-resources.com")):
                     continue
                 try:
-                    br = await client.get(bootstrap_url)
+                    br = await client.get(bootstrap_url, timeout=httpx.Timeout(14.0, connect=4.0))
                     item = {"url": bootstrap_url, "status": br.status_code,
                             "content_type": br.headers.get("content-type"), "bytes": len(br.content)}
                     if br.status_code == 200:
@@ -566,17 +567,20 @@ async def pari_discover():
                                 chunk_scans.append({"chunk_id": chunk_id, "url": chunk_url, "error": type(exc).__name__})
                         bundle_hints.extend(item["route_hints"])
                     bootstrap_scans.append(item)
+                    if br.status_code == 200:
+                        # One working mirror is enough; avoid downloading identical bundles repeatedly.
+                        break
                 except httpx.HTTPError as exc:
                     bootstrap_scans.append({"url": bootstrap_url, "error": type(exc).__name__})
 
         hints = list(dict.fromkeys(inline_hints + bundle_hints))
         return {
             "ok": any(x.get("status") == 200 for x in pages),
-            "diagnostic_version": 6, "pages": pages,
+            "diagnostic_version": 7, "pages": pages,
             "asset_refs_found": len(asset_refs), "first_party_assets_scanned": len(scanned),
             "scanned_assets": scanned, "bootstrap_scans": bootstrap_scans, "chunk_scans": chunk_scans, "bootstrap_urls_found": len(set(bootstrap_urls)), "inline_route_hints": list(dict.fromkeys(inline_hints))[:100],
             "route_candidates": hints[:200], "confirmed_api": False,
-            "note": "Версия 6 извлекает реальные имена webpack-файлов из runtime-карты и проверяет семантические URL чанков; Версия 4 извлекает публичный bootstrap.js из CDN, указанного конфигурацией PARI, и ищет в нём маршруты/хосты данных. Найденные строки — только кандидаты; API подтверждается проверкой реальных ответов и изменения LIVE-данных."
+            "note": "Версия 7 проверяет до трёх официальных CDN-зеркал PARI с коротким таймаутом на каждое; при успехе скачивает чанки только с первого рабочего зеркала. Она извлекает реальные имена webpack-файлов из runtime-карты и проверяет семантические URL чанков; Версия 4 извлекает публичный bootstrap.js из CDN, указанного конфигурацией PARI, и ищет в нём маршруты/хосты данных. Найденные строки — только кандидаты; API подтверждается проверкой реальных ответов и изменения LIVE-данных."
         }
     except httpx.TimeoutException:
         return {"ok": False, "diagnostic_version": 2, "error": "PARI diagnostic timed out"}
