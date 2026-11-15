@@ -798,10 +798,15 @@ async def _enrich_with_sofascore_live(events):
             for item in payload["events"]
         )
     )
-    if not sofascore_has_scored_events:
-        # A scheduled feed with fixtures but no current score is not a usable LIVE source.
-        # Fall through to SportScore rather than returning matches without a scoreboard.
-        # Use SportScore's public basketball live-score feed as a score-only fallback.
+    # Query SportScore as a complementary source whenever at least one PARI
+    # fixture still lacks a score. A single scored SofaScore event must not disable
+    # fallback enrichment for every other live match.
+    pari_has_missing_scores = any(
+        not (isinstance(event.get("score"), (list, tuple)) and len(event.get("score")) >= 2)
+        for event in events
+    )
+    if (not sofascore_has_scored_events) or pari_has_missing_scores:
+        # Keep SofaScore as a source too; SportScore fills gaps per fixture.
         sportscore_errors = []
         try:
             sport_payloads = []
@@ -900,11 +905,16 @@ async def _enrich_with_sofascore_live(events):
                         hs = hs if hs is not None else score_obj.get("home") or score_obj.get("home_score") or score_obj.get("team1")
                         aws = aws if aws is not None else score_obj.get("away") or score_obj.get("away_score") or score_obj.get("team2")
                 home_points, away_points = score_number(hs), score_number(aws)
-                if home_points is None or away_points is None:
+                score_pair = ([home_points, away_points]
+                              if home_points is not None and away_points is not None else None)
+                # Team fields are objects in some SportScore responses and plain
+                # strings in others. Normalize both without turning dicts into names.
+                home_raw = item.get("home") or item.get("homeTeam") or item.get("home_team") or {}
+                away_raw = item.get("away") or item.get("awayTeam") or item.get("away_team") or {}
+                home_name = str(home_raw.get("name") or home_raw.get("title") or home_raw.get("shortName") or "") if isinstance(home_raw, dict) else str(home_raw)
+                away_name = str(away_raw.get("name") or away_raw.get("title") or away_raw.get("shortName") or "") if isinstance(away_raw, dict) else str(away_raw)
+                if not home_name or not away_name:
                     continue
-                score_pair = [home_points, away_points]
-                home_name = str(item.get("home") or item.get("homeTeam") or "")
-                away_name = str(item.get("away") or item.get("awayTeam") or "")
                 # Women's competitions are intentionally excluded from this project.
                 gender_text = " ".join((home_name, away_name, status_text,
                                         str(item.get("competition") or item.get("league") or ""),
@@ -1128,6 +1138,8 @@ async def _enrich_with_sofascore_live(events):
                 direct = team_score(pari.get("team1"), row["home"]) + team_score(pari.get("team2"), row["away"])
                 reverse = team_score(pari.get("team1"), row["away"]) + team_score(pari.get("team2"), row["home"])
                 ordered_score = row["score"] if direct >= reverse else [row["score"][1], row["score"][0]]
+                if row.get("score") is None:
+                    ordered_score = pari.get("score")
                 pari["external_live"] = {
                     "source": "SportScore", "event_id": row.get("id"),
                     "match": row["home"] + " — " + row["away"],
@@ -1138,7 +1150,7 @@ async def _enrich_with_sofascore_live(events):
                     "clock_detail_source": row.get("detail_source"),
                     "status": row["status"],
                 }
-                if pari.get("score") is None:
+                if pari.get("score") is None and row.get("score") is not None:
                     pari["score"] = ordered_score
                     pari["score_source"] = "SportScore"
                 if pari.get("period") is None and row.get("period") is not None:
