@@ -884,17 +884,27 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                 def repair_team_encoding(value):
                     value = str(value or "")
                     # PARI payload strings are UTF-8 bytes that were decoded as CP1251.
-                    # Re-encode using CP1251 (not Latin-1: Cyrillic characters are outside Latin-1).
-                    for codec in ("cp1251", "latin1"):
+                    for _ in range(2):
                         try:
-                            repaired = value.encode(codec).decode("utf-8")
-                            bad_before = value.count("Р") + value.count("С") + value.count("�")
-                            bad_after = repaired.count("Р") + repaired.count("С") + repaired.count("�")
-                            if bad_after < bad_before:
-                                return repaired
+                            repaired = value.encode("cp1251").decode("utf-8")
                         except (UnicodeEncodeError, UnicodeDecodeError):
-                            continue
+                            break
+                        bad_before = value.count("Р") + value.count("С") + value.count("�")
+                        bad_after = repaired.count("Р") + repaired.count("С") + repaired.count("�")
+                        if bad_after >= bad_before or repaired == value:
+                            break
+                        value = repaired
                     return value
+
+                def repair_nested_encoding(value):
+                    if isinstance(value, str):
+                        return repair_team_encoding(value)
+                    if isinstance(value, list):
+                        return [repair_nested_encoding(item) for item in value]
+                    if isinstance(value, dict):
+                        return {key: repair_nested_encoding(item) for key, item in value.items()}
+                    return value
+
                 for event in all_events:
                     if not isinstance(event, dict):
                         continue
@@ -931,21 +941,32 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         continue
                     filter_counts["accepted_live_roots"] += 1
                     event_id = event.get("id")
+                    related_rows = collect_related_event_rows(event_id)
+                    repaired_raw = repair_nested_encoding(event)
+                    repaired_related_rows = repair_nested_encoding(related_rows)
+                    period_value = event.get("period") or event.get("periodName")
+                    if period_value is None:
+                        for child_row in repaired_related_rows:
+                            child_name = str(child_row.get("name", ""))
+                            quarter_match = re.search(r"(?:^|\\D)([1-4])\\s*[-–.]?\\s*(?:я|ая)?\\s*(?:четверть|четверт)", child_name.lower())
+                            if quarter_match:
+                                period_value = int(quarter_match.group(1))
+                                break
                     basketball.append({
                         "id": str(event_id) if event_id is not None else "",
                         "team1": repair_team_encoding(event.get("team1") or event.get("team1Name") or ""),
                         "team2": repair_team_encoding(event.get("team2") or event.get("team2Name") or ""),
                         "sport_id": str(event.get("sportId")),
                         "classification": "catalogue_resolved",
-                        "sport_name": sport_names.get(str(event.get("sportId")), ""),
+                        "sport_name": repair_team_encoding(sport_names.get(str(event.get("sportId")), "")),
                         "status": "live",
                         "league": repair_team_encoding(event.get("name") or event.get("competitionName") or ""),
                         "start_time": event.get("startTime"),
                         "score": event.get("score") or event.get("scoreInfo"),
-                        "period": event.get("period") or event.get("periodName"),
+                        "period": period_value,
                         "clock": event.get("time") or event.get("timer"),
                         "statistics_types": event.get("statisticsTypes"),
-                        "live_fields": {
+                        "live_fields": repair_nested_encoding({
                             key: value for key, value in event.items()
                             if any(token in key.lower() for token in (
                                 "score", "period", "quarter", "clock", "timer", "time",
@@ -953,10 +974,10 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 "point", "rebound", "assist", "attempt", "throw", "possession",
                                 "percent", "three", "two", "free"
                             ))
-                        },
-                        # Full root + child rows are retained for downstream parsing.
-                        "raw": event,
-                        "related_events": collect_related_event_rows(event_id),
+                        }),
+                        # Keep source hierarchy, repairing only text encoding; numeric source values remain untouched.
+                        "raw": repaired_raw,
+                        "related_events": repaired_related_rows,
                         "factors": factor_map.get(str(event_id), []),
                         "related_factors": [
                             factor
