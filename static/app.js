@@ -168,17 +168,18 @@ async function refreshLiveMatches() {
       liveBadge.className = "pill " + (count ? "success" : "warn");
     }
     if (liveMessage) liveMessage.textContent = count
-      ? "Получен ответ PARI: " + data.total_events + " событий всего, " + count + " баскетбольных событий по sportId 15872/15873."
-      : "API PARI отвечает (" + data.total_events + " событий), но по текущей карте sportId 15872/15873 баскетбольные матчи не найдены. Нужна сверка категорий.";
+      ? "Получен свежий ответ PARI: " + data.total_events + " событий всего, " + count + " LIVE-матчей по подтверждённым баскетбольным sportId."
+      : "API PARI отвечает (" + data.total_events + " событий), но сейчас нет LIVE-событий по подтверждённым баскетбольным sportId. Проверяем каталог остальных лиг.";
     if (liveUpdated) liveUpdated.textContent = "Обновлено: " + new Date(data.checked_at_utc).toLocaleTimeString("ru-RU") + " · " + (data.attempts?.[0]?.host || "PARI");
     if (liveList) {
       liveList.innerHTML = count ? data.events.map(ev => {
         const teams = escapeHtml(ev.team1 || "Команда 1") + " — " + escapeHtml(ev.team2 || "Команда 2");
         const score = eventScore(ev);
-        const details = [ev.league, score, ev.period, ev.clock].filter(Boolean).map(escapeHtml).join(" · ");
+        const totalMarkets = (ev.match_total_candidates || []).map(f => f.pt ? ("Тотал " + f.pt + " @ " + f.v) : ("Коэф. " + f.v));
+        const details = [ev.league, score, ev.period, ev.clock, ...totalMarkets].filter(Boolean).map(escapeHtml).join(" · ");
         return '<button type="button" class="live-match" data-home="' + escapeHtml(ev.team1) + '" data-away="' + escapeHtml(ev.team2) + '">' +
           '<span class="live-match-title">' + teams + '</span><span class="live-match-meta">' + (details || "Событие получено из LIVE API PARI") + '</span></button>';
-      }).join("") : '<p class="muted">В ответе пока нет матчей с распознанным баскетбольным sportId.</p>';
+      }).join("") : '<p class="muted">В текущем ответе нет подтверждённых баскетбольных LIVE-матчей.</p>';
       liveList.querySelectorAll(".live-match").forEach(el => el.addEventListener("click", () => {
         $("team1").value = el.dataset.home || "";
         $("team2").value = el.dataset.away || "";
