@@ -681,11 +681,12 @@ async def pari_discover():
 @app.get("/api/pari/live")
 async def pari_live_events():
     from urllib.parse import urljoin
+    # Try the host that most recently returned a valid feed first.
     hosts = [
+        "https://line-lb51-w.pb06e2-resources.com",
+        "https://line-lb01-w.pb06e2-resources.com",
         "https://line-vk01-w.pb06e2-resources.ru",
         "https://line-vk02-w.pb06e2-resources.ru",
-        "https://line-lb01-w.pb06e2-resources.com",
-        "https://line-lb51-w.pb06e2-resources.com",
     ]
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
@@ -697,17 +698,26 @@ async def pari_live_events():
     }
     attempts = []
     async with httpx.AsyncClient(
-        timeout=httpx.Timeout(12.0, connect=6.0),
+        timeout=httpx.Timeout(22.0, connect=12.0),
         follow_redirects=True,
         headers=headers,
     ) as client:
         for host in hosts:
             url = host + "/events/list"
             try:
-                response = await client.get(
-                    url,
-                    params={"lang": "ru", "scopeMarket": "2300"},
-                )
+                response = None
+                # Retry the primary host once on transient transport failure.
+                retries = 2 if host == hosts[0] else 1
+                for attempt_no in range(retries):
+                    try:
+                        response = await client.get(
+                            url,
+                            params={"lang": "ru", "scopeMarket": "2300"},
+                        )
+                        break
+                    except httpx.HTTPError:
+                        if attempt_no + 1 >= retries:
+                            raise
                 item = {"host": host, "status": response.status_code}
                 if response.status_code != 200:
                     item["error"] = "HTTP response is not 200"
