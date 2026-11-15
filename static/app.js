@@ -237,6 +237,7 @@ function showSelectedMatch(ev){
   const externalStatsHtml=externalStats.length?'<details class="source-statistics" open><summary>Статистика матча · SofaScore ('+externalStats.length+')</summary>'+externalStats.map(st=>'<p><b>'+escapeHtml(st.group||"Статистика")+'</b> · '+escapeHtml(st.name||"Показатель")+': '+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+'</p>').join("")+'</details>':"";
   const statsText=[...new Set(stats)].slice(0,24);
   const rootLines=fmtFactors(rootFactors);
+  const allMarketLines=matchLines.map(x=>"линия "+x.line+" · ID "+x.factorId+(x.odds?" · кэф. "+x.odds:"")+(x.stale?" · последняя полученная, не текущая":""));
   const groupHtml=quarterGroups.map(g=>{
     const label=g.name||("Дочерняя строка "+(g.event_id||"PARI"));
     const lines=fmtFactors(g.factors);
@@ -246,11 +247,11 @@ function showSelectedMatch(ev){
   $("selectedMatchInfo").textContent="Счёт: "+(score?score.join(" : "):"не найден")+" · Четверть: "+(period||"не определена")+" · Время: "+(clock||"не найден")+" · Источник счёта: "+(score?(ev.score_source||"PARI"):"не получен")+" · Источник времени: "+(clock?(ev.clock_source||"PARI"):"не получен")+" · Рынков-факторов: "+new Set([...(ev.factors||[]),...(ev.related_factors||[])].map(x=>String(x.f)+"|"+String(x.pt||x.p||"")+"|"+String(x.v||""))).size;
   $("matchForecast").innerHTML=
     '<p><b>Факторы в основной строке матча PARI</b></p>'+
-    '<p class="muted">'+(rootLines.length?rootLines.map(escapeHtml).join("<br>"):"В основной строке нет факторов ID 930/931.")+'</p>'+
+    '<p class="muted">'+(rootLines.length?rootLines.map(escapeHtml).join("<br>"):(allMarketLines.length?"В основной строке факторов нет; найдено в иерархии/локальной истории: "+allMarketLines.map(escapeHtml).join(" · "):"В текущем ответе PARI нет факторов ID 930/931."))+'</p>'+
     '<p class="muted">Это пока не подтверждённая расшифровка типа рынка: ID фактора и линия показываются как получены от PARI.</p>'+
     '<p class="muted">'+(score&&period&&clock?"Счёт, четверть и таймер доступны.":"Расчёт темпа заблокирован: нет подтверждённого счёта и/или таймера.")+'</p>'+
     (paceEstimate?'<p><b>Предварительная оценка полного тотала по текущему темпу:</b> '+paceEstimate.projection+' очка · ориентировочный диапазон '+paceEstimate.low+'–'+paceEstimate.high+' · сыграно около '+paceEstimate.elapsed+' мин. Это оценка темпа, не обученный прогноз.</p>':'<p class="muted">Оценка пока недоступна: нужны подтверждённые счёт, четверть, таймер и длительность периода. Формат и время не подставляются наугад.</p>')+
-    (paceEstimate && matchLines.length ? '<p><b>Направление относительно линий PARI:</b> '+matchLines.map(x=>(paceEstimate.projection>x.line?'ТБ ':'ТМ ')+x.line+' (ориентир '+paceEstimate.projection+')').map(escapeHtml).join(' · ')+'</p>' : '<p class="muted">'+(matchLines.length?'Линия найдена, но данных для сравнения пока недостаточно.':'Линии полного тотала 930/931 не найдены в основной строке PARI.')+'</p>');
+    (paceEstimate && matchLines.length ? '<p><b>Направление относительно линий PARI:</b> '+matchLines.map(x=>(paceEstimate.projection>x.line?'ТБ ':'ТМ ')+x.line+' (ориентир '+paceEstimate.projection+')'+(x.stale?' · линия не текущая':'' )).map(escapeHtml).join(' · ')+'</p>' : '<p class="muted">'+(matchLines.length?'Линия найдена, но данных для сравнения пока недостаточно.':'В текущем ответе и локальной истории нет линии полного тотала 930/931.')+'</p>');
   const quarterEstimate=automaticQuarterForecast(ev);
   $("quarterForecast").innerHTML=
     '<p><b>Текущая четверть:</b> '+(period||"не определена")+'</p>'+
@@ -312,8 +313,20 @@ function findPeriodLengthSeconds(ev) {
 }
 
 function getMatchTotalLines(ev) {
-  const factors = [...(Array.isArray(ev.match_total_candidates) ? ev.match_total_candidates : []),
-    ...(Array.isArray(ev.factors) ? ev.factors.filter(x => x && ["930","931"].includes(String(x.f))) : [])];
+  const factors = [];
+  const add = value => {
+    if (Array.isArray(value)) { for (const item of value) add(item); return; }
+    if (!value || typeof value !== "object") return;
+    if (["930","931"].includes(String(value.f))) factors.push(value);
+    for (const [key, child] of Object.entries(value)) {
+      if (["factors","markets","customFactors","match_total_candidates","related_factors"].includes(key)) add(child);
+    }
+  };
+  add(ev.match_total_candidates);
+  add(ev.factors);
+  add(ev.related_factors);
+  add(ev.related_factor_groups);
+  add(ev.related_events);
   const seen = new Set(), lines = [];
   for (const factor of factors) {
     const line = factor.pt != null ? Number(factor.pt) : (factor.p != null ? Number(factor.p)/100 : NaN);
@@ -321,9 +334,22 @@ function getMatchTotalLines(ev) {
     const key = line.toFixed(2);
     if (seen.has(key)) continue;
     seen.add(key);
-    lines.push({line, odds: factor.v == null ? null : String(factor.v), factorId:String(factor.f)});
+    lines.push({line, odds: factor.v == null ? null : String(factor.v), factorId:String(factor.f), source:"PARI"});
   }
-  return lines.sort((a,b)=>a.line-b.line);
+  // PARI can temporarily omit suspended markets late in a quarter. Keep the
+  // last verified line for this exact event in this browser, visibly marked stale.
+  const cacheKey = "pari-total-lines-v1:" + String(ev.id || "");
+  try {
+    if (lines.length) {
+      localStorage.setItem(cacheKey, JSON.stringify({savedAt:Date.now(), lines}));
+      return lines.sort((a,b)=>a.line-b.line);
+    }
+    const cached = JSON.parse(localStorage.getItem(cacheKey) || "null");
+    if (cached && Array.isArray(cached.lines) && Date.now()-Number(cached.savedAt) < 6*60*60*1000) {
+      return cached.lines.map(x=>({...x,source:"PARI · последняя полученная линия",stale:true}));
+    }
+  } catch (_) {}
+  return lines;
 }
 
 function automaticForecast(ev) {
