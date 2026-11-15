@@ -791,7 +791,7 @@ async def pari_live_events():
                     "checked_at_utc": datetime.now(timezone.utc).isoformat(),
                     "total_events": len(all_events),
                     "basketball_events": len(basketball),
-                    "sport_ids": sport_ids,
+                    "sport_ids_sample": sport_ids[:40],
                     "sport_id_count": len(sport_ids),
                     "sport_id_counts_top": sorted(
                         [{"sport_id": k, "events": v} for k, v in sport_id_counts.items()],
