@@ -74,6 +74,19 @@ qForm.addEventListener("submit", async e => {
 
 // Public PARI asset/API discovery. This is diagnostic only; it does not claim that a feed is connected.
 const discoverSourceButton = $("discoverSource");
+const copySourceDiagnosticButton = $("copySourceDiagnostic");
+let lastSourceDiagnostic = "";
+if (copySourceDiagnosticButton) {
+  copySourceDiagnosticButton.addEventListener("click", async () => {
+    if (!lastSourceDiagnostic) return;
+    try {
+      await navigator.clipboard.writeText(lastSourceDiagnostic);
+      copySourceDiagnosticButton.textContent = "Отчёт скопирован";
+    } catch (_) {
+      copySourceDiagnosticButton.textContent = "Не удалось скопировать";
+    }
+  });
+}
 if (discoverSourceButton) {
   discoverSourceButton.addEventListener("click", async () => {
     discoverSourceButton.disabled = true;
@@ -85,7 +98,28 @@ if (discoverSourceButton) {
       if (!response.ok || !data.ok) throw new Error(data.error || "Источник не ответил");
       const count = (data.route_candidates || []).length;
       $("sourceDiscoverStatus").textContent = `Проверено JS-чанков: ${(data.chunk_scans || []).length}; рабочих CDN-зеркал: ${(data.bootstrap_scans || []).filter(x => x.status === 200).length}; кандидатов маршрутов: ${count}. API пока не подтверждён.`;
-      $("sourceDiscoverOutput").textContent = JSON.stringify(data, null, 2);
+      const compact = {
+        diagnostic_version: data.diagnostic_version,
+        pages: (data.pages || []).map(x => ({requested_url:x.requested_url,status:x.status,error:x.error,bytes:x.bytes})),
+        bootstrap_scans: (data.bootstrap_scans || []).map(x => ({url:x.url,status:x.status,error:x.error,bytes:x.bytes,host_hints:x.host_hints,api_path_hints:(x.api_path_hints||[]).slice(0,35)})),
+        chunk_scans: (data.chunk_scans || []).map(x => ({
+          chunk_id:x.chunk_id,status:x.status,error:x.error,url:x.url,bytes:x.bytes,
+          data_model_keyword_counts:x.data_model_keyword_counts,
+          api_path_hints:(x.api_path_hints||[]).slice(0,35),
+          data_model_context_windows:(x.data_model_context_windows||[]).slice(0,8),
+          api_context_windows:(x.api_context_windows||[]).slice(0,8),
+          request_string_hints:(x.request_string_hints||[]).slice(0,45)
+        })),
+        route_candidates:(data.route_candidates||[]).slice(0,80),
+        confirmed_api:data.confirmed_api,
+        note:data.note
+      };
+      lastSourceDiagnostic = JSON.stringify(compact, null, 2);
+      $("sourceDiscoverOutput").textContent = lastSourceDiagnostic;
+      if (copySourceDiagnosticButton) {
+        copySourceDiagnosticButton.disabled = false;
+        copySourceDiagnosticButton.textContent = "Скопировать отчёт";
+      }
     } catch (error) {
       $("sourceDiscoverStatus").textContent = "Не удалось выполнить поиск: " + (error.message || "ошибка");
     } finally {
