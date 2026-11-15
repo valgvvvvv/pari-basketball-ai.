@@ -50,5 +50,17 @@
     <footer><span>PARI Basketball AI · MVP 0.1</span><span>Аналитический инструмент. Вероятности не гарантируют результат.</span></footer>
   </main>
 </div>
-<script src="/static/app.js?v=20261115-3"></script>
+<script>
+window.addEventListener("error", function(event) {
+  var message = document.getElementById("liveFeedMessage");
+  var updated = document.getElementById("liveFeedUpdated");
+  if (message) message.textContent = "Ошибка JavaScript: " + (event.message || "неизвестная ошибка") + (event.filename ? " · " + event.filename.split("/").pop() + ":" + event.lineno : "");
+  if (updated) updated.textContent = "Скрипт страницы завершился с ошибкой";
+});
+window.addEventListener("unhandledrejection", function(event) {
+  var message = document.getElementById("liveFeedMessage");
+  if (message) message.textContent = "Ошибка выполнения страницы: " + String(event.reason || "неизвестная ошибка");
+});
+</script>
+<script src="/static/app.js?v=20261115-4" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
 </body></html>
