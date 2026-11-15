@@ -761,10 +761,12 @@ async def pari_live_events(catalog_only: bool = False):
                                            if value and isinstance(value[0], dict) else []}
                     return {"scalar_fields": scalar, "nested_fields": nested}
                 sport_id_counts = {}
+                events_by_sport = {}
                 for event in all_events:
                     if isinstance(event, dict) and event.get("sportId") is not None:
                         sid = str(event.get("sportId"))
                         sport_id_counts[sid] = sport_id_counts.get(sid, 0) + 1
+                        events_by_sport.setdefault(sid, []).append(event)
                 # Resolve sportId dynamically from PARI's own sports catalogue.
                 # The live feed may omit it, so use listBase as a cached metadata source.
                 sports_meta = payload.get("sports", []) if isinstance(payload, dict) else []
@@ -931,10 +933,8 @@ async def pari_live_events(catalog_only: bool = False):
                 sport_catalog = []
                 for sid in top_sport_ids:
                     roots = [
-                        e for e in all_events
-                        if isinstance(e, dict)
-                        and str(e.get("sportId", "")) == sid
-                        and (e.get("level") == 1 or e.get("parentId") is None)
+                        e for e in events_by_sport.get(sid, [])
+                        if (e.get("level") == 1 or e.get("parentId") is None)
                         and (e.get("team1") or e.get("team2"))
                     ]
                     live_roots = [e for e in roots if str(e.get("place", "")).lower() == "live"]
