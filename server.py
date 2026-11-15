@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional
-import math, random, os, hashlib, re, asyncio
+import math, random, os, hashlib, re, asyncio, json
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from html import unescape
@@ -847,18 +847,24 @@ async def _enrich_with_sofascore_live(events):
             for item in matches:
                 if not isinstance(item, dict):
                     continue
-                # Combine status fields and explicitly reject completed fixtures.
-                # The widget endpoint also returns recent finished games.
-                status_text = " ".join(str(item.get(key) or "") for key in
-                                        ("status", "status_text", "state", "match_status")).casefold().strip()
+                # Widget feed contains recent finals. Accept only explicit in-play
+                # states or a clearly identified active period; reject terminal states first.
+                status_values = [item.get(key) for key in
+                                 ("status", "status_text", "state", "match_status", "statusName")]
+                status_text = " ".join(str(value) for value in status_values if value is not None).casefold().strip()
+                status_compact = re.sub(r"[^a-z0-9]+", "", status_text)
                 terminal_tokens = ("finished", "completed", "ended", "full time", "fulltime",
-                                   "after overtime", "cancelled", "canceled", "postponed", "abandoned")
+                                   "after overtime", "cancelled", "canceled", "postponed", "abandoned",
+                                   "завершен", "завершён", "окончен", "отменен", "отменён")
                 if any(token in status_text for token in terminal_tokens):
                     continue
-                live_tokens = ("live", "in progress", "in_progress", "inprogress",
-                               "period", "quarter", "q1", "q2", "q3", "q4",
-                               "half time", "halftime", "1st", "2nd", "3rd", "4th")
-                if not any(token in status_text for token in live_tokens):
+                explicit_live = any(token in status_compact for token in
+                                    ("live", "inprogress", "playing", "halftime", "интервал"))
+                period_live = bool(re.search(
+                    r"(?:\bq[1-4]\b|\b[1-4](?:st|nd|rd|th)\s+quarter\b|\bquarter\s*[1-4]\b|\bperiod\s*[1-4]\b|[1-4]\s*четверт)",
+                    status_text, re.I
+                ))
+                if not (explicit_live or period_live):
                     continue
                 hs, aws = item.get("home_score"), item.get("away_score")
                 try:
@@ -867,10 +873,18 @@ async def _enrich_with_sofascore_live(events):
                     score_pair = [int(float(hs)), int(float(aws))]
                 except (TypeError, ValueError, OverflowError):
                     continue
-                status_label = str(item.get("status_text") or item.get("status") or "")
-                period_match = re.search(r"(?:q|quarter|period|четверть)\s*([1-4])|([1-4])(?:st|nd|rd|th)\s*quarter", status_label, re.I)
+                status_label = " ".join(str(item.get(key) or "") for key in
+                                         ("status_text", "status", "state", "time", "period", "quarter"))
+                period_match = re.search(
+                    r"(?:\bq|quarter|period|четверть)\s*([1-4])|\b([1-4])(?:st|nd|rd|th)\s*quarter",
+                    status_label, re.I
+                )
                 period = int(period_match.group(1) or period_match.group(2)) if period_match else None
-                clock_match = re.search(r"\b(\d{1,2}):([0-5]\d)\b", status_label)
+                if period is None and str(item.get("period") or "").isdigit():
+                    candidate_period = int(item["period"])
+                    period = candidate_period if 1 <= candidate_period <= 4 else None
+                clock_value = " ".join(str(item.get(key) or "") for key in ("time", "clock", "status_text", "status"))
+                clock_match = re.search(r"\b(\d{1,2}):([0-5]\d)\b", clock_value)
                 clock = (clock_match.group(1).zfill(2) + ":" + clock_match.group(2)) if clock_match else None
                 external_rows.append({
                     "home": str(item.get("home") or ""),
@@ -934,7 +948,13 @@ async def _enrich_with_sofascore_live(events):
                 "sportscore_errors": sportscore_errors[:5],
                 "sportscore_endpoint_diagnostics": sportscore_raw_counts,
                 "sportscore_status_samples": sportscore_status_samples[:16],
-                "note": "Счёт берётся из SportScore только при однозначном совпадении команд; статистика и игровые часы не выдумываются. Проверяются live/recent widget и отдельный дневной fixtures endpoint.",
+                "sportscore_live_rows_after_filter": len(external_rows),
+                "sportscore_live_match_samples": [
+                    {"home": row["home"], "away": row["away"], "status": row["status"],
+                     "period": row["period"], "score": row["score"]}
+                    for row in external_rows[:12]
+                ],
+                "note": "Счёт берётся из SportScore только при однозначном совпадении обеих команд и уникальном матче; завершённые игры исключаются. Статистика и часы не выдумываются.",
             }
         except Exception as exc:
             sportscore_errors.append(type(exc).__name__)
@@ -1240,9 +1260,9 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     attempts.append(item)
                     continue
                 try:
-                    payload = response.json()
+                    payload = json.loads((response.content or b"").decode("utf-8-sig"))
                 except Exception as exc:
-                    item["error"] = "Response is not JSON: " + type(exc).__name__
+                    item["error"] = "Response is not UTF-8 JSON: " + type(exc).__name__
                     item["body_preview"] = (response.text or "")[:320]
                     attempts.append(item)
                     continue
@@ -1410,15 +1430,20 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                 candidate_live_examples = []
                 def repair_team_encoding(value):
                     value = str(value or "")
-                    # PARI payload strings are UTF-8 bytes that were decoded as CP1251.
-                    for _ in range(2):
+                    # Recover UTF-8 Cyrillic that was decoded as CP1251/Latin-1 upstream.
+                    # Only accept a conversion when typical mojibake markers decrease.
+                    markers = ("Р", "С", "Ð", "Ñ", "вЂ", "â€", "�")
+                    for _ in range(3):
                         try:
                             repaired = value.encode("cp1251").decode("utf-8")
                         except (UnicodeEncodeError, UnicodeDecodeError):
-                            break
-                        bad_before = value.count("Р") + value.count("С") + value.count("�")
-                        bad_after = repaired.count("Р") + repaired.count("С") + repaired.count("�")
-                        if bad_after >= bad_before or repaired == value:
+                            try:
+                                repaired = value.encode("latin1").decode("utf-8")
+                            except (UnicodeEncodeError, UnicodeDecodeError):
+                                break
+                        before = sum(value.count(marker) for marker in markers)
+                        after = sum(repaired.count(marker) for marker in markers)
+                        if repaired == value or after >= before:
                             break
                         value = repaired
                     return value
@@ -1450,10 +1475,11 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             })
                         continue
                     filter_counts["sport_id_in_basketball_catalogue"] += 1
-                    team_text = " ".join(str(event.get(k, "")) for k in ("team1", "team2")).lower()
+                    team_text = " ".join(repair_team_encoding(event.get(k, "")) for k in ("team1", "team2")).lower()
                     competition_text = " ".join([
-                        str(event.get("name", "")), str(event.get("competitionName", "")),
-                        sport_names.get(sid, "")
+                        repair_team_encoding(event.get("name", "")),
+                        repair_team_encoding(event.get("competitionName", "")),
+                        repair_team_encoding(sport_names.get(sid, ""))
                     ]).lower()
                     if any(marker in competition_text or marker in team_text for marker in excluded_markers):
                         filter_counts["excluded_by_name"] += 1
