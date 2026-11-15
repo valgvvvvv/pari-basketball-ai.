@@ -209,7 +209,7 @@ async def pari_source_check():
         received_at = datetime.now(timezone.utc)
         body = response.text
         title_match = re.search(r"<title[^>]*>(.*?)</title>", body, re.I | re.S)
-        title = re.sub(r"\\s+", " ", title_match.group(1)).strip()[:180] if title_match else None
+        title = re.sub(r"\s+", " ", title_match.group(1)).strip()[:180] if title_match else None
         class _TextOnly(HTMLParser):
             def __init__(self):
                 super().__init__()
@@ -226,9 +226,9 @@ async def pari_source_check():
                     self.parts.append(data.strip())
         parser = _TextOnly()
         parser.feed(body)
-        visible_text = re.sub(r"\\s+", " ", unescape(" ".join(parser.parts))).strip()
-        script_sources = re.findall(r'<script[^>]+src=["\\']([^"\\']+)', body, re.I)[:12]
-        score_time_patterns = len(re.findall(r"(?<!\\d)\\d{1,2}:\\d{2}(?!\\d)", visible_text))
+        visible_text = re.sub(r"\s+", " ", unescape(" ".join(parser.parts))).strip()
+        script_sources = re.findall(r'<script[^>]+src="([^"]+)"', body, re.I)[:12]
+        score_time_patterns = len(re.findall(r"(?<!\d)\d{1,2}:\d{2}(?!\d)", visible_text))
         age_header = response.headers.get("age")
         age_seconds = int(age_header) if age_header and age_header.isdigit() else None
         date_header = response.headers.get("date")
