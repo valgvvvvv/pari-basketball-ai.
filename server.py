@@ -873,8 +873,16 @@ async def _enrich_with_sofascore_live(events):
                     score_pair = [int(float(hs)), int(float(aws))]
                 except (TypeError, ValueError, OverflowError):
                     continue
+                home_name = str(item.get("home") or item.get("homeTeam") or "")
+                away_name = str(item.get("away") or item.get("awayTeam") or "")
+                # Women's competitions are intentionally excluded from this project.
+                gender_text = " ".join((home_name, away_name, status_text,
+                                        str(item.get("competition") or item.get("league") or ""),
+                                        str(item.get("tournament") or ""))).casefold()
+                if re.search(r"\b(women|woman|female|ladies|girls|wbb|womens|u\s*\d+\s*girls)\b|женск|девуш", gender_text):
+                    continue
                 status_label = " ".join(str(item.get(key) or "") for key in
-                                         ("status_text", "status", "state", "time", "period", "quarter"))
+                                         ("status_text", "status", "state", "period", "quarter"))
                 period_match = re.search(
                     r"(?:\bq|quarter|period|четверть)\s*([1-4])|\b([1-4])(?:st|nd|rd|th)\s*quarter",
                     status_label, re.I
@@ -883,12 +891,22 @@ async def _enrich_with_sofascore_live(events):
                 if period is None and str(item.get("period") or "").isdigit():
                     candidate_period = int(item["period"])
                     period = candidate_period if 1 <= candidate_period <= 4 else None
-                clock_value = " ".join(str(item.get(key) or "") for key in ("time", "clock", "status_text", "status"))
+                # Only parse actual countdown fields. Never read HH:MM from ISO dates,
+                # kickoff timestamps, or status text as a game clock.
+                clock_value = " ".join(str(item.get(key) or "") for key in
+                                       ("clock", "timer", "time_remaining", "countdown"))
+                if not clock_value:
+                    clock_value = str(item.get("status_text") or "")
+                clock_value = re.sub(r"\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b", " ", clock_value)
                 clock_match = re.search(r"\b(\d{1,2}):([0-5]\d)\b", clock_value)
-                clock = (clock_match.group(1).zfill(2) + ":" + clock_match.group(2)) if clock_match else None
+                clock = None
+                if clock_match:
+                    candidate_clock = int(clock_match.group(1)) * 60 + int(clock_match.group(2))
+                    if candidate_clock <= 15 * 60:
+                        clock = f"{candidate_clock // 60:02d}:{candidate_clock % 60:02d}"
                 external_rows.append({
-                    "home": str(item.get("home") or ""),
-                    "away": str(item.get("away") or ""),
+                    "home": home_name,
+                    "away": away_name,
                     "score": score_pair,
                     "period": period,
                     "clock": clock,
@@ -957,6 +975,8 @@ async def _enrich_with_sofascore_live(events):
             return {
                 "source": "SportScore (fallback)", "status": "ok" if external_rows else "no_live_events",
                 "live_events": len(external_rows), "matched": matched,
+                "live_events_excludes_women": True,
+                "clock_policy": "Only explicit countdown fields or a valid MM:SS in status_text; timestamps are ignored; values above 15:00 are rejected.",
                 "statistics_matches": 0, "statistics_errors": [],
                 "unmatched_pari": max(0, len(events) - matched), "ambiguous": ambiguous,
                 "match_diagnostics": diagnostics[:30], "errors": errors[:4],
