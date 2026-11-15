@@ -1009,13 +1009,13 @@ async def _enrich_with_sofascore_live(events):
                     if not isinstance(ss_time, dict): ss_time = {}
                     ss_desc = str(ss_status.get("description") or ss_status.get("code") or "")
                     ss_period_value = ss_item.get("lastPeriod") or ss_status.get("period") or ss_desc
-                    ss_pm = re.search(r"(?:q|quarter|period|период|четверть)\\s*([1-4])|period([1-4])", str(ss_period_value), re.I)
+                    ss_pm = re.search(r"(?:q|quarter|period|период|четверть)\s*([1-4])|period([1-4])", str(ss_period_value), re.I)
                     ss_period = int(ss_pm.group(1) or ss_pm.group(2)) if ss_pm else None
                     ss_clock = None
                     for ss_key in ("currentPeriodTime", "clock", "timer", "timeRemaining", "periodTime"):
                         ss_value = ss_time.get(ss_key, ss_item.get(ss_key))
                         if ss_value is not None:
-                            ss_match = re.search(r"(\\d{1,2}):([0-5]\\d)", str(ss_value))
+                            ss_match = re.search(r"(\d{1,2}):([0-5]\d)", str(ss_value))
                             if ss_match:
                                 ss_clock = ss_match.group(1).zfill(2) + ":" + ss_match.group(2)
                                 break
@@ -1210,7 +1210,7 @@ async def _enrich_with_sofascore_live(events):
                     continue
                 direct = team_score(pari.get("team1"), row["home"]) + team_score(pari.get("team2"), row["away"])
                 reverse = team_score(pari.get("team1"), row["away"]) + team_score(pari.get("team2"), row["home"])
-                ordered_score = row["score"] if direct >= reverse else [row["score"][1], row["score"][0]]
+                ordered_score = (row["score"] if direct >= reverse else [row["score"][1], row["score"][0]]) if row.get("score") is not None else pari.get("score")
                 if row.get("score") is None:
                     ordered_score = pari.get("score")
                 pari["external_live"] = {
