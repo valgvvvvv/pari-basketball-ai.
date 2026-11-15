@@ -353,16 +353,17 @@ function getMatchTotalLines(ev) {
 }
 
 function automaticForecast(ev) {
+  // Capture market lines on every refresh, even when the timer is missing.
+  const lines=getMatchTotalLines(ev);
   const score=findLiveScore(ev), period=findLivePeriod(ev), clock=findLiveClock(ev);
   const periodLength=findPeriodLengthSeconds(ev), missing=[];
   if (!score) missing.push("счёт");
   if (!period) missing.push("четверть");
   if (!clock) missing.push("таймер");
   if (!periodLength) missing.push("длительность четверти");
-  if (missing.length) return {ready:false,reason:"Нет подтверждённых данных: "+missing.join(", ")};
+  if (missing.length) return {ready:false,reason:"Нет подтверждённых данных: "+missing.join(", "),lines};
   const estimate=estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength}},score,period,clock);
-  if (!estimate) return {ready:false,reason:"Не удалось безопасно рассчитать игровое время"};
-  const lines=getMatchTotalLines(ev);
+  if (!estimate) return {ready:false,reason:"Не удалось безопасно рассчитать игровое время",lines};
   return {ready:true,estimate,lines,message:"Темп рассчитан; линия матча PARI не найдена"};
 }
 
