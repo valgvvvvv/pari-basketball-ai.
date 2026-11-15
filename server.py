@@ -917,6 +917,22 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     "live_only": True,
                     "sport_ids": sport_ids,
                 })
+                # The regular LIVE endpoint must stay lightweight. Full per-sport
+                # catalogue diagnostics are only needed by the explicit catalog_only
+                # diagnostic request, never by every phone refresh.
+                if not catalog_only:
+                    return {
+                        "ok": True,
+                        "connected": True,
+                        "source": url + "?lang=ru&scopeMarket=2300",
+                        "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+                        "total_events": len(all_events),
+                        "basketball_events": len(basketball),
+                        "events": basketball,
+                        "attempts": attempts,
+                        "note": "LIVE basketball events resolved from PARI sports catalogue; women, esports, virtual and 3x3 excluded.",
+                    }
+
                 # Sample root match records across the most common sport IDs.
                 # The feed is hierarchical: level 1 rows are match/event roots;
                 # lower levels are periods and markets, not separate matches.
