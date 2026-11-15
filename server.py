@@ -583,6 +583,9 @@ async def pari_discover():
             "note": "Версия 7 проверяет до трёх официальных CDN-зеркал PARI с коротким таймаутом на каждое; при успехе скачивает чанки только с первого рабочего зеркала. Она извлекает реальные имена webpack-файлов из runtime-карты и проверяет семантические URL чанков; Версия 4 извлекает публичный bootstrap.js из CDN, указанного конфигурацией PARI, и ищет в нём маршруты/хосты данных. Найденные строки — только кандидаты; API подтверждается проверкой реальных ответов и изменения LIVE-данных."
         }
     except httpx.TimeoutException:
-        return {"ok": False, "diagnostic_version": 2, "error": "PARI diagnostic timed out"}
+        return {"ok": False, "diagnostic_version": 7, "error": "PARI diagnostic timed out", "checked_at_utc": datetime.now(timezone.utc).isoformat()}
     except httpx.HTTPError as exc:
-        return {"ok": False, "diagnostic_version": 2, "error": type(exc).__name__}
+        return {"ok": False, "diagnostic_version": 7, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
+    except Exception as exc:
+        # Keep the diagnostic response machine-readable instead of returning an opaque 500.
+        return {"ok": False, "diagnostic_version": 7, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
