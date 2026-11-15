@@ -141,6 +141,43 @@ if (discoverSourceButton) {
   });
 }
 
+
+function parseScore(value){
+  if(value==null)return null;
+  if(typeof value==="object"){
+    const a=Number(value.team1??value.home??value.score1);
+    const b=Number(value.team2??value.away??value.score2);
+    if(Number.isFinite(a)&&Number.isFinite(b))return [a,b];
+    value=JSON.stringify(value);
+  }
+  const m=String(value).match(/(\d{1,3})\s*[:\-]\s*(\d{1,3})/);
+  return m?[Number(m[1]),Number(m[2])]:null;
+}
+function parsePeriod(value){const m=String(value??"").match(/([1-4])/);return m?Number(m[1]):null;}
+function parseClock(value){const m=String(value??"").match(/(\d{1,2}):([0-5]\d)/);return m?m[1].padStart(2,"0")+":"+m[2]:null;}
+function showSelectedMatch(ev){
+  const panel=$("selectedMatch");panel.hidden=false;
+  $("selectedMatchTitle").textContent=(ev.team1||"Команда 1")+" — "+(ev.team2||"Команда 2");
+  $("selectedMatchMeta").textContent=[ev.league||ev.sport_name,ev.period,ev.clock].filter(Boolean).join(" · ");
+  const raw=ev.raw||{},score=parseScore(ev.score),period=parsePeriod(ev.period??raw.period??raw.periodName),clock=parseClock(ev.clock??raw.time??raw.timer);
+  $("selectedMatchInfo").textContent="Счёт: "+(score?score.join(" : "):"нет в фиде")+" · Четверть: "+(period||"не определена")+" · Время: "+(clock||"нет в фиде");
+  const candidates=ev.match_total_candidates||[];
+  const line=candidates.map(x=>Number(x.pt)).find(Number.isFinite);
+  if(score&&period&&clock){
+    const total=score[0]+score[1],parts=clock.split(":").map(Number),leftQ=parts[0]*60+parts[1];
+    const qMinutes=Number(raw.periodLength||raw.periodDuration||raw.quarterDuration||10)||10;
+    const elapsed=(period-1)*qMinutes*60+(qMinutes*60-leftQ);
+    if(elapsed>0){
+      const remaining=4*qMinutes*60-elapsed,pace=total/(elapsed/60),expected=total+pace*(remaining/60);
+      $("matchForecast").innerHTML='<div class="prediction"><div><small>ОЖИДАЕМЫЙ ИТОГ</small><strong>'+expected.toFixed(1)+'</strong></div><div><small>ТЕКУЩИЙ ТЕМП</small><strong>'+pace.toFixed(2)+'</strong><span>очков/мин</span></div></div><p class="muted">'+(Number.isFinite(line)?"Линия PARI: "+line:"Линия общего тотала не найдена в фиде")+'</p><p class="muted">Предварительная оценка по текущему темпу. Вероятность ТБ/ТМ будет рассчитана после подтверждения линии и формата.</p>';
+      $("quarterForecast").innerHTML='<p>Текущий счёт: '+total+' · Четверть: '+period+' · Осталось в четверти: '+Math.floor(leftQ/60)+':'+String(leftQ%60).padStart(2,"0")+'</p><p class="muted">Для точного прогноза четверти нужен отдельный счёт четверти и линия PARI на неё. Если этих данных нет в фиде, прогноз не подменяется догадкой.</p>';
+    }else{$("matchForecast").textContent="Недостаточно данных времени.";$("quarterForecast").textContent="Недостаточно данных времени.";}
+  }else{
+    $("matchForecast").textContent="PARI пока не передаёт распознанные счёт, четверть или таймер для этого события. Прогноз не будет выдумываться.";
+    $("quarterForecast").textContent="Нет подтверждённых данных текущей четверти и линии. Прогноз появится автоматически, когда фид их передаст.";
+  }
+  panel.scrollIntoView({behavior:"smooth",block:"start"});
+}
 // Direct PARI event feed: refresh on page open and every 30 seconds.
 const liveList = $("liveMatchList");
 const liveMessage = $("liveFeedMessage");
@@ -163,6 +200,7 @@ async function refreshLiveMatches() {
     const data = await response.json();
     if (!response.ok || !data.ok) throw new Error(data.error || "Источник PARI недоступен");
     const count = (data.events || []).length;
+    window.pariLiveEvents = data.events || [];
     const sourceStatus = $("liveSourceStatus");
     const sourceDetail = $("liveSourceDetail");
     if (sourceStatus) { sourceStatus.textContent = "Подключён"; sourceStatus.className = "success"; }
@@ -181,13 +219,12 @@ async function refreshLiveMatches() {
         const score = eventScore(ev);
         const totalMarkets = (ev.match_total_candidates || []).map(f => f.pt ? ("Тотал " + f.pt + " @ " + f.v) : ("Коэф. " + f.v));
         const details = [ev.league || ev.sport_name, score, ev.period, ev.clock, ...totalMarkets].filter(Boolean).map(escapeHtml).join(" · ");
-        return '<button type="button" class="live-match" data-home="' + escapeHtml(ev.team1) + '" data-away="' + escapeHtml(ev.team2) + '">' +
+        return '<button type="button" class="live-match" data-event-id="' + escapeHtml(ev.id) + '">' +
           '<span class="live-match-title">' + teams + '</span><span class="live-match-meta">' + (details || "Событие получено из LIVE API PARI") + '</span></button>';
       }).join("") : '<p class="muted">В текущем ответе нет подтверждённых баскетбольных LIVE-матчей.</p>';
       liveList.querySelectorAll(".live-match").forEach(el => el.addEventListener("click", () => {
-        $("team1").value = el.dataset.home || "";
-        $("team2").value = el.dataset.away || "";
-        $("analysis").scrollIntoView({behavior:"smooth",block:"start"});
+        const ev = (window.pariLiveEvents || []).find(x => String(x.id) === el.dataset.eventId);
+        if (ev) showSelectedMatch(ev);
       }));
     }
     $("feedStatus").textContent = count ? "PARI LIVE: найдено " + count + " матчей" : "PARI API отвечает; матчи не распознаны";
