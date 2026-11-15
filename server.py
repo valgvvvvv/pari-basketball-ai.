@@ -477,7 +477,7 @@ async def pari_discover():
                     scanned.append({"url": asset["url"], "error": type(exc).__name__})
 
             bootstrap_scans = []
-        chunk_scans = []
+            chunk_scans = []
             for bootstrap_url in list(dict.fromkeys(bootstrap_urls))[:3]:
                 parsed = urlparse(bootstrap_url)
                 host = (parsed.hostname or "").lower()
