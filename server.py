@@ -1275,9 +1275,14 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     attempts.append(item)
                     continue
                 try:
-                    payload = json.loads((response.content or b"").decode("utf-8-sig"))
+                    raw_json = response.content or b""
+                    try:
+                        payload = json.loads(raw_json.decode("utf-8-sig"))
+                    except UnicodeDecodeError:
+                        # A few legacy line hosts may return CP1251 bytes despite JSON content type.
+                        payload = json.loads(raw_json.decode("cp1251"))
                 except Exception as exc:
-                    item["error"] = "Response is not UTF-8 JSON: " + type(exc).__name__
+                    item["error"] = "Response is not valid UTF-8/CP1251 JSON: " + type(exc).__name__
                     item["body_preview"] = (response.text or "")[:320]
                     attempts.append(item)
                     continue
