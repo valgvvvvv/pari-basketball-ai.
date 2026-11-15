@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional
-import math, random, os, hashlib, re
+import math, random, os, hashlib, re, asyncio
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from html import unescape
@@ -678,8 +678,7 @@ async def pari_discover():
 
 
 # PARI public LIVE events feed. The endpoint is read-only; no account or betting actions.
-@app.get("/api/pari/live")
-async def pari_live_events(catalog_only: bool = False):
+async def _fetch_pari_live_events(catalog_only: bool = False):
     from urllib.parse import urljoin
     # Try the host that most recently returned a valid feed first.
     hosts = [
@@ -1003,3 +1002,50 @@ async def pari_live_events(catalog_only: bool = False):
         "attempts": attempts,
         "error": "All known PARI line hosts failed to return a valid events/list JSON response.",
     }
+
+# Stale-while-revalidate cache: the mobile page must not wait for the full PARI
+# catalogue scan on every visit. Only one upstream refresh may run at a time.
+@app.get("/api/pari/live")
+async def pari_live_events(catalog_only: bool = False):
+    if catalog_only:
+        return await _fetch_pari_live_events(catalog_only=True)
+
+    now = datetime.now(timezone.utc).timestamp()
+    cached = globals().get("_PARI_LIVE_CACHE")
+    task = globals().get("_PARI_LIVE_REFRESH_TASK")
+    if cached and now - cached.get("saved_at", 0) <= 35:
+        return cached["data"]
+
+    if task is None or task.done():
+        async def refresh():
+            try:
+                data = await _fetch_pari_live_events(catalog_only=False)
+                if data.get("ok") and data.get("connected"):
+                    globals()["_PARI_LIVE_CACHE"] = {
+                        "saved_at": datetime.now(timezone.utc).timestamp(),
+                        "data": data,
+                    }
+                return data
+            finally:
+                globals()["_PARI_LIVE_REFRESH_TASK"] = None
+        task = asyncio.create_task(refresh())
+        globals()["_PARI_LIVE_REFRESH_TASK"] = task
+
+    if cached:
+        stale_data = dict(cached["data"])
+        stale_data["refreshing"] = True
+        stale_data["cache_age_seconds"] = round(now - cached.get("saved_at", now), 1)
+        return stale_data
+
+    return {
+        "ok": True,
+        "connected": False,
+        "loading": True,
+        "refreshing": True,
+        "total_events": 0,
+        "basketball_events": 0,
+        "events": [],
+        "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+        "note": "Первичная загрузка PARI выполняется в фоне; повторите запрос через несколько секунд.",
+    }
+
