@@ -181,12 +181,19 @@ function findLiveClock(ev){
   for(const obj of objects)for(const [key,value] of Object.entries(obj))if(/^(time|timer|clock|matchTime|gameTime|remainingTime|periodTime|timeRemaining|time_remaining|countdown|remaining_seconds|clock_seconds)$/i.test(key))candidates.push(value);
   for(const value of candidates){
     if(value==null)continue;
-    if(typeof value==="string" && /^\\d{4}-\\d{2}-\\d{2}[T ]/.test(value.trim())) continue;
-    const m=String(value).match(/(?:^|\D)(\d{1,2}):([0-5]\d)(?:\D|$)/);
-    if(m)return m[1].padStart(2,"0")+":"+m[2];
-    // Numeric countdowns are accepted only in plausible basketball-period range.
-    if(typeof value==="number"&&Number.isFinite(value)&&Number.isInteger(value)&&value>=0&&value<=900){
-      return String(Math.floor(value/60)).padStart(2,"0")+":"+String(value%60).padStart(2,"0");
+    const text=String(value).trim();
+    if(/^\d{4}-\d{2}-\d{2}[T ]/.test(text)) continue;
+    const m=text.match(/^(\d{1,2}):([0-5]\d)$/);
+    if(m){
+      const seconds=Number(m[1])*60+Number(m[2]);
+      if(seconds<=900)return m[1].padStart(2,"0")+":"+m[2];
+      continue;
+    }
+    if(typeof value==="number" || /^\d{1,3}$/.test(text)){
+      const seconds=Number(value);
+      if(Number.isInteger(seconds)&&seconds>=0&&seconds<=900){
+        return String(Math.floor(seconds/60)).padStart(2,"0")+":"+String(seconds%60).padStart(2,"0");
+      }
     }
   }
   return null;
