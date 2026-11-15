@@ -569,11 +569,11 @@ async def pari_discover():
                                     # Detect data-model vocabulary and show bounded source context.
                                     # These are code clues, not proof that the values are live.
                                     data_patterns = {
-                                        "event_ids": r"\b(?:eventId|sportEventId|event_id|eventID)\\b",
-                                        "team_fields": r"\b(?:homeTeam|awayTeam|teamHome|teamAway|competitor|participant)\\b",
-                                        "score_fields": r"\b(?:score|homeScore|awayScore|currentScore|scoreHome|scoreAway)\\b",
-                                        "clock_fields": r"\b(?:clock|timer|period|quarter|matchTime)\\b",
-                                        "market_fields": r"\b(?:odds|price|marketId|outcome)\\b",
+                                        "event_ids": r"\b(?:eventId|sportEventId|event_id|eventID)\b",
+                                        "team_fields": r"\b(?:homeTeam|awayTeam|teamHome|teamAway|competitor|participant)\b",
+                                        "score_fields": r"\b(?:score|homeScore|awayScore|currentScore|scoreHome|scoreAway)\b",
+                                        "clock_fields": r"\b(?:clock|timer|period|quarter|matchTime)\b",
+                                        "market_fields": r"\b(?:odds|price|marketId|outcome)\b",
                                     }
                                     chunk_item["data_model_keyword_counts"] = {
                                         name: len(re.findall(pattern, chunk_source, re.I))
