@@ -501,22 +501,31 @@ async def pari_discover():
                             if pos >= 0:
                                 runtime_windows.append({"token": token, "snippet": source[max(0, pos-500):min(len(source), pos+1800)]})
                         item["runtime_windows"] = runtime_windows[:12]
+                        # PARI webpack maps numeric chunk IDs to semantic filenames.
+                        chunk_name_map = {}
+                        map_patterns = [
+                            r"\\.u\\s*=\\s*function\\s*\\([^)]*\\)\\s*\\{.{0,800}?\\(\\{(.*?)\\}\\)\\s*\\[",
+                            r"\\.u\\s*=\\s*e\\s*=>.{0,300}?\\(\\{(.*?)\\}\\)\\s*\\["
+                        ]
+                        for map_pattern in map_patterns:
+                            map_match = re.search(map_pattern, source, re.S)
+                            if map_match:
+                                for key, value in re.findall(r"([0-9]+)\\s*:\\s*['\\\"]([^'\\\"]+)['\\\"]", map_match.group(1)):
+                                    chunk_name_map[key] = value
+                        item["webpack_chunk_name_map"] = {key: chunk_name_map.get(key) for key in ("43010", "5793", "50480")}
                         chunk_candidates = []
                         for chunk_id in ("43010", "5793", "50480"):
-                            # Common webpack filename maps: {43010:"hash"} or ["hash"].
-                            patterns = [
-                                rf"(?:^|[{{,])\s*{chunk_id}\s*:\s*[\"']([a-f0-9]{{5,80}})[\"']",
-                                rf"(?:^|[\[,])\s*[\"']?{chunk_id}[\"']?\s*[,:]\s*[\"']([a-f0-9]{{5,80}})[\"']"
-                            ]
-                            hashes = []
-                            for pattern in patterns:
-                                hashes.extend(re.findall(pattern, source, re.I))
-                            for digest in dict.fromkeys(hashes):
-                                chunk_candidates.append((chunk_id, digest, f"{chunk_id}.{digest}.js"))
-                            chunk_candidates.append((chunk_id, "", f"{chunk_id}.js"))
+                            semantic_name = chunk_name_map.get(chunk_id)
+                            if semantic_name:
+                                chunk_candidates.append((chunk_id, semantic_name + ".js"))
+                            chunk_candidates.append((chunk_id, chunk_id + ".js"))
                         base = bootstrap_url.rsplit("/", 1)[0] + "/"
-                        for chunk_id, digest, filename in chunk_candidates[:6]:
+                        seen_chunk_urls = set()
+                        for chunk_id, filename in chunk_candidates:
                             chunk_url = base + filename
+                            if chunk_url in seen_chunk_urls:
+                                continue
+                            seen_chunk_urls.add(chunk_url)
                             try:
                                 cr = await client.get(chunk_url)
                                 chunk_item = {"chunk_id": chunk_id, "url": chunk_url, "status": cr.status_code,
@@ -538,11 +547,11 @@ async def pari_discover():
         hints = list(dict.fromkeys(inline_hints + bundle_hints))
         return {
             "ok": any(x.get("status") == 200 for x in pages),
-            "diagnostic_version": 5, "pages": pages,
+            "diagnostic_version": 6, "pages": pages,
             "asset_refs_found": len(asset_refs), "first_party_assets_scanned": len(scanned),
             "scanned_assets": scanned, "bootstrap_scans": bootstrap_scans, "chunk_scans": chunk_scans, "bootstrap_urls_found": len(set(bootstrap_urls)), "inline_route_hints": list(dict.fromkeys(inline_hints))[:100],
             "route_candidates": hints[:200], "confirmed_api": False,
-            "note": "Версия 5 извлекает публичный bootstrap.js и проверяет имена загружаемых webpack-блоков; Версия 4 извлекает публичный bootstrap.js из CDN, указанного конфигурацией PARI, и ищет в нём маршруты/хосты данных. Найденные строки — только кандидаты; API подтверждается проверкой реальных ответов и изменения LIVE-данных."
+            "note": "Версия 6 извлекает реальные имена webpack-файлов из runtime-карты и проверяет семантические URL чанков; Версия 4 извлекает публичный bootstrap.js из CDN, указанного конфигурацией PARI, и ищет в нём маршруты/хосты данных. Найденные строки — только кандидаты; API подтверждается проверкой реальных ответов и изменения LIVE-данных."
         }
     except httpx.TimeoutException:
         return {"ok": False, "diagnostic_version": 2, "error": "PARI diagnostic timed out"}
