@@ -298,59 +298,124 @@ async def pari_source_check():
 
 @app.get("/api/pari/discover")
 async def pari_discover():
-    """Inspect PARI public JS bundles for same-origin API route candidates."""
-    page_url = "https://pari.ru/live/basketball"
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; PARI-Basketball-AI/0.1; asset-discovery)", "Accept": "text/html,application/xhtml+xml,*/*", "Cache-Control": "no-cache"}
+    """Deep read-only inspection of PARI LIVE HTML, inline scripts and public assets."""
+    from urllib.parse import urljoin, urlparse
+    import json
+
+    page_urls = ["https://pari.ru/live/basketball", "https://pari.ru/live"]
+    headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.7,en;q=0.6",
+        "Cache-Control": "no-cache, no-store, max-age=0",
+        "Pragma": "no-cache",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+    def find_hints(source):
+        found = []
+        for match in re.finditer(r"""["']([^"']{1,260})["']""", source):
+            value = match.group(1)
+            low = value.lower()
+            if any(word in low for word in ("api", "graphql", "live", "event", "market", "odds", "line", "sport", "basket", "socket", "ws")):
+                if value.startswith(("/", "https://", "wss://")):
+                    found.append(value)
+        return list(dict.fromkeys(found))
+
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=8.0), follow_redirects=True, headers=headers) as client:
-            page = await client.get(page_url)
-            parser = _AssetParser()
-            parser.feed(page.text)
-            from urllib.parse import urljoin, urlparse
-            scripts = []
-            asset_refs = list(parser.scripts)
-            for link in parser.links:
-                href = link.get("href", "")
-                rel = link.get("rel", "").lower()
-                if href and (".js" in href.lower() or "modulepreload" in rel or link.get("as") == "script"):
-                    asset_refs.append(href)
-            for src in asset_refs:
-                absolute = urljoin(str(page.url), src)
-                host = (urlparse(absolute).hostname or "").lower()
-                if host == "pari.ru" or host.endswith(".pari.ru"):
-                    scripts.append(absolute)
-            scripts = list(dict.fromkeys(scripts))[:12]
-            scanned, candidates = [], []
-            for asset_url in scripts:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(22.0, connect=10.0), follow_redirects=True, headers=headers) as client:
+            pages = []
+            asset_refs = []
+            inline_hints = []
+            for page_url in page_urls:
                 try:
-                    asset = await client.get(asset_url)
-                    if asset.status_code != 200:
-                        scanned.append({"url": asset_url, "status": asset.status_code})
-                        continue
-                    js = asset.text[:4000000]
-                    found = []
-                    for quote in (chr(34), chr(39)):
-                        pos = 0
-                        while True:
-                            start = js.find(quote, pos)
-                            if start < 0: break
-                            end = js.find(quote, start + 1)
-                            if end < 0: break
-                            value = js[start + 1:end]
-                            low = value.lower()
-                            if value.startswith("/") and len(value) < 181 and any(k in low for k in ("api", "graphql", "live", "event", "market", "line", "odds", "sport", "basket")):
-                                found.append(value)
-                            elif value.startswith("https://") and len(value) < 241 and any(k in low for k in ("api", "graphql", "live", "event", "market", "line", "odds", "sport", "basket")):
-                                if "pari.ru" in value:
-                                    found.append(value)
-                            pos = end + 1
-                    found = list(dict.fromkeys(found))
-                    candidates.extend(found)
-                    scanned.append({"url": asset_url, "status": asset.status_code, "bytes": len(asset.content), "route_candidates": found[:80]})
+                    response = await client.get(page_url, params={"_diag": str(int(datetime.now(timezone.utc).timestamp() * 1000))})
+                    body = response.text
+                    parser = _AssetParser()
+                    parser.feed(body)
+                    refs = []
+                    for src in parser.scripts:
+                        refs.append({"url": urljoin(str(response.url), src), "kind": "script"})
+                    for link in parser.links:
+                        rel = link.get("rel", "").lower()
+                        href = link.get("href", "")
+                        if ".js" in href.lower() or "modulepreload" in rel or ("preload" in rel and link.get("as") == "script"):
+                            refs.append({"url": urljoin(str(response.url), href), "kind": "preload"})
+                    for ref in refs:
+                        asset_refs.append(ref)
+                    for inline in parser.inline_scripts:
+                        inline_hints.extend(find_hints(inline))
+                    manifest = None
+                    manifest_refs = [x["url"] for x in refs if "manifest" in x["url"].lower() and x["url"].lower().endswith(".json")]
+                    for manifest_url in manifest_refs[:2]:
+                        try:
+                            mr = await client.get(manifest_url)
+                            if mr.status_code == 200:
+                                try:
+                                    manifest = mr.json()
+                                except Exception:
+                                    manifest = {"parse_error": True, "preview": mr.text[:800]}
+                        except httpx.HTTPError:
+                            pass
+                    title_match = re.search(r"<title[^>]*>(.*?)</title>", body, re.I | re.S)
+                    pages.append({
+                        "requested_url": page_url, "response_url": str(response.url),
+                        "status": response.status_code, "bytes": len(response.content),
+                        "content_type": response.headers.get("content-type"),
+                        "title": re.sub(r"\s+", " ", title_match.group(1)).strip()[:180] if title_match else None,
+                        "external_scripts": len(parser.scripts), "inline_scripts": len(parser.inline_scripts),
+                        "inline_script_chars": sum(len(x) for x in parser.inline_scripts),
+                        "links": parser.links[:40], "meta": parser.meta[:30],
+                        "other_asset_refs": parser.other_assets[:30], "manifest": manifest,
+                        "markers": {
+                            "next_data": "__NEXT_DATA__" in body,
+                            "nuxt": "__NUXT__" in body,
+                            "service_worker": "serviceWorker" in body or "service-worker" in body.lower(),
+                            "websocket": "WebSocket" in body or "socket.io" in body,
+                            "captcha": bool(re.search(r"captcha|challenge|cloudflare|access denied", body, re.I))
+                        },
+                        "inline_route_hints": find_hints(" ".join(parser.inline_scripts))[:80],
+                        "html_preview": body[:1200]
+                    })
                 except httpx.HTTPError as exc:
-                    scanned.append({"url": asset_url, "error": type(exc).__name__})
-        return {"ok": page.status_code == 200, "page_status": page.status_code, "page_url": str(page.url), "html_bytes": len(page.content), "script_assets": scripts, "link_assets": parser.links[:30], "scanned_bundles": scanned, "route_candidates": list(dict.fromkeys(candidates))[:200], "note": "Кандидаты извлечены из публичных JS-файлов; это ещё не подтверждённый API."}
+                    pages.append({"requested_url": page_url, "error": type(exc).__name__})
+
+            # Fetch only HTTPS resources hosted by pari.ru or its subdomains.
+            safe_assets = []
+            for asset in asset_refs:
+                parsed = urlparse(asset["url"])
+                host = (parsed.hostname or "").lower()
+                if parsed.scheme == "https" and (host == "pari.ru" or host.endswith(".pari.ru")):
+                    safe_assets.append(asset)
+            safe_assets = list({x["url"]: x for x in safe_assets}.values())[:18]
+            scanned = []
+            bundle_hints = []
+            for asset in safe_assets:
+                try:
+                    ar = await client.get(asset["url"])
+                    item = {"url": asset["url"], "kind": asset["kind"], "status": ar.status_code,
+                            "content_type": ar.headers.get("content-type"), "bytes": len(ar.content)}
+                    if ar.status_code == 200:
+                        hints = find_hints(ar.text[:2500000])
+                        item["route_hints"] = hints[:80]
+                        bundle_hints.extend(hints)
+                    scanned.append(item)
+                except httpx.HTTPError as exc:
+                    scanned.append({"url": asset["url"], "error": type(exc).__name__})
+
+        hints = list(dict.fromkeys(inline_hints + bundle_hints))
+        return {
+            "ok": any(x.get("status") == 200 for x in pages),
+            "diagnostic_version": 2, "pages": pages,
+            "asset_refs_found": len(asset_refs), "first_party_assets_scanned": len(scanned),
+            "scanned_assets": scanned, "inline_route_hints": list(dict.fromkeys(inline_hints))[:100],
+            "route_candidates": hints[:200], "confirmed_api": False,
+            "note": "URL-кандидаты не являются подтверждённым API. Для подтверждения нужны проверка запроса, структуры ответа и повторное получение актуального LIVE-счёта/линий."
+        }
     except httpx.TimeoutException:
-        return {"ok": False, "error": "PARI asset discovery timed out"}
+        return {"ok": False, "diagnostic_version": 2, "error": "PARI diagnostic timed out"}
     except httpx.HTTPError as exc:
-        return {"ok": False, "error": type(exc).__name__}
+        return {"ok": False, "diagnostic_version": 2, "error": type(exc).__name__}
