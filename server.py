@@ -753,6 +753,22 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     if parent_id is not None:
                         events_by_parent.setdefault(str(parent_id), []).append(child)
 
+                def collect_related_event_rows(root_id, limit=250):
+                    related, queue, seen = [], [str(root_id)], set()
+                    while queue and len(related) < limit:
+                        parent = queue.pop(0)
+                        if parent in seen:
+                            continue
+                        seen.add(parent)
+                        for child in events_by_parent.get(parent, []):
+                            child_id = child.get("id")
+                            if child_id is not None and str(child_id) not in seen:
+                                related.append(child)
+                                queue.append(str(child_id))
+                                if len(related) >= limit:
+                                    break
+                    return related
+
                 # Compact structural diagnostics: current PARI responses may use
                 # different sport identifiers or nested sport metadata.
                 def compact_event(event):
@@ -940,7 +956,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         },
                         # Full root + child rows are retained for downstream parsing.
                         "raw": event,
-                        "related_events": events_by_parent.get(str(event_id), [])[:160],
+                        "related_events": collect_related_event_rows(event_id),
                         "factors": factor_map.get(str(event_id), []),
                         "related_factors": [
                             factor
