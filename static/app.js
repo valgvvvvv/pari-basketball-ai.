@@ -147,7 +147,7 @@ function parseScore(value){
   return m?[Number(m[1]),Number(m[2])]:null;
 }
 function findLiveScore(ev){
-  const objects=collectEventObjects({root:ev.raw||{},related:ev.related_events||[],live:ev.live_fields||{}});
+  const objects=collectEventObjects({root:{...(ev.raw||{}), external_live:ev.external_live||{}, live_score:ev.live_score, live_clock:ev.live_clock, live_period:ev.live_period},related:ev.related_events||[],live:ev.live_fields||{}});
   const direct=parseScore(ev.score);if(direct)return direct;
   for(const obj of objects){
     for(const [key,value] of Object.entries(obj)){
@@ -261,10 +261,18 @@ function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 }
 function eventScore(ev) {
-  if (ev.score == null) return "";
-  if (typeof ev.score === "string" || typeof ev.score === "number") return String(ev.score);
-  try { return JSON.stringify(ev.score); } catch (_) { return ""; }
+  const score = ev.score ?? ev.external_live?.score ?? ev.live_score ?? null;
+  if (score == null) return "";
+  if (Array.isArray(score) && score.length >= 2) return String(score[0]) + ":" + String(score[1]);
+  if (typeof score === "object") {
+    const home = score.home ?? score.homeScore ?? score.team1;
+    const away = score.away ?? score.awayScore ?? score.team2;
+    if (home != null && away != null) return String(home) + ":" + String(away);
+  }
+  return String(score);
 }
+function eventPeriod(ev) { return ev.period ?? ev.external_live?.period ?? ev.live_period ?? null; }
+function eventClock(ev) { return ev.clock ?? ev.external_live?.clock ?? ev.live_clock ?? null; }
 let liveRefreshInFlight = false;
 let nextLiveRefreshDelay = 30000;
 async function refreshLiveMatches() {
@@ -310,7 +318,7 @@ async function refreshLiveMatches() {
         const teams = escapeHtml(ev.team1 || "Команда 1") + " — " + escapeHtml(ev.team2 || "Команда 2");
         const score = eventScore(ev);
         const totalMarkets = (ev.match_total_candidates || []).map(f => f.pt ? ("Тотал " + f.pt + " @ " + f.v) : ("Коэф. " + f.v));
-        const details = [ev.league || ev.sport_name, score, ev.period, ev.clock, ...totalMarkets].filter(Boolean).map(escapeHtml).join(" · ");
+        const details = [ev.league || ev.sport_name, score, eventPeriod(ev), eventClock(ev), ...totalMarkets].filter(Boolean).map(escapeHtml).join(" · ");
         return '<button type="button" class="live-match" data-event-id="' + escapeHtml(ev.id) + '">' +
           '<span class="live-match-title">' + teams + '</span><span class="live-match-meta">' + (details || "Событие получено из LIVE API PARI") + '</span></button>';
       }).join("") : '<p class="muted">В текущем ответе нет подтверждённых баскетбольных LIVE-матчей.</p>';
