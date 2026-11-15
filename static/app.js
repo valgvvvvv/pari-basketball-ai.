@@ -200,7 +200,7 @@ function showSelectedMatch(ev){
   });
   const stats=[];
   for(const obj of objects)for(const [key,value] of Object.entries(obj)){
-    if(/^(?!statisticsTypes$)(?:statistics?|team1[A-Z].*|team2[A-Z].*|fouls?|rebounds?|assists?|attempts?|possessions?|threePointers?|twoPointers?|freeThrows?|blocks?|steals?|turnovers?)$/i.test(key)&&value!=null&&(typeof value!=="object"||Array.isArray(value)))stats.push(key+": "+(Array.isArray(value)?JSON.stringify(value):String(value)));
+    if(/score|foul|rebound|assist|attempt|throw|possession|percent|three|two|block|steal|turnover|points|stat/i.test(key)&&!/^statisticsTypes$/i.test(key)&&value!=null&&(typeof value!=="object"||Array.isArray(value)))stats.push(key+": "+(Array.isArray(value)?JSON.stringify(value):String(value)));
   }
   const statsText=[...new Set(stats)].slice(0,24);
   const rootLines=fmtFactors(rootFactors);
