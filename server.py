@@ -1087,7 +1087,9 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
 
 @app.get("/api/pari/match-debug")
 async def pari_match_debug(team: str = "Luxol"):
-    """Return a compact, targeted view of the actual PARI rows for one LIVE match."""
+    """Inspect all normalized LIVE basketball matches and search every field."""
+    import json
+
     data = await _fetch_pari_live_events(catalog_only=False)
     if not data.get("ok"):
         return {"ok": False, "error": data.get("error"), "attempts": data.get("attempts", [])}
@@ -1095,35 +1097,46 @@ async def pari_match_debug(team: str = "Luxol"):
     def compact(row):
         if not isinstance(row, dict):
             return row
-        scalar = {}
-        nested = {}
+        scalar, nested = {}, {}
         for key, value in row.items():
             if value is None or isinstance(value, (str, int, float, bool)):
                 scalar[key] = value
             elif isinstance(value, dict):
-                nested[key] = {"keys": list(value.keys())[:40]}
+                nested[key] = {"keys": list(value.keys())[:50]}
             elif isinstance(value, list):
                 nested[key] = {
                     "length": len(value),
-                    "first": value[0] if value and isinstance(value[0], (str, int, float, bool)) else None,
-                    "first_keys": list(value[0].keys())[:40] if value and isinstance(value[0], dict) else []
+                    "first_keys": list(value[0].keys())[:50] if value and isinstance(value[0], dict) else [],
+                    "first_scalar": value[0] if value and isinstance(value[0], (str, int, float, bool)) else None
                 }
         return {"scalar_fields": scalar, "nested_fields": nested}
 
-    needle = str(team or "").casefold()
-    matches = []
+    needle = str(team or "").casefold().strip()
+    matches, samples = [], []
     for event in data.get("events", []):
-        names = (str(event.get("team1", "")) + " " + str(event.get("team2", "")) + " " + str(event.get("league", ""))).casefold()
-        if needle and needle not in names:
+        raw_text = json.dumps(event, ensure_ascii=False, default=str).casefold()
+        if needle and needle not in raw_text:
+            if len(samples) < 30:
+                matches_text = {
+                    "id": event.get("id"),
+                    "team1": event.get("team1"),
+                    "team2": event.get("team2"),
+                    "league": event.get("league"),
+                    "sport_name": event.get("sport_name"),
+                    "root_fields": sorted((event.get("raw") or {}).keys()) if isinstance(event.get("raw"), dict) else [],
+                    "related_count": len(event.get("related_events", []) or []),
+                }
+                samples.append(matches_text)
             continue
-        related = event.get("related_events", []) or []
         matches.append({
             "id": event.get("id"),
-            "teams": [event.get("team1"), event.get("team2")],
+            "team1": event.get("team1"),
+            "team2": event.get("team2"),
             "league": event.get("league"),
+            "sport_name": event.get("sport_name"),
             "root": compact(event.get("raw", {})),
-            "related_count": len(related),
-            "related_rows": [compact(row) for row in related[:80]],
+            "related_count": len(event.get("related_events", []) or []),
+            "related_rows": [compact(row) for row in (event.get("related_events", []) or [])[:80]],
             "factor_count": len(event.get("factors", []) or []),
             "factor_examples": (event.get("factors", []) or [])[:12],
             "related_factor_count": len(event.get("related_factors", []) or []),
@@ -1136,7 +1149,9 @@ async def pari_match_debug(team: str = "Luxol"):
         "basketball_events": data.get("basketball_events"),
         "search": team,
         "matches": matches,
-        "note": "Only compact fields from matching LIVE PARI basketball events are returned; absent fields are not inferred."
+        "live_match_samples": samples,
+        "filter_diagnostics": data.get("filter_diagnostics"),
+        "note": "Search scans the full normalized event object, including nested child rows. Samples expose actual field names when no match is found."
     }
 
 
