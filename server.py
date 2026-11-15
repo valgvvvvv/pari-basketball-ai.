@@ -895,10 +895,8 @@ async def _enrich_with_sofascore_live(events):
                 row_key = str(row.get("id") or (row["home"] + "|" + row["away"]))
                 if row_key in used:
                     continue
-                direct = (SequenceMatcher(None, norm(pari.get("team1")), norm(row["home"])).ratio() +
-                          SequenceMatcher(None, norm(pari.get("team2")), norm(row["away"])).ratio()) / 2
-                reverse = (SequenceMatcher(None, norm(pari.get("team1")), norm(row["away"])).ratio() +
-                           SequenceMatcher(None, norm(pari.get("team2")), norm(row["home"])).ratio()) / 2
+                direct = team_score(pari.get("team1"), row["home"]) + team_score(pari.get("team2"), row["away"])
+                reverse = team_score(pari.get("team1"), row["away"]) + team_score(pari.get("team2"), row["home"])
                 ordered_score = row["score"] if direct >= reverse else [row["score"][1], row["score"][0]]
                 pari["external_live"] = {
                     "source": "SportScore", "event_id": row.get("id"),
