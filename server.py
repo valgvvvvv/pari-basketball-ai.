@@ -836,13 +836,16 @@ async def pari_live_events():
                 # Sample root match records across the most common sport IDs.
                 # The feed is hierarchical: level 1 rows are match/event roots;
                 # lower levels are periods and markets, not separate matches.
+                # Build a complete compact catalogue, not just the top 30 sport IDs.
+                # This exposes the IDs that the allowlist would otherwise silently drop.
                 top_sport_ids = [
                     row["sport_id"] for row in sorted(
                         [{"sport_id": k, "events": v} for k, v in sport_id_counts.items()],
                         key=lambda x: x["events"], reverse=True
-                    )[:30]
+                    )
                 ]
                 root_samples = []
+                sport_catalog = []
                 for sid in top_sport_ids:
                     roots = [
                         e for e in all_events
@@ -851,21 +854,31 @@ async def pari_live_events():
                         and (e.get("level") == 1 or e.get("parentId") is None)
                         and (e.get("team1") or e.get("team2"))
                     ]
-                    for e in roots[:2]:
-                        root_samples.append({
-                            "sport_id": sid,
+                    live_roots = [e for e in roots if str(e.get("place", "")).lower() == "live"]
+                    line_roots = [e for e in roots if str(e.get("place", "")).lower() == "line"]
+                    def root_preview(e):
+                        return {
                             "id": e.get("id"),
                             "level": e.get("level"),
                             "kind": e.get("kind"),
                             "root_kind": e.get("rootKind"),
-                            "team1": e.get("team1"),
-                            "team2": e.get("team2"),
-                            "name": e.get("name"),
+                            "team1": repair_team_encoding(e.get("team1") or e.get("team1Name") or ""),
+                            "team2": repair_team_encoding(e.get("team2") or e.get("team2Name") or ""),
+                            "name": repair_team_encoding(e.get("name") or e.get("competitionName") or ""),
                             "place": e.get("place"),
                             "start_time": e.get("startTime"),
-                            "statistics_types": e.get("statisticsTypes"),
                             "fields": sorted(e.keys()),
-                        })
+                        }
+                    sport_catalog.append({
+                        "sport_id": sid,
+                        "event_rows": sport_id_counts.get(sid, 0),
+                        "root_matches": len(roots),
+                        "live_roots": len(live_roots),
+                        "prematch_roots": len(line_roots),
+                        "examples": [root_preview(e) for e in (live_roots[:2] or roots[:2])],
+                    })
+                    for e in roots[:2]:
+                        root_samples.append({"sport_id": sid, **root_preview(e)})
                 return {
                     "ok": True,
                     "connected": True,
@@ -880,11 +893,11 @@ async def pari_live_events():
                         key=lambda x: x["events"], reverse=True
                     )[:30],
                     "sample_event_shapes": [compact_event(e) for e in all_events[:5]],
-                    "sample_root_events_by_sport": root_samples[:40],
+                    "sample_root_events_by_sport": root_samples[:80],\n                    "sport_catalog": sport_catalog,
                     "sample_factor_shape": compact_event(factors[0]) if isinstance(factors, list) and factors else None,
                     "events": basketball,
                     "attempts": attempts,
-                    "note": "LIVE feed connection is verified. Basketball allowlist currently contains IDs confirmed by root-event samples; only level-1 rows with place=live are returned. Other leagues remain to be classified from PARI sport metadata.",
+                    "note": "LIVE feed connection is verified. sport_catalog now lists every sportId with root/live/prematch counts and team examples; basketball allowlist is still conservative pending catalogue classification.",
                 }
             except httpx.HTTPError as exc:
                 attempts.append({"host": host, "error": type(exc).__name__})
