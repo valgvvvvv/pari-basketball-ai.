@@ -394,20 +394,53 @@ function liveStatisticsAnalysis(ev){
   else if(shot.quality)result.push("Броски: "+shot.quality+".");
   return result;
 }
+function possessionModelContext(ev,estimate,period,clock){
+  const rows=Array.isArray(ev?.external_statistics)?ev.external_statistics:[];
+  const aliases={fga:["field_goals_attempted","field_goal_attempts","fga"],oreb:["offensive_rebounds","offensive_rebound","oreb"],tov:["turnovers","turnover"],fta:["free_throws_attempted","free_throw_attempts","fta"],poss:["possessions","possession","team_possessions"]};
+  const read=(side,keys)=>{
+    const row=rows.find(x=>keys.includes(String(x?.metric_key||"").toLowerCase().replace(/[\\s-]+/g,"_")));
+    if(!row)return null;const parsed=parseStatCount(row[side]);
+    return parsed&&Number.isFinite(parsed.value)?parsed.value:null;
+  };
+  const sides={home:{},away:{}};
+  for(const side of ["home","away"])for(const [key,names] of Object.entries(aliases))sides[side][key]=read(side,names);
+  let home=sides.home.poss,away=sides.away.poss,method="показатели владений источника";
+  if(!(home>0&&away>0)){
+    if(!["home","away"].every(side=>["fga","oreb","tov","fta"].every(k=>sides[side][k]!=null)))
+      return {applied:false,reason:"нет владений или полного набора FGA, подборов в нападении, потерь и штрафных"};
+    home=sides.home.fga-sides.home.oreb+sides.home.tov+0.44*sides.home.fta;
+    away=sides.away.fga-sides.away.oreb+sides.away.tov+0.44*sides.away.fta;
+    method="формула FGA − OREB + потери + 0,44×FTA";
+  }
+  if(!(home>0&&away>0))return {applied:false,reason:"некорректные значения владений"};
+  const score=findLiveScore(ev);if(!score)return {applied:false,reason:"нет подтверждённого счёта"};
+  const current=Number(score[0])+Number(score[1]),possessions=(home+away)/2;
+  if(possessions<10||possessions>180)return {applied:false,reason:"значение владений вне допустимого диапазона"};
+  const pointsPerPossession=current/possessions;
+  const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||inferPeriodLengthForForecast(ev)?.seconds||0);
+  const count=Number(ev?.external_live?.period_count||4),totalSeconds=length*count,elapsed=Number(estimate?.elapsed_seconds||0);
+  if(!length||!elapsed||elapsed>=totalSeconds)return {applied:false,reason:"не хватает подтверждённого времени матча"};
+  const remaining=totalSeconds-elapsed,possPerMinute=possessions/(elapsed/60);
+  const projected=current+possPerMinute*(remaining/60)*pointsPerPossession;
+  const baseline=Math.max(1,Number(estimate.projection)-current);
+  return {applied:true,method,home:Math.round(home*10)/10,away:Math.round(away*10)/10,
+    average:Math.round(possessions*10)/10,pointsPerPossession:Math.round(pointsPerPossession*1000)/1000,
+    possPerMinute:Math.round(possPerMinute*100)/100,
+    projection:Math.round(projected*10)/10,adjustment:clampForecast((projected-current)/baseline,0.94,1.06)};
+}
 function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=null){
   if(!estimate||!Number.isFinite(estimate.projection)||!Number.isFinite(estimate.current))return estimate;
-  const context=estimate.source==="period_range"
-    ? {estimate,factors:["неполный таймер: контекстные поправки отключены"],adjustment:1}
-    : applyGameContext(estimate,ev||{},period,clock);
-  const adjusted=context.estimate||estimate;
-  const statsContext=liveShootingContext(ev||{},adjusted);
+  const context=estimate.source==="period_range"?{estimate,factors:[],adjustment:1}:applyGameContext(estimate,ev||{},period,clock);
+  const adjusted=context.estimate||estimate,statsContext=liveShootingContext(ev||{},adjusted);
+  const possession=estimate.source==="period_range"?{applied:false,reason:"нет точного таймера"}:possessionModelContext(ev||{},adjusted,period,clock);
   const baseMu=Math.max(0,adjusted.projection-adjusted.current);
-  const mu=baseMu*statsContext.adjustment;
-  const mc=poissonMonteCarlo(adjusted.current,mu,lines,seedText);
+  const possMu=possession.applied?Math.max(0,possession.projection-adjusted.current):baseMu;
+  const mu=possMu*statsContext.adjustment,mc=poissonMonteCarlo(adjusted.current,mu,lines,seedText);
   const factors=[...(context.factors||[]),...(statsContext.factors||[])];
+  if(possession.applied)factors.push("владения: "+possession.average+" на команду; "+possession.possPerMinute+" влад./мин; "+possession.pointsPerPossession+" очка/владение");
   return {...adjusted,context_factors:factors,context_adjustment:context.adjustment,
     statistics_adjustment:statsContext.adjustment,statistics_quality:statsContext.quality,
-    shooting_efg:statsContext.efg??null,
+    shooting_efg:statsContext.efg??null,possession_model:possession,
     poisson:mc,low:mc.low80,high:mc.high80,sigma:Math.sqrt(Math.max(mu,0)),
     projection:Math.round((adjusted.current+mu)*10)/10};
 }
