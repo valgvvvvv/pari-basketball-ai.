@@ -2660,7 +2660,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         # BSKT Cup and Philippine NCAA use four 10-minute periods.
                         period_length_seconds = 600
                     elif (not re.search(r"\bncaa\b|college|university|студент|колледж", competition_text)
-                          and re.search(r"adriatic|аба\s*лига|plk|польша|израил|израиль|super\s*league|суперлиг|bosnia|босни|герцеговин|greece|греци|italy|итал|cyprus|кипр|morocco|марокко|montenegro|черногор|serbia|серби|croatia|хорват|fiba|euroleague|eurocup|eurobasket|vtb|basketball champions league", competition_text)):
+                          and re.search(r"adriatic|адриат|аба\s*лига|plk|польша|израил|израиль|super\s*league|суперлиг|bosnia|босни|герцеговин|greece|греци|italy|итал|cyprus|кипр|morocco|марокко|montenegro|черногор|serbia|серби|croatia|хорват|fiba|euroleague|eurocup|eurobasket|vtb|basketball champions league", competition_text)):
                         # Named national and FIBA competitions use four 10-minute periods.
                         period_length_seconds = 600
 
