@@ -347,6 +347,14 @@ function findPeriodLengthSeconds(ev) {
       if (seconds >= 300 && seconds <= 1200) return seconds;
     }
   }
+  // Fallback to PARI's competition label when the API omits period duration.
+  // Do not apply a generic 10-minute assumption to unknown competitions.
+  const competition = [ev.league, ev.sport_name, raw.name, raw.competitionName]
+    .filter(Boolean).join(" ").toLowerCase();
+  if (/\bc\s*dbl\b|chinese basketball development league/.test(competition)) return 720;
+  if (/bskt\s*cup|cup\s*bskt|кубок\s*bskt/.test(competition)) return 600;
+  if (/\bnba\b|g league/.test(competition)) return 720;
+  if (/fiba|euroleague|eurocup|eurobasket|vtb|суперлиг|единая лига|чемпионат европ|международн|world cup|basketball champions league/.test(competition)) return 600;
   return null;
 }
 
@@ -469,7 +477,7 @@ function automaticForecast(ev) {
 }
 
 function automaticQuarterForecast(ev) {
-  const period=findLivePeriod(ev), clock=findLiveClock(ev), length=findPeriodLengthSeconds(ev);
+  const period=findLivePeriod(ev), clock=findLiveClock(ev), length=findPeriodLengthSeconds(ev) || inferPeriodLengthForForecast(ev)?.seconds;
   if(Number(ev.external_live?.period_count)===2)return {ready:false,reason:"в турнире играют две половины, а не четыре четверти"};
   if (!period || !clock || !length) return {ready:false,reason:"нужны четверть, таймер и длительность периода"};
   const scores=ev.external_live?.period_scores || {};
