@@ -2304,18 +2304,67 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                             ("clock", "timer", "time", "remaining",
                                              "remainingTime", "seconds", "value")
                                             if clock_value.get(key) is not None), None)
-                    if isinstance(clock_value, (int, float)):
-                        seconds = int(clock_value)
-                        clock_value = (f"{seconds // 60:02d}:{seconds % 60:02d}"
-                                       if 0 <= seconds <= 1200 else None)
+                    # PARI timerSeconds/timer may represent elapsed match time, not
+                    # the countdown of the current quarter. Convert only when the
+                    # competition format is known; never feed a 31:14/38:26 match
+                    # timer into a quarter-clock field.
+                    timer_raw = next((row.get("timerSeconds") for row in
+                                      (live_info, event_misc, event)
+                                      if row.get("timerSeconds") is not None), None)
+                    if timer_raw is None and clock_value is not None:
+                        timer_text = str(clock_value).strip()
+                        timer_match = re.fullmatch(r"(\\d{1,3}):(\\d{2})", timer_text)
+                        if timer_match:
+                            timer_raw = int(timer_match.group(1)) * 60 + int(timer_match.group(2))
+                        elif re.fullmatch(r"\\d{1,5}", timer_text):
+                            timer_raw = int(timer_text)
+                    try:
+                        timer_seconds = int(float(timer_raw)) if timer_raw is not None else None
+                    except (TypeError, ValueError, OverflowError):
+                        timer_seconds = None
+
+                    competition_text = " ".join(str(x or "") for x in (
+                        event.get("name"), event.get("competitionName"),
+                        sport_names.get(str(event.get("sportId")), "")
+                    )).lower()
+                    period_length_seconds = None
+                    if re.search(r"cdb[l1]|chinese basketball development league", competition_text):
+                        period_length_seconds = 720
+                    elif re.search(r"bskt\\s*cup", competition_text):
+                        period_length_seconds = 600
+
+                    # PARI's observed timerSeconds are cumulative match elapsed
+                    # seconds (e.g. 38:26 in CDBL, 31:14 in BSKT Cup).
+                    # Derive the quarter and its remaining clock from that value.
+                    if timer_seconds is not None and period_length_seconds and timer_seconds >= period_length_seconds:
+                        elapsed_periods = timer_seconds // period_length_seconds
+                        if 0 <= elapsed_periods < 4:
+                            period_value = elapsed_periods + 1
+                            remaining = period_length_seconds - (timer_seconds % period_length_seconds)
+                            clock_value = f"{remaining // 60:02d}:{remaining % 60:02d}"
+                        else:
+                            clock_value = None
+                    elif timer_seconds is not None and 0 <= timer_seconds <= 1200:
+                        clock_value = f"{timer_seconds // 60:02d}:{timer_seconds % 60:02d}"
                     elif clock_value is not None:
                         clock_text = str(clock_value).strip()
-                        if re.fullmatch(r"\\d{1,4}", clock_text):
-                            seconds = int(clock_text)
-                            clock_value = (f"{seconds // 60:02d}:{seconds % 60:02d}"
-                                           if 0 <= seconds <= 1200 else None)
+                        clock_match = re.fullmatch(r"(\\d{1,2}):([0-5]\\d)", clock_text)
+                        if clock_match and int(clock_match.group(1)) * 60 + int(clock_match.group(2)) <= 1200:
+                            clock_value = clock_match.group(1).zfill(2) + ":" + clock_match.group(2)
                         else:
-                            clock_value = clock_text
+                            clock_value = None
+
+                    period_scores = []
+                    score_rows = live_info.get("scores")
+                    if isinstance(score_rows, list) and len(score_rows) > 1 and isinstance(score_rows[1], list):
+                        for score_row in score_rows[1]:
+                            if not isinstance(score_row, dict):
+                                continue
+                            try:
+                                q1, q2 = int(score_row.get("c1")), int(score_row.get("c2"))
+                                period_scores.append([q1, q2])
+                            except (TypeError, ValueError, OverflowError):
+                                continue
                     root_factors = event_factors(event)
                     related_factor_rows = [
                         (child, event_factors(child))
@@ -2337,6 +2386,10 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                   or _extract_pari_score(score_source)),
                         "period": period_value,
                         "clock": clock_value,
+                        "period_length_seconds": period_length_seconds,
+                        "period_count": 4 if period_length_seconds else None,
+                        "match_elapsed_seconds": timer_seconds,
+                        "period_scores": period_scores,
                         "statistics_types": event.get("statisticsTypes"),
                         "live_fields": repair_nested_encoding({
                             key: value
