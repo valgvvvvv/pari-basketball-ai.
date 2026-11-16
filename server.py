@@ -1173,6 +1173,7 @@ async def _enrich_with_sofascore_live(events):
             # This is a bounded, read-only enrichment; only explicit clock and
             # period-duration fields are accepted (never infer 10/12-minute periods).
             detail_targets = [row for row in external_rows if (not row.get("clock") or not row.get("period_length_seconds")) and row.get("id") and not str(row.get("id")).startswith(("sofascore:", "espn:"))]
+            detail_diagnostics = []
             if detail_targets:
                 async with httpx.AsyncClient(
                     timeout=httpx.Timeout(5.0, connect=3.0),
@@ -1184,12 +1185,18 @@ async def _enrich_with_sofascore_live(events):
                     async def enrich_sportscore_detail(row):
                         async with semaphore:
                             try:
+                                params = {"sport": "basketball", "slug": str(row["id"]),
+                                          "src": "pari-basketball-ai"}
                                 response = await detail_client.get(
-                                    "https://sportscore.com/api/widget/match/",
-                                    params={"sport": "basketball", "slug": str(row["id"]),
-                                            "src": "pari-basketball-ai"},
+                                    "https://sportscore.com/api/widget/match/", params=params
                                 )
                                 if response.status_code != 200:
+                                    # Documented v1 alias; try it before declaring detail unavailable.
+                                    response = await detail_client.get(
+                                        "https://sportscore.com/api/v1/match/", params=params
+                                    )
+                                if response.status_code != 200:
+                                    detail_diagnostics.append({"id": str(row.get("id")), "http_status": response.status_code})
                                     return
                                 payload = response.json()
                                 # Walk nested detail envelopes without assuming a
@@ -1207,6 +1214,9 @@ async def _enrich_with_sofascore_live(events):
                                         for child in value:
                                             walk(child, depth + 1)
                                 walk(payload)
+                                detail_keys = list(dict.fromkeys(
+                                    str(key) for obj in objects for key in obj.keys()
+                                ))[:80]
 
                                 clock_keys = re.compile(
                                     r"(clock|timer|countdown|remaining.?time|remaining.?seconds|"
@@ -1281,7 +1291,14 @@ async def _enrich_with_sofascore_live(events):
                                                     row.setdefault("period_scores", {})[str(n)] = [hpn, apn]
                                 if row.get("clock") or row.get("period_length_seconds"):
                                     row["detail_source"] = "SportScore match detail"
-                            except (httpx.HTTPError, ValueError, TypeError):
+                                detail_diagnostics.append({
+                                    "id": str(row.get("id")), "http_status": response.status_code,
+                                    "clock_found": bool(row.get("clock")),
+                                    "period_length_found": bool(row.get("period_length_seconds")),
+                                    "keys": detail_keys[:30],
+                                })
+                            except (httpx.HTTPError, ValueError, TypeError) as exc:
+                                detail_diagnostics.append({"id": str(row.get("id")), "error": type(exc).__name__})
                                 return
 
                     await asyncio.gather(*(enrich_sportscore_detail(row) for row in detail_targets[:40]))
@@ -1367,6 +1384,8 @@ async def _enrich_with_sofascore_live(events):
                 "sportscore_endpoint_diagnostics": sportscore_raw_counts,
                 "sportscore_status_samples": sportscore_status_samples[:16],
                 "sportscore_live_rows_after_filter": len(external_rows),
+                "sportscore_detail_targets": len(detail_targets),
+                "sportscore_detail_diagnostics": detail_diagnostics[:12],
                 "espn_nba": espn_diagnostics,
                 "sportscore_live_match_samples": [
                     {"home": row["home"], "away": row["away"], "status": row["status"],
