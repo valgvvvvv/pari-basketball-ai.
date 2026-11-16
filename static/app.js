@@ -430,7 +430,7 @@ async function refreshLiveMatches() {
   let pariFeedFailure = null;
   try {
     const controller = new AbortController();
-    const requestTimeout = setTimeout(() => controller.abort(), 15000);
+    const requestTimeout = setTimeout(() => controller.abort(), 22000);
     let response;
     try {
       response = await fetch("/api/pari/live", {cache:"no-store", signal:controller.signal});
