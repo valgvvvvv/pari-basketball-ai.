@@ -423,7 +423,7 @@ function marketReferenceForecast(lines) {
   const valid=(lines||[]).filter(x=>Number.isFinite(Number(x.line))&&!x.stale);
   if(!valid.length)return null;
   const sorted=valid.map(x=>Number(x.line)).sort((a,b)=>a-b);
-  const projection=sorted[Math.floor((sorted.length-1)/2)];
+  const projection=Math.round(sorted.reduce((sum,value)=>sum+value,0)/sorted.length*10)/10;
   return {ready:true,kind:"market_reference",estimate:{projection,low:sorted[0],high:sorted[sorted.length-1]},
     lines,message:"Рыночный ориентир PARI, не самостоятельная игровая модель"};
 }
