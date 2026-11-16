@@ -833,6 +833,7 @@ async def _enrich_with_sofascore_live(events):
         or event.get("period") is None
         for event in events
     )
+    sportscore_diagnostics = None
     if (not sofascore_has_scored_events) or pari_needs_external_enrichment:
         # Keep SofaScore as a source too; SportScore fills gaps per fixture.
         sportscore_errors = []
@@ -1372,8 +1373,9 @@ async def _enrich_with_sofascore_live(events):
                 diagnostic["applied"] = True
                 diagnostic["accepted_external_match"] = row["home"] + " — " + row["away"]
                 matched += 1
-            return {
-                "source": "SportScore (fallback)", "status": "ok" if external_rows else "no_live_events",
+            sportscore_diagnostics = {
+                "source": "SportScore (fallback)",
+                "status": "ok" if external_rows else "no_live_events",
                 "live_events": len(external_rows), "matched": matched,
                 "live_events_excludes_women": True,
                 "clock_policy": "Only explicit countdown fields or a valid MM:SS in status_text; timestamps are ignored; values above 15:00 are rejected.",
@@ -1394,12 +1396,15 @@ async def _enrich_with_sofascore_live(events):
                      "detail_source": row.get("detail_source"), "score": row["score"]}
                     for row in external_rows[:12]
                 ],
-                "note": "Счёт берётся из SportScore только при однозначном совпадении обеих команд и уникальном матче; завершённые игры исключаются. Статистика и часы не выдумываются.",
+                "note": "SportScore дополняет PARI; результаты далее объединяются с SofaScore и его статистикой."
             }
         except Exception as exc:
             sportscore_errors.append(type(exc).__name__)
-        return {"source": "SofaScore + SportScore", "status": "unavailable", "matched": 0,
-                "errors": errors[:4], "sportscore_errors": sportscore_errors[:3]}
+            sportscore_diagnostics = {
+                "source": "SportScore (fallback)", "status": "unavailable",
+                "matched": 0, "errors": errors[:4],
+                "sportscore_errors": sportscore_errors[:5]
+            }
 
     live_rows = []
     for item in payload.get("events", []):
@@ -1560,86 +1565,107 @@ async def _enrich_with_sofascore_live(events):
         matched_rows.append((pari, row))
         matched += 1
 
-    # Fetch detailed basketball box-score stats only for confidently matched games.
-    # This avoids a large number of extra requests when the user has many LIVE matches.
+    # Fetch detailed box-score statistics for every confidently matched LIVE fixture.
+    # Bounded concurrency and a short per-event cache keep the 30-second poll economical.
     stats_matched = 0
     stats_errors = []
+    stats_checked = 0
     if matched_rows:
-        try:
-            stats_cache = globals().setdefault("_SOFASCORE_STATS_CACHE", {})
-            async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0),
-                                          follow_redirects=True, headers=headers) as stats_client:
-                for pari, row in matched_rows[:6]:
-                    event_id = row.get("id")
-                    if not event_id:
-                        continue
-                    cached_stats = stats_cache.get(str(event_id), {})
-                    if cached_stats.get("expires", 0) > datetime.now(timezone.utc).timestamp():
-                        stats_payload = cached_stats.get("payload")
-                    else:
-                        stats_payload = None
-                        for base in ("https://www.sofascore.com/api/v1", "https://api.sofascore.com/api/v1"):
-                            try:
-                                response = await stats_client.get(base + "/event/" + str(event_id) + "/statistics")
-                                if response.status_code == 200:
-                                    candidate = response.json()
-                                    if isinstance(candidate, dict):
-                                        stats_payload = candidate
-                                        stats_cache[str(event_id)] = {
-                                            "expires": datetime.now(timezone.utc).timestamp() + 25,
-                                            "payload": candidate,
-                                        }
-                                        break
-                                else:
-                                    stats_errors.append("stats_HTTP_" + str(response.status_code))
-                            except (httpx.HTTPError, ValueError) as exc:
-                                stats_errors.append("stats_" + type(exc).__name__)
+        stats_cache = globals().setdefault("_SOFASCORE_STATS_CACHE", {})
+        stats_semaphore = asyncio.Semaphore(8)
+
+        async def fetch_event_statistics(pari, row):
+            event_id = row.get("id")
+            if not event_id:
+                return False, "missing_event_id"
+            cache_key = str(event_id)
+            cached_stats = stats_cache.get(cache_key, {})
+            stats_payload = cached_stats.get("payload") if cached_stats.get("expires", 0) > datetime.now(timezone.utc).timestamp() else None
+            if not stats_payload:
+                async with stats_semaphore:
+                    last_error = "stats_unavailable"
+                    for base in ("https://www.sofascore.com/api/v1", "https://api.sofascore.com/api/v1"):
+                        try:
+                            response = await stats_client.get(base + "/event/" + cache_key + "/statistics")
+                            if response.status_code == 200:
+                                candidate = response.json()
+                                if isinstance(candidate, dict):
+                                    stats_payload = candidate
+                                    stats_cache[cache_key] = {
+                                        "expires": datetime.now(timezone.utc).timestamp() + 25,
+                                        "payload": candidate,
+                                    }
+                                    break
+                            elif response.status_code not in (404, 410):
+                                last_error = "stats_HTTP_" + str(response.status_code)
+                        except (httpx.HTTPError, ValueError) as exc:
+                            last_error = "stats_" + type(exc).__name__
                     if not stats_payload:
+                        return False, last_error
+            source_stats = stats_payload.get("statistics") or stats_payload
+            groups = source_stats.get("groups", []) if isinstance(source_stats, dict) else []
+            normalized = []
+            for group in groups if isinstance(groups, list) else []:
+                if not isinstance(group, dict):
+                    continue
+                group_name = str(group.get("groupName") or group.get("name") or "Статистика")
+                for stat in group.get("statistics", []) if isinstance(group.get("statistics"), list) else []:
+                    if not isinstance(stat, dict):
                         continue
-                    source_stats = stats_payload.get("statistics") or stats_payload
-                    groups = source_stats.get("groups", []) if isinstance(source_stats, dict) else []
-                    normalized = []
-                    for group in groups if isinstance(groups, list) else []:
-                        if not isinstance(group, dict):
-                            continue
-                        group_name = str(group.get("groupName") or group.get("name") or "Статистика")
-                        for stat in group.get("statistics", []) if isinstance(group.get("statistics"), list) else []:
-                            if not isinstance(stat, dict):
-                                continue
-                            name = str(stat.get("name") or stat.get("key") or "")
-                            home_value = stat.get("home")
-                            away_value = stat.get("away")
-                            if home_value is None and away_value is None:
-                                continue
-                            normalized.append({
-                                "group": group_name,
-                                "name": name,
-                                "home": home_value,
-                                "away": away_value,
-                                "home_value": stat.get("homeValue"),
-                                "away_value": stat.get("awayValue"),
-                                "compare_code": stat.get("compareCode"),
-                                "source": "SofaScore",
-                            })
-                    if normalized:
-                        pari["external_statistics"] = normalized
-                        pari["statistics_source"] = "SofaScore"
-                        stats_matched += 1
+                    name = str(stat.get("name") or stat.get("key") or "")
+                    home_value, away_value = stat.get("home"), stat.get("away")
+                    if home_value is None and away_value is None:
+                        continue
+                    normalized.append({
+                        "group": group_name, "name": name,
+                        "home": home_value, "away": away_value,
+                        "home_value": stat.get("homeValue"),
+                        "away_value": stat.get("awayValue"),
+                        "compare_code": stat.get("compareCode"),
+                        "source": "SofaScore",
+                    })
+            if normalized:
+                pari["external_statistics"] = normalized
+                pari["statistics_source"] = "SofaScore"
+                pari["statistics_checked_at"] = datetime.now(timezone.utc).isoformat()
+                return True, len(normalized)
+            return False, "statistics_empty"
+
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(2.8, connect=1.5),
+                                          follow_redirects=True, headers=headers) as stats_client:
+                results = await asyncio.gather(
+                    *(fetch_event_statistics(pari, row) for pari, row in matched_rows),
+                    return_exceptions=True
+                )
+            for result in results:
+                stats_checked += 1
+                if isinstance(result, Exception):
+                    stats_errors.append("stats_" + type(result).__name__)
+                elif result[0]:
+                    stats_matched += 1
+                else:
+                    stats_errors.append(str(result[1]))
         except Exception as exc:
             stats_errors.append("stats_" + type(exc).__name__)
 
     return {
-        "source": "SofaScore",
-        "status": "ok",
+        "source": "SofaScore + SportScore",
+        "status": "ok" if (matched or (sportscore_diagnostics or {}).get("matched")) else ("no_live_events" if not live_rows else "no_confident_match"),
         "live_events": len(live_rows),
-        "matched": matched,
+        "matched": sum(1 for event in events if event.get("external_live")),
+        "sofascore_matched": matched,
+        "sportscore_matched": (sportscore_diagnostics or {}).get("matched", 0),
         "statistics_matches": stats_matched,
-        "statistics_errors": stats_errors[:6],
-        "unmatched_pari": max(0, len(events) - matched),
+        "statistics_checked": stats_checked,
+        "statistics_errors": stats_errors[:12],
+        "statistics_fields_total": sum(len(event.get("external_statistics") or []) for event in events),
+        "unmatched_pari": sum(1 for event in events if not event.get("external_live")),
         "ambiguous": ambiguous,
         "match_diagnostics": match_diagnostics[:30],
+        "sportscore_diagnostics": sportscore_diagnostics,
         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
-        "note": "Сопоставление учитывает кириллическую транслитерацию названий PARI; совпадения ниже 0.86 не используются."
+        "note": "Источники объединяются по однозначному совпадению обеих команд; статистика берётся из box-score SofaScore, SportScore служит резервом для LIVE-счёта и таймера."
     }
 
 
@@ -2050,7 +2076,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # budget; return the authoritative PARI feed even on timeout.
                     try:
                         live_enrichment = await asyncio.wait_for(
-                            _enrich_with_sofascore_live(basketball), timeout=7.0
+                            _enrich_with_sofascore_live(basketball), timeout=12.0
                         )
                     except asyncio.TimeoutError:
                         live_enrichment = {
@@ -2083,6 +2109,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 "period_length_seconds": (event.get("external_live") or {}).get("period_length_seconds"),
                                 "total_market_count": len(event.get("match_total_candidates") or []),
                                 "score_source": event.get("score_source") or (event.get("external_live") or {}).get("source"),
+                                "statistics_source": event.get("statistics_source"),
+                                "statistics_fields": len(event.get("external_statistics") or []),
                             }
                             for event in basketball[:20]
                         ],
