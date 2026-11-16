@@ -1365,10 +1365,13 @@ async def _enrich_with_sofascore_live(events):
             # countdown, ask SportScore's documented single-match detail endpoint.
             # This is a bounded, read-only enrichment; only explicit clock and
             # period-duration fields are accepted (never infer 10/12-minute periods).
+            detail_cache = globals().setdefault("_SPORTSCORE_DETAIL_CACHE", {})
+            now_detail = datetime.now(timezone.utc).timestamp()
             detail_targets = [row for row in external_rows
-                              if (not row.get("clock") or not row.get("period_length_seconds"))
-                              and (row.get("slug") or row.get("provider_id"))
-                              and not str(row.get("id") or "").startswith(("sofascore:", "espn:", "espn-ncaa:"))]
+                              if (row.get("slug") or row.get("provider_id"))
+                              and not str(row.get("id") or "").startswith(("sofascore:", "espn:", "espn-ncaa:"))
+                              and (not detail_cache.get(str(row.get("id") or row.get("provider_id")), {}).get("expires", 0)
+                                   or detail_cache.get(str(row.get("id") or row.get("provider_id")), {}).get("expires", 0) <= now_detail)]
             detail_diagnostics = []
             if detail_targets:
                 async with httpx.AsyncClient(
@@ -1410,6 +1413,10 @@ async def _enrich_with_sofascore_live(events):
                                                                "slug": row.get("slug"),
                                                                "provider_id": row.get("provider_id"),
                                                                "attempts": attempts})
+                                    detail_cache[str(row.get("id") or row.get("provider_id"))] = {
+                                        "expires": datetime.now(timezone.utc).timestamp() + 20,
+                                        "statistics_count": 0, "status": "unavailable"
+                                    }
                                     return
                                 # Walk nested detail/tracker envelopes without assuming a
                                 # single response wrapper/schema.
@@ -1568,6 +1575,11 @@ async def _enrich_with_sofascore_live(events):
                                         key = (stat["group"], stat["name"], str(stat["home"]), str(stat["away"]))
                                         unique_stats[key] = stat
                                     row["external_statistics"] = list(unique_stats.values())
+                                detail_cache[str(row.get("id") or row.get("provider_id"))] = {
+                                    "expires": datetime.now(timezone.utc).timestamp() + 45,
+                                    "statistics_count": len(detail_statistics),
+                                    "status": "ok" if detail_statistics else "no_statistics"
+                                }
                                 if row.get("clock") or row.get("period_length_seconds"):
                                     row["detail_source"] = "SportScore match detail"
                                 detail_diagnostics.append({
@@ -1628,6 +1640,40 @@ async def _enrich_with_sofascore_live(events):
                 ordered_score = (row["score"] if direct >= reverse else [row["score"][1], row["score"][0]]) if row.get("score") is not None else pari.get("score")
                 if row.get("score") is None:
                     ordered_score = pari.get("score")
+                # SportScore match-detail already contains box-score rows, but they
+                # were previously discarded at the PARI matching stage. Merge them
+                # here, retaining PARI values first and deduplicating exact values.
+                row_statistics = row.get("external_statistics") or []
+                if row_statistics:
+                    merged_statistics = list(pari.get("external_statistics") or []) + list(row_statistics)
+                    unique_statistics = []
+                    seen_statistics = set()
+                    for stat in merged_statistics:
+                        marker = (stat.get("metric_key"), str(stat.get("home")), str(stat.get("away")), stat.get("source"))
+                        if marker not in seen_statistics:
+                            seen_statistics.add(marker)
+                            unique_statistics.append(stat)
+                    pari["external_statistics"] = unique_statistics
+                    pari["statistics_source"] = " + ".join(dict.fromkeys(
+                        str(stat.get("source") or "external") for stat in unique_statistics
+                    ))
+                    pari["statistics_checked_at"] = datetime.now(timezone.utc).isoformat()
+                    available = {stat.get("metric_key") for stat in unique_statistics if stat.get("metric_key")}
+                    expected = ["three_pointers", "two_pointers", "free_throws", "field_goals",
+                                "rebounds", "offensive_rebounds", "defensive_rebounds", "assists",
+                                "turnovers", "steals", "blocks", "fouls", "possessions"]
+                    for prefix in ("three_pointers", "two_pointers", "free_throws", "field_goals"):
+                        if any(str(metric).startswith(prefix + "_") for metric in available):
+                            available.add(prefix)
+                    pari["statistics_quality"] = {
+                        "available_metrics": sorted(available),
+                        "missing_metrics": [metric for metric in expected if metric not in available],
+                        "available_count": len(set(expected).intersection(available)),
+                        "expected_count": len(expected),
+                        "coverage_percent": round(len(set(expected).intersection(available)) / len(expected) * 100),
+                        "raw_fields_count": len(unique_statistics),
+                        "complete": all(metric in available for metric in expected),
+                    }
                 provider_name = ("SofaScore" if str(row.get("id") or "").startswith("sofascore:") else
                                  "ESPN" if str(row.get("id") or "").startswith(("espn:", "espn-ncaa:")) else "SportScore")
                 pari["external_live"] = {
