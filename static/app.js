@@ -480,14 +480,19 @@ function automaticQuarterForecast(ev) {
   const period=findLivePeriod(ev), clock=findLiveClock(ev), length=findPeriodLengthSeconds(ev) || inferPeriodLengthForForecast(ev)?.seconds;
   if(Number(ev.external_live?.period_count)===2)return {ready:false,reason:"в турнире играют две половины, а не четыре четверти"};
   if (!period || !clock || !length) return {ready:false,reason:"нужны четверть, таймер и длительность периода"};
-  const scores=ev.external_live?.period_scores || {};
-  const score=scores[String(period)];
-  if (!Array.isArray(score) || score.length<2) return {ready:false,reason:"нет подтверждённого счёта текущей четверти"};
+  // PARI supplies period_scores as an ordered array; external providers
+  // may supply an object keyed by period number. Support both shapes.
+  const scores=ev.period_scores ?? ev.external_live?.period_scores ?? {};
+  const score=Array.isArray(scores) ? scores[period-1] : scores[String(period)];
+  if (!Array.isArray(score) || score.length<2 || score.some(v=>v==null || !Number.isFinite(Number(v))))
+    return {ready:false,reason:"нет подтверждённого счёта текущей четверти"};
   const m=String(clock).match(/^(\d{1,2}):([0-5]\d)$/);
   if (!m) return {ready:false,reason:"неизвестный формат таймера"};
   const remaining=Number(m[1])*60+Number(m[2]), elapsed=length-remaining;
   const current=Number(score[0])+Number(score[1]);
-  if (elapsed<180 || elapsed>360) return {ready:false,reason:"четверть анализируется после 3–6 минут игры"};
+  // Start only after 3 minutes, but don't stop forecasting after minute 6:
+  // later valid snapshots are still more useful than no forecast.
+  if (elapsed<180) return {ready:false,reason:"ожидаем минимум 3 минуты игрового времени в четверти"};
   if (elapsed<=0 || elapsed>length || !Number.isFinite(current)) return {ready:false,reason:"недостаточно времени для расчёта"};
   const projection=Math.round(current/elapsed*length*10)/10;
   const groups=(ev.related_factor_groups||[]).filter(g=>String(g.name||"").toLowerCase().includes(String(period)));
