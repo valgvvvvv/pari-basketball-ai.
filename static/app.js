@@ -344,6 +344,7 @@ function showSelectedMatch(ev){
   }
   const externalStats=Array.isArray(ev.external_statistics)?ev.external_statistics:[];
   const statsQuality=ev.statistics_quality||null;
+  const pariStatsFlag=ev.statistics_types??ev.live_fields?.statisticsTypes??null;
   const statsCoverage=statsQuality?(" · покрытие ключевых категорий "+statsQuality.available_count+"/"+statsQuality.expected_count+" ("+statsQuality.coverage_percent+"%)"):"";
   const externalStatsHtml=externalStats.length?'<details class="source-statistics" open><summary>Статистика матча · '+escapeHtml(ev.statistics_source||"внешний источник")+' ('+externalStats.length+statsCoverage+')</summary>'+
     (statsQuality&&statsQuality.missing_metrics?.length?'<p class="muted">Не получены: '+statsQuality.missing_metrics.map(escapeHtml).join(", ")+'</p>':'')+
@@ -395,7 +396,7 @@ function showSelectedMatch(ev){
   if(statsText.length){
     $("matchForecast").insertAdjacentHTML("beforeend",'<details class="source-statistics"><summary>Дополнительные числовые поля PARI ('+statsText.length+')</summary><p>'+statsText.map(x=>escapeHtml(x)).join("<br>")+'</p></details>');
   } else if(!externalStatsHtml) {
-    $("matchForecast").insertAdjacentHTML("beforeend",'<p class="muted">Числовая игровая статистика пока не получена ни из PARI, ни из дополнительного источника.</p>');
+    $("matchForecast").insertAdjacentHTML("beforeend",'<p class="muted">Детальная статистика не пришла в LIVE-ответе PARI. Маркер statisticsTypes: '+escapeHtml(pariStatsFlag??"не передан")+'. Нельзя считать его самими значениями бросков/подборов/фолов; дополнительные источники будут показаны отдельно только после точного сопоставления матча.</p>');
   }
   panel.scrollIntoView({behavior:"smooth",block:"start"});
 }
@@ -652,7 +653,8 @@ async function refreshLiveMatches() {
         const score = eventScore(ev);
         const totalMarkets = (ev.match_total_candidates || []).map(f => f.pt ? ("Тотал " + f.pt + " @ " + f.v) : ("Коэф. " + f.v));
         const statCount = (ev.external_statistics || []).length;
-        const statsLabel = statCount ? ("Статистика: " + statCount + " показателей · " + (ev.statistics_source || "внешний источник")) : "Статистика: пока нет подтверждённых данных";
+        const coverage = ev.statistics_quality ? (" · покрытие " + ev.statistics_quality.available_count + "/" + ev.statistics_quality.expected_count) : "";
+        const statsLabel = statCount ? ("Статистика: " + statCount + " показателей" + coverage + " · " + (ev.statistics_source || "источник не указан")) : "Статистика: нет подтверждённых значений PARI/внешнего источника";
         const details = [ev.league || ev.sport_name, score, eventPeriod(ev), eventClock(ev), statsLabel, ...totalMarkets].filter(Boolean).map(escapeHtml).join(" · ");
         const forecast = automaticForecast(ev);
         const quarterForecast = automaticQuarterForecast(ev);
