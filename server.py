@@ -576,7 +576,10 @@ async def pari_discover():
                             if semantic_name:
                                 chunk_candidates.append((chunk_id, semantic_name + ".js"))
                             chunk_candidates.append((chunk_id, chunk_id + ".js"))
-                        chunk_candidates.extend(semantic_candidates[:30])
+                        semantic_candidates.sort(
+                            key=lambda item: (0 if re.search(r"sportstats|matchCenter|basketball", item[1], re.I) else 1, item[0])
+                        )
+                        chunk_candidates.extend(semantic_candidates[:12])
                         base = bootstrap_url.rsplit("/", 1)[0] + "/"
                         seen_chunk_urls = set()
                         for chunk_id, filename in chunk_candidates:
