@@ -392,15 +392,20 @@ function getMatchTotalLines(ev) {
 
 function inferPeriodLengthForForecast(ev) {
   const explicit=findPeriodLengthSeconds(ev);
-  if(explicit)return {seconds:explicit,periods:Number(ev.external_live?.period_count||4),
-    method:ev.external_live?.source==="ESPN"&&Number(ev.external_live?.period_count)===2
-      ?"ESPN NCAA · 2 половины по 20 минут":"подтверждённая длительность"};
   const text=[ev.league,ev.sport_name,ev.team1,ev.team2].filter(Boolean).join(" ").toLowerCase();
+  const periodCount=Number(ev.external_live?.period_count||0);
+  if(explicit)return {seconds:explicit,periods:periodCount===2?2:4,
+    method:ev.external_live?.source==="ESPN"&&periodCount===2
+      ?"ESPN NCAA · 2 половины по 20 минут":"длительность периода получена из источника"};
   // NCAA men's basketball uses two 20-minute halves, not four quarters.
   if(/ncaa|college|university|студент|студ\b|колледж|march madness/.test(text))return null;
-  if(/nba|wnba|g league/.test(text))return {seconds:720,periods:4,method:"стандарт NBA · 12 минут"};
-  // International/FIBA domestic leagues use four 10-minute quarters.
-  return {seconds:600,periods:4,method:"стандарт FIBA · 10 минут (предварительное допущение)"};
+  if(/\bnba\b|g league|баскетбол nba/.test(text))
+    return {seconds:720,periods:4,method:"формат NBA · 12 минут"};
+  // Apply the 10-minute FIBA format only to clearly identified competitions.
+  // Unknown leagues must not inherit an assumed period length.
+  if(/fiba|euroleague|eurocup|eurobasket|vtb|суперлиг|единая лига|чемпионат европ|международн|world cup|basketball champions league/.test(text))
+    return {seconds:600,periods:4,method:"формат FIBA · 10 минут (по типу турнира)"};
+  return null;
 }
 function estimateLiveTotalFromPeriod(ev,score,period,lengthInfo) {
   if(!score||!period||period<2||!lengthInfo)return null;
