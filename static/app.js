@@ -141,12 +141,39 @@ function poissonMonteCarlo(current, mu, lines=[], seedText="") {
     low95:quantile(.025),high95:quantile(.975),probabilities:probs};
 }
 function clampForecast(value,min,max){return Math.max(min,Math.min(max,value));}
+function readPeriodScorePair(ev,index){
+  const sources=[ev?.period_scores,ev?.external_live?.period_scores,ev?.raw?.period_scores];
+  for(const scores of sources){
+    const row=Array.isArray(scores)?scores[index]:(scores&&typeof scores==="object"?(scores[String(index+1)]??scores[index]):null);
+    if(Array.isArray(row)&&row.length>=2){
+      const a=Number(row[0]),b=Number(row[1]);
+      if(Number.isFinite(a)&&Number.isFinite(b)&&a>=0&&b>=0)return [a,b];
+    }
+    if(row&&typeof row==="object"){
+      const a=Number(row.home??row.homeScore??row.c1??row.team1??row.team1Score);
+      const b=Number(row.away??row.awayScore??row.c2??row.team2??row.team2Score);
+      if(Number.isFinite(a)&&Number.isFinite(b)&&a>=0&&b>=0)return [a,b];
+    }
+  }
+  return null;
+}
 function readPeriodScore(ev,index){
-  const scores=ev.period_scores??ev.external_live?.period_scores??[];
-  const row=Array.isArray(scores)?scores[index]:scores[String(index+1)];
-  if(!Array.isArray(row)||row.length<2)return null;
-  const a=Number(row[0]),b=Number(row[1]);
-  return Number.isFinite(a)&&Number.isFinite(b)?a+b:null;
+  const pair=readPeriodScorePair(ev,index);
+  return pair?pair[0]+pair[1]:null;
+}
+function currentQuarterScore(ev,period,matchScore){
+  const direct=readPeriodScorePair(ev,period-1);
+  if(direct)return {pair:direct,source:"PARI · счёт текущей четверти"};
+  if(!Array.isArray(matchScore)||matchScore.length<2||period<2)return null;
+  let previousHome=0,previousAway=0;
+  for(let i=0;i<period-1;i++){
+    const pair=readPeriodScorePair(ev,i);
+    if(!pair)return null;
+    previousHome+=pair[0];previousAway+=pair[1];
+  }
+  const home=Number(matchScore[0])-previousHome,away=Number(matchScore[1])-previousAway;
+  if(!Number.isFinite(home)||!Number.isFinite(away)||home<0||away<0)return null;
+  return {pair:[home,away],source:"расчёт из общего счёта минус завершённые четверти"};
 }
 function applyGameContext(estimate,ev,period,clock){
   const factors=[];
@@ -438,7 +465,7 @@ function showSelectedMatch(ev){
       '<h3>Факторы, вошедшие в расчёт</h3><ul class="calc-factors">'+(estimate.context_factors||[]).map(x=>'<li>'+escapeHtml(x)+'</li>').join("")+'</ul>'
     : '<p class="muted">'+escapeHtml(matchForecast.reason||"Для прогноза пока недостаточно подтверждённых данных.")+'</p>';
   $("quarterForecast").innerHTML=quarter.ready
-    ? '<div class="forecast-main"><p><b>Ожидаемый тотал четверти</b></p><div class="forecast-number">'+quarter.projection+'</div><p>Сейчас: '+quarter.current+' · прошло: '+quarter.elapsed+' мин · диапазон 80% '+quarter.low80+'–'+quarter.high80+' · 95% '+quarter.low95+'–'+quarter.high95+'</p></div>'+
+    ? '<div class="forecast-main"><p><b>Ожидаемый тотал четверти</b></p><div class="forecast-number">'+quarter.projection+'</div><p>Счёт: '+quarter.home+' : '+quarter.away+' · сейчас: '+quarter.current+' · прошло: '+quarter.elapsed+' мин · источник: '+escapeHtml(quarter.score_source||"не указан")+' · диапазон 80% '+quarter.low80+'–'+quarter.high80+' · 95% '+quarter.low95+'–'+quarter.high95+'</p></div>'+
       '<div class="calc-grid"><div class="calc-card"><span>ТБ вероятность</span><b>'+((quarter.poisson?.probabilities?.[0]?.pOver??0)*100).toFixed(1)+'%</b></div><div class="calc-card"><span>ТМ вероятность</span><b>'+((quarter.poisson?.probabilities?.[0]?.pUnder??0)*100).toFixed(1)+'%</b></div></div>'+
       (quarter.lines.length?'<p>Линии: '+quarter.lines.map(x=>escapeHtml(x.line+' · ТБ '+(x.pOver*100).toFixed(1)+'% / ТМ '+(x.pUnder*100).toFixed(1)+'%')).join(' · ')+'</p>':'<p class="muted">Линия четверти пока недоступна.</p>')+
       '<p class="calc-formula">Ориентир четверти: набранные очки ÷ прошедшие секунды × длительность четверти. Интервал строится по 10 000 симуляций.</p>'
@@ -504,6 +531,9 @@ function getMatchTotalLines(ev) {
   const add = value => {
     if (Array.isArray(value)) { for (const item of value) add(item); return; }
     if (!value || typeof value !== "object") return;
+    const groupLabel=String(value.name||value.kindName||"");
+    const isQuarterGroup=/(?:\\bq\\s*[1-4]\\b|\\bquarter\\s*[1-4]\\b|\\bperiod\\s*[1-4]\\b|[1-4]\\s*[-–.]?\\s*(?:я|й|ая|ый)?\\s*четверт\\w*|четверт\\w*\\s*[1-4])/i.test(groupLabel);
+    if(isQuarterGroup && (Array.isArray(value.factors)||Array.isArray(value.markets)))return;
     if (["930","931"].includes(String(value.f))) factors.push(value);
     for (const [key, child] of Object.entries(value)) {
       if (["factors","markets","customFactors","match_total_candidates","related_factors"].includes(key)) add(child);
@@ -620,32 +650,39 @@ function automaticForecast(ev) {
 function automaticQuarterForecast(ev) {
   const period=findLivePeriod(ev), clock=findLiveClock(ev), length=findPeriodLengthSeconds(ev) || inferPeriodLengthForForecast(ev)?.seconds;
   if(Number(ev.external_live?.period_count)===2)return {ready:false,reason:"в турнире играют две половины, а не четыре четверти"};
-  if (!period || !clock || !length) return {ready:false,reason:"нужны четверть, таймер и длительность периода"};
-  // PARI supplies period_scores as an ordered array; external providers
-  // may supply an object keyed by period number. Support both shapes.
-  const scores=ev.period_scores ?? ev.external_live?.period_scores ?? {};
-  const score=Array.isArray(scores) ? scores[period-1] : scores[String(period)];
-  if (!Array.isArray(score) || score.length<2 || score.some(v=>v==null || !Number.isFinite(Number(v))))
-    return {ready:false,reason:"нет подтверждённого счёта текущей четверти"};
+  if (!period || !clock || !length) return {ready:false,reason:"нужны подтверждённые четверть, таймер и длительность периода"};
+  const matchScore=findLiveScore(ev);
+  const quarterScore=currentQuarterScore(ev,period,matchScore);
+  if(!quarterScore)return {ready:false,reason:"PARI не передал счёт текущей четверти и недостаточно данных по предыдущим четвертям для восстановления"};
   const m=String(clock).match(/^(\d{1,2}):([0-5]\d)$/);
   if (!m) return {ready:false,reason:"неизвестный формат таймера"};
   const remaining=Number(m[1])*60+Number(m[2]), elapsed=length-remaining;
-  const current=Number(score[0])+Number(score[1]);
-  // Start only after 3 minutes, but don't stop forecasting after minute 6:
-  // later valid snapshots are still more useful than no forecast.
+  const current=quarterScore.pair[0]+quarterScore.pair[1];
   if (elapsed<180) return {ready:false,reason:"ожидаем минимум 3 минуты игрового времени в четверти"};
   if (elapsed<=0 || elapsed>length || !Number.isFinite(current)) return {ready:false,reason:"недостаточно времени для расчёта"};
   const projection=Math.round(current/elapsed*length*10)/10;
-  const groups=(ev.related_factor_groups||[]).filter(g=>String(g.name||"").toLowerCase().includes(String(period)));
+  const groups=(ev.related_factor_groups||[]).filter(g=>{
+    const label=String(g.name||g.kindName||"");
+    const explicit=Number(g.period??g.periodNumber??g.quarter??g.quarterNumber);
+    if([1,2,3,4].includes(explicit))return explicit===period;
+    const patterns=[
+      new RegExp("\\bq\\s*"+period+"\\b","i"),
+      new RegExp("\\bquarter\\s*"+period+"\\b","i"),
+      new RegExp("\\bperiod\\s*"+period+"\\b","i"),
+      new RegExp("\\b"+period+"\\s*[-–.]?\\s*(?:я|й|ая|ый)?\\s*четверт\\w*","i"),
+      new RegExp("четверт\\w*\\s*"+period+"\\b","i")
+    ];
+    return patterns.some(pattern=>pattern.test(label));
+  });
   const lines=[];
   for(const group of groups) for(const factor of (group.factors||[])) {
     if(!factor || !["930","931"].includes(String(factor.f))) continue;
     const line=factor.pt!=null?Number(factor.pt):(factor.p!=null?Number(factor.p)/100:NaN);
-    if(Number.isFinite(line)&&line>0&&line<150&&!lines.some(x=>x.line===line)) lines.push({line});
+    if(Number.isFinite(line)&&line>0&&line<150&&!lines.some(x=>x.line===line)) lines.push({line,odds:factor.v==null?null:String(factor.v),source:"PARI"});
   }
-  const quarterEstimate={current,projection,current_score:current,elapsed:Math.round(elapsed/60*10)/10};
+  const quarterEstimate={current,projection,current_score:current,home:quarterScore.pair[0],away:quarterScore.pair[1],score_source:quarterScore.source,elapsed:Math.round(elapsed/60*10)/10};
   const poisson=poissonMonteCarlo(current,Math.max(0,projection-current),lines,String(ev.id||"")+"|Q"+period+"|"+clock);
-  return {ready:true,...quarterEstimate,low80:poisson.low80,high80:poisson.high80,low95:poisson.low95,high95:poisson.high95,poisson,lines:poisson.probabilities,context_factors:["проекция по темпу текущей четверти"]};
+  return {ready:true,...quarterEstimate,low80:poisson.low80,high80:poisson.high80,low95:poisson.low95,high95:poisson.high95,poisson,lines:poisson.probabilities,context_factors:["проекция по темпу текущей четверти",quarterScore.source]};
 }
 let liveRefreshInFlight = false;
 let nextLiveRefreshDelay = 30000;
