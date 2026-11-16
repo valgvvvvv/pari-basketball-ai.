@@ -1006,8 +1006,8 @@ async def _enrich_with_sofascore_live(events):
                 external_rows.append({
                     "home": home_name, "away": away_name, "score": score_pair,
                     "period_scores": period_scores, "period": period, "clock": clock,
-                    "status": status_label, "id": item.get("slug") or item.get("id"),
-                    "provider_id": item.get("id"), "period_length_seconds": None,
+                    "status": status_label, "id": (item.get("slug") or item.get("url_slug") or item.get("match_slug") or item.get("id") or item.get("match_id") or item.get("matchId") or item.get("fixture_id") or item.get("event_id") or item.get("eventId") or item.get("_id")),
+                    "provider_id": (item.get("id") or item.get("match_id") or item.get("matchId") or item.get("fixture_id") or item.get("event_id") or item.get("eventId") or item.get("_id")), "period_length_seconds": None,
                     "detail_source": None,
                 })
 
@@ -1173,7 +1173,7 @@ async def _enrich_with_sofascore_live(events):
             # countdown, ask SportScore's documented single-match detail endpoint.
             # This is a bounded, read-only enrichment; only explicit clock and
             # period-duration fields are accepted (never infer 10/12-minute periods).
-            detail_targets = [row for row in external_rows if (not row.get("clock") or not row.get("period_length_seconds")) and row.get("id") and not str(row.get("id")).startswith(("sofascore:", "espn:"))]
+            detail_targets = [row for row in external_rows if (not row.get("clock") or not row.get("period_length_seconds")) and (row.get("id") or row.get("provider_id")) and not str(row.get("id") or "").startswith(("sofascore:", "espn:"))]
             detail_diagnostics = []
             if detail_targets:
                 async with httpx.AsyncClient(
@@ -1186,7 +1186,9 @@ async def _enrich_with_sofascore_live(events):
                     async def enrich_sportscore_detail(row):
                         async with semaphore:
                             try:
-                                params = {"sport": "basketball", "slug": str(row["id"]),
+                                detail_identifier = str(row.get("id") or row.get("provider_id"))
+                                params = {"sport": "basketball", "slug": detail_identifier,
+                                          "id": str(row.get("provider_id") or detail_identifier),
                                           "src": "pari-basketball-ai"}
                                 response = await detail_client.get(
                                     "https://sportscore.com/api/widget/match/", params=params
@@ -1389,10 +1391,11 @@ async def _enrich_with_sofascore_live(events):
                 "sportscore_status_samples": sportscore_status_samples[:16],
                 "sportscore_live_rows_after_filter": len(external_rows),
                 "sportscore_detail_targets": len(detail_targets),
+                "sportscore_detail_target_ids": [str(row.get("id") or row.get("provider_id")) for row in detail_targets[:12]],
                 "sportscore_detail_diagnostics": detail_diagnostics[:12],
                 "espn_nba": espn_diagnostics,
                 "sportscore_live_match_samples": [
-                    {"home": row["home"], "away": row["away"], "status": row["status"],
+                    {"home": row["home"], "away": row["away"], "id": row.get("id"), "provider_id": row.get("provider_id"), "status": row["status"],
                      "period": row["period"], "clock": row.get("clock"),
                      "period_length_seconds": row.get("period_length_seconds"),
                      "detail_source": row.get("detail_source"), "score": row["score"]}
