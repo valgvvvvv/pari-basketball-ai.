@@ -3164,18 +3164,23 @@ async def _pari_startup_stats_discovery():
                 unique.append(item)
         summary = {"ok": bool(result.get("ok")) if isinstance(result, dict) else False,
                    "diagnostic_version": result.get("diagnostic_version") if isinstance(result, dict) else None,
-                   "pages": result.get("pages", []) if isinstance(result, dict) else [],
+                   "pages": [{"url": page.get("requested_url"), "status": page.get("status"),
+                              "hosts": (page.get("runtime_host_hints") or [])[:8]}
+                             for page in result.get("pages", []) if isinstance(page, dict)],
                    "chunks_scanned": len(result.get("chunk_scans", [])) if isinstance(result, dict) else 0,
                    "bootstrap": [{"url": item.get("url"), "status": item.get("status"),
                                   "chunk_map": item.get("webpack_chunk_name_map"),
-                                  "semantic_chunks": item.get("semantic_chunk_candidates", [])}
+                                  "api_paths": (item.get("api_path_hints") or [])[:30],
+                                  "semantic_chunks": (item.get("semantic_chunk_candidates") or [])[:40]}
                                  for item in result.get("bootstrap_scans", []) if isinstance(item, dict)],
                    "chunk_summaries": [{"url": item.get("url"), "status": item.get("status"),
-                                        "bytes": item.get("bytes"), "paths": item.get("api_path_hints", [])[:50],
+                                        "bytes": item.get("bytes"), "paths": (item.get("api_path_hints") or [])[:30],
                                         "service_terms": item.get("service_keyword_counts"),
                                         "stat_terms": item.get("data_model_keyword_counts")}
                                        for item in result.get("chunk_scans", []) if isinstance(item, dict)],
-                   "candidate_count": len(unique), "candidates": unique[:45]}
+                   "candidate_count": len(unique),
+                   "candidates": [{**item, "snippet": str(item.get("snippet") or "")[:260]}
+                                  for item in unique[:18]]}
         print("PARI_STATS_DISCOVERY " + json.dumps(summary, ensure_ascii=False, default=str), flush=True)
     except Exception as exc:
         print("PARI_STATS_DISCOVERY_ERROR " + type(exc).__name__ + ": " + str(exc)[:240], flush=True)
