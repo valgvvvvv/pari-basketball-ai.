@@ -412,10 +412,22 @@ function showSelectedMatch(ev){
   const externalStats=Array.isArray(ev.external_statistics)?ev.external_statistics:[];
   const statsQuality=ev.statistics_quality||null;
   const pariStatsFlag=ev.statistics_types??ev.live_fields?.statisticsTypes??null;
+  const matchTimeline=Array.isArray(ev.match_timeline)?ev.match_timeline:
+    (Array.isArray(ev.period_scores)?ev.period_scores.map((pair,index)=>({period:index+1,home:pair?.[0],away:pair?.[1],total:Number(pair?.[0]||0)+Number(pair?.[1]||0)})):[]);
+  const timelineHtml=matchTimeline.length
+    ? '<details class="source-statistics" open><summary>Ход матча по четвертям · PARI</summary>'+
+      '<p>'+matchTimeline.map(q=>'Q'+escapeHtml(q.period)+' · '+escapeHtml(q.home)+' : '+escapeHtml(q.away)+' · за четверть '+escapeHtml(q.total)+(q.cumulative_home!=null?' · всего '+escapeHtml(q.cumulative_home)+' : '+escapeHtml(q.cumulative_away):'')).join('<br>')+'</p></details>'
+    : '<p class="muted">PARI не передал разбивку счёта по четвертям.</p>';
+  const missingMetrics=statsQuality?.missing_metrics||[
+    "field_goals_made","field_goals_attempted","three_pointers_made","three_pointers_attempted",
+    "two_pointers_made","two_pointers_attempted","free_throws_made","free_throws_attempted",
+    "offensive_rebounds","defensive_rebounds","assists","turnovers","steals","blocks","fouls","possessions"
+  ];
   const statsCoverage=statsQuality?(" · покрытие ключевых категорий "+statsQuality.available_count+"/"+statsQuality.expected_count+" ("+statsQuality.coverage_percent+"%)"):"";
-  const externalStatsHtml=externalStats.length?'<details class="source-statistics" open><summary>Статистика матча · '+escapeHtml(ev.statistics_source||"внешний источник")+' ('+externalStats.length+statsCoverage+')</summary>'+
-    (statsQuality&&statsQuality.missing_metrics?.length?'<p class="muted">Не получены: '+statsQuality.missing_metrics.map(escapeHtml).join(", ")+'</p>':'')+
-    externalStats.map(st=>'<p><b>'+escapeHtml(st.group||"Статистика")+'</b> · '+escapeHtml(st.name||"Показатель")+': '+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+'</p>').join("")+'</details>':"";
+  const externalStatsHtml='<details class="source-statistics" open><summary>Подробная статистика · '+externalStats.length+' показателей'+statsCoverage+'</summary>'+
+    (externalStats.length?externalStats.map(st=>'<p><b>'+escapeHtml(st.group||"Статистика")+'</b> · '+escapeHtml(st.name||"Показатель")+': '+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+' <span class="muted">('+escapeHtml(st.source||"источник не указан")+')</span></p>').join(""):'<p class="muted">В текущем LIVE-feed PARI значения подробной статистики не переданы.</p>')+
+    (missingMetrics.length?'<p class="muted">Пока отсутствуют: '+missingMetrics.map(escapeHtml).join(", ")+'</p>':'')+
+    '<p class="muted">Источник: '+escapeHtml(ev.statistics_source||"PARI LIVE; подробный feed пока не обнаружен")+(ev.statistics_checked_at?' · проверено '+escapeHtml(ev.statistics_checked_at):'')+'</p></details>';
   const statsText=[...new Set(stats)].slice(0,24);
   const rootLines=fmtFactors(rootFactors);
   const allMarketLines=matchLines.map(x=>"линия "+x.line+" · ID "+x.factorId+(x.odds?" · кэф. "+x.odds:"")+(x.stale?" · последняя полученная, не текущая":""));
@@ -425,7 +437,7 @@ function showSelectedMatch(ev){
     return '<p><b>'+escapeHtml(label)+'</b></p><p class="muted">'+(lines.length?lines.map(escapeHtml).join("<br>"):"Факторы не распознаны")+'</p>';
   }).join("");
   $("selectedMatchMeta").textContent=[ev.league||ev.sport_name,"Строк PARI: "+(childCount+1),"Полей: "+fieldNames.length].filter(Boolean).join(" · ");
-  $("selectedMatchInfo").textContent="Счёт: "+(score?score.join(" : "):"не найден")+" · Четверть: "+(period||"не определена")+" · Время: "+(clock||"не найден")+" · Источник счёта: "+(score?(ev.score_source||"PARI"):"не получен")+" · Источник времени: "+(clock?(ev.clock_source||"PARI"):"не получен")+" · Статистика: "+(ev.external_statistics||[]).length+" показателей"+(ev.statistics_source?" ("+ev.statistics_source+")":"")+" · Рынков-факторов: "+new Set([...(ev.factors||[]),...(ev.related_factors||[])].map(x=>String(x.f)+"|"+String(x.pt||x.p||"")+"|"+String(x.v||""))).size+(scoreConflict?" · ВНИМАНИЕ: внешний счёт "+externalScore.join(" : ")+" не совпадает с PARI":"");
+  $("selectedMatchInfo").textContent="Счёт: "+(score?score.join(" : "):"не найден")+" · Четверть: "+(period||"не определена")+" · Время: "+(clock||"не найден")+" · Источник счёта: "+(score?(ev.score_source||"PARI"):"не получен")+" · Источник времени: "+(clock?(ev.clock_source||"PARI"):"не получен")+" · Статистика: "+externalStats.length+" показателей · покрытие "+(statsQuality?statsQuality.available_count+"/"+statsQuality.expected_count:"нет данных")+(ev.statistics_source?" ("+ev.statistics_source+")":"")+" · Рынков-факторов: "+new Set([...(ev.factors||[]),...(ev.related_factors||[])].map(x=>String(x.f)+"|"+String(x.pt||x.p||"")+"|"+String(x.v||""))).size+(scoreConflict?" · ВНИМАНИЕ: внешний счёт "+externalScore.join(" : ")+" не совпадает с PARI":"");
   $("matchForecast").innerHTML=
     '<p><b>Факторы в основной строке матча PARI</b></p>'+
     '<p class="muted">'+(rootLines.length?rootLines.map(escapeHtml).join("<br>"):(allMarketLines.length?"В основной строке факторов нет; найдено в иерархии/локальной истории: "+allMarketLines.map(escapeHtml).join(" · "):"В текущем ответе PARI нет факторов ID 930/931."))+'</p>'+
@@ -460,7 +472,7 @@ function showSelectedMatch(ev){
       : '<p class="muted">Прогноз четверти пока недоступен: '+escapeHtml(quarterEstimate.reason)+'.</p>')+
     (groupHtml||'<p class="muted">В дочерних строках не найдено факторов ID 930/931.</p>')+
     '<p class="muted">'+(clock?"Таймер: "+escapeHtml(clock):"Таймер четверти отсутствует в полученных строках PARI.")+'</p>';
-  if(externalStatsHtml) $("matchForecast").insertAdjacentHTML("beforeend",externalStatsHtml);
+  $("matchForecast").insertAdjacentHTML("beforeend",timelineHtml+externalStatsHtml);
   if(statsText.length){
     $("matchForecast").insertAdjacentHTML("beforeend",'<details class="source-statistics"><summary>Дополнительные числовые поля PARI ('+statsText.length+')</summary><p>'+statsText.map(x=>escapeHtml(x)).join("<br>")+'</p></details>');
   } else if(!externalStatsHtml) {
