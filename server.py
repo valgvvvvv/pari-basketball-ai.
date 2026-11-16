@@ -607,6 +607,9 @@ async def pari_discover():
                                         "clientCommonAgent", "lineAgents", "commonApi", "lineQueues", "commonQueues",
                                         "sportEvents", "sportCompetitionAndCompetitionGroup", "eventsFilter",
                                         "eventView", "main_sports_search", "getApiState", "ApiRequest",
+                                        "statistics", "statistic", "sportstats", "matchCenter", "matchActions",
+                                        "possession", "fouls", "rebounds", "assists", "turnovers",
+                                        "threePointers", "freeThrows", "fieldGoals", "playByPlay",
                                         "apiUrl", "baseURL", "fetch(", "axios", "request("
                                     )
                                     context_windows = []
@@ -624,7 +627,11 @@ async def pari_discover():
                                             if token in ("getServerAgentSettings", "handleAgentsUpdate", "coreSetup",
                                                          "queryCustomService", "serverAgentSettings", "additionalRequestParams",
                                                          "resultsByService", "sportEvents", "sportCompetitionAndCompetitionGroup",
-                                                         "eventsFilter", "eventView", "main_sports_search"):
+                                                         "eventsFilter", "eventView", "main_sports_search",
+                                                         "statistics", "statistic", "sportstats", "matchCenter",
+                                                         "matchActions", "possession", "fouls", "rebounds",
+                                                         "assists", "turnovers", "threePointers", "freeThrows",
+                                                         "fieldGoals", "playByPlay"):
                                                 targeted_windows.append(window)
                                             pos += len(token)
                                             hits += 1
@@ -633,7 +640,10 @@ async def pari_discover():
                                     service_terms = ("sportEvents", "sportCompetitionAndCompetitionGroup",
                                                      "queryCustomService", "commandName", "serviceName",
                                                      "additionalRequestParams", "getServerAgentSettings",
-                                                     "requestInterval", "eventView", "main_sports_search")
+                                                     "requestInterval", "eventView", "main_sports_search",
+                                                     "statistics", "statistic", "sportstats", "matchCenter",
+                                                     "matchActions", "possession", "fouls", "rebounds",
+                                                     "assists", "turnovers", "threePointers", "freeThrows")
                                     chunk_item["service_keyword_counts"] = {
                                         term: len(re.findall(re.escape(term), chunk_source, re.I))
                                         for term in service_terms
@@ -646,6 +656,9 @@ async def pari_discover():
                                         "score_fields": r"\b(?:score|homeScore|awayScore|currentScore|scoreHome|scoreAway)\b",
                                         "clock_fields": r"\b(?:clock|timer|period|quarter|matchTime)\b",
                                         "market_fields": r"\b(?:odds|price|marketId|outcome)\b",
+                                        "statistics_fields": r"\b(?:statistics|statistic|boxScore|teamStats|matchStats)\b",
+                                        "possession_fields": r"\b(?:possession|possessions|ballControl)\b",
+                                        "foul_fields": r"\b(?:fouls|personalFouls|teamFouls)\b",
                                     }
                                     chunk_item["data_model_keyword_counts"] = {
                                         name: len(re.findall(pattern, chunk_source, re.I))
@@ -654,7 +667,10 @@ async def pari_discover():
                                     data_windows = []
                                     for token in ("sportEventId", "eventId", "homeTeam", "awayTeam",
                                                   "homeScore", "awayScore", "currentScore", "scoreHome",
-                                                  "scoreAway", "marketId", "matchTime", "competitor"):
+                                                  "scoreAway", "marketId", "matchTime", "competitor",
+                                                  "statistics", "possession", "fouls", "rebounds", "assists",
+                                                  "turnovers", "threePointers", "freeThrows", "fieldGoals",
+                                                  "matchActions", "playByPlay"):
                                         pos = 0
                                         hits = 0
                                         while hits < 2:
