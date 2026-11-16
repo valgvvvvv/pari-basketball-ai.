@@ -835,6 +835,7 @@ async def _enrich_with_sofascore_live(events):
         not (isinstance(event.get("score"), (list, tuple)) and len(event.get("score")) >= 2)
         or event.get("clock") is None
         or event.get("period") is None
+        or not event.get("external_statistics")
         for event in events
     )
     sportscore_diagnostics = None
@@ -1844,18 +1845,32 @@ async def _enrich_with_sofascore_live(events):
             pari["clock"] = row["clock"]
             pari["clock_source"] = "SofaScore"
         if row.get("external_statistics"):
-            pari["external_statistics"] = row["external_statistics"]
-            pari["statistics_source"] = "SportScore"
+            merged = list(pari.get("external_statistics") or []) + list(row["external_statistics"])
+            deduped, seen = [], set()
+            for stat in merged:
+                key = (stat.get("metric_key"), str(stat.get("home")), str(stat.get("away")))
+                if key not in seen:
+                    seen.add(key)
+                    deduped.append(stat)
+            pari["external_statistics"] = deduped
+            sources = list(dict.fromkeys(str(x.get("source") or "external") for x in deduped))
+            pari["statistics_source"] = " + ".join(sources)
             pari["statistics_checked_at"] = datetime.now(timezone.utc).isoformat()
-            available = sorted({x.get("metric_key") for x in row["external_statistics"] if x.get("metric_key")})
-            expected = ["three_pointers", "two_pointers", "free_throws", "rebounds", "assists",
+            available = sorted({x.get("metric_key") for x in deduped if x.get("metric_key")})
+            expected = ["three_pointers", "two_pointers", "free_throws", "field_goals",
+                        "rebounds", "offensive_rebounds", "defensive_rebounds", "assists",
                         "turnovers", "steals", "blocks", "fouls", "possessions"]
-            missing = [key for key in expected if key not in available]
+            # PARI may expose made/attempted subfields rather than aggregate totals.
+            available_set = set(available)
+            if any(x.startswith("three_pointers_") for x in available_set): available_set.add("three_pointers")
+            if any(x.startswith("two_pointers_") for x in available_set): available_set.add("two_pointers")
+            if any(x.startswith("free_throws_") for x in available_set): available_set.add("free_throws")
+            missing = [key for key in expected if key not in available_set]
             pari["statistics_quality"] = {
-                "available_metrics": available, "missing_metrics": missing,
-                "available_count": len(available), "expected_count": len(expected),
-                "coverage_percent": round(len(available) / len(expected) * 100),
-                "raw_fields_count": len(row["external_statistics"]),
+                "available_metrics": sorted(available_set), "missing_metrics": missing,
+                "available_count": len(available_set.intersection(expected)), "expected_count": len(expected),
+                "coverage_percent": round(len(available_set.intersection(expected)) / len(expected) * 100),
+                "raw_fields_count": len(deduped),
                 "complete": not missing,
             }
         matched_rows.append((pari, row))
