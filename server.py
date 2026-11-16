@@ -731,6 +731,8 @@ async def _enrich_with_sofascore_live(events):
                 "hyuston": "houston", "vashington": "washington",
                 "nyuyork": "newyork", "losandzheles": "losangeles",
                 "sanfrantsisko": "sanfrancisco",
+                "lajons": "lions", "perpechual": "perpetual",
+                "univperpechualhelpsistemd alta".replace(" ", ""): "uphsdaltas",
             }
             for source, target in aliases.items():
                 if source in base:
@@ -1954,14 +1956,17 @@ async def _enrich_with_sofascore_live(events):
                 sources = list(dict.fromkeys(str(x.get("source") or "unknown") for x in deduped_stats))
                 pari["statistics_source"] = " + ".join(sources)
                 pari["statistics_checked_at"] = datetime.now(timezone.utc).isoformat()
+                combined_metrics = set(present_metrics)
+                combined_metrics.update(x.get("metric_key") for x in existing_stats if x.get("metric_key"))
+                combined_missing = [key for key in expected_metrics if key not in combined_metrics]
                 pari["statistics_quality"] = {
-                    "available_metrics": sorted(present_metrics),
-                    "missing_metrics": missing_metrics,
-                    "available_count": len(present_metrics),
+                    "available_metrics": sorted(combined_metrics),
+                    "missing_metrics": combined_missing,
+                    "available_count": len(combined_metrics),
                     "expected_count": len(expected_metrics),
-                    "coverage_percent": round(len(present_metrics) / len(expected_metrics) * 100),
-                    "raw_fields_count": len(normalized),
-                    "complete": not missing_metrics,
+                    "coverage_percent": round(len(combined_metrics) / len(expected_metrics) * 100),
+                    "raw_fields_count": len(deduped_stats),
+                    "complete": not combined_missing,
                 }
                 return True, len(normalized)
             return False, "statistics_empty"
