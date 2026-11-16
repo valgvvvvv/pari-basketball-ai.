@@ -724,14 +724,28 @@ async def _enrich_with_sofascore_live(events):
         return re.sub(r"[^a-z0-9]+", "", value)
 
     def team_score(a, b):
-        aa, bb = norm(a), norm(b)
-        if not aa or not bb:
+        def variants(value):
+            base = norm(value)
+            values = {base} if base else set()
+            aliases = {
+                "hyuston": "houston", "vashington": "washington",
+                "nyuyork": "newyork", "losandzheles": "losangeles",
+                "sanfrantsisko": "sanfrancisco",
+            }
+            for source, target in aliases.items():
+                if source in base:
+                    values.add(base.replace(source, target))
+            return values
+        aa_values, bb_values = variants(a), variants(b)
+        if not aa_values or not bb_values:
             return 0.0
-        score = SequenceMatcher(None, aa, bb).ratio()
-        # Sponsor and club suffixes may extend a team's short official name.
-        shorter, longer = (aa, bb) if len(aa) <= len(bb) else (bb, aa)
-        if len(shorter) >= 4 and shorter in longer:
-            score = max(score, 0.90)
+        score = max(SequenceMatcher(None, aa, bb).ratio()
+                    for aa in aa_values for bb in bb_values)
+        for aa in aa_values:
+            for bb in bb_values:
+                shorter, longer = (aa, bb) if len(aa) <= len(bb) else (bb, aa)
+                if len(shorter) >= 4 and shorter in longer:
+                    score = max(score, 0.90)
         return score
 
     def pair_score(a, b, x, y):
@@ -996,6 +1010,82 @@ async def _enrich_with_sofascore_live(events):
                     "detail_source": None,
                 })
 
+            # ESPN's public NBA scoreboard is an independent fallback for NBA fixtures.
+            # Only the NBA scoreboard is used here: NCAA uses a different period format.
+            espn_diagnostics = {"status": "not_checked", "events": 0, "live_events": 0}
+            try:
+                espn_date = datetime.now(timezone.utc).strftime("%Y%m%d")
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(2.8, connect=1.5),
+                    follow_redirects=True,
+                    headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+                ) as espn_client:
+                    espn_response = await espn_client.get(
+                        "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
+                        params={"dates": espn_date},
+                    )
+                espn_diagnostics["http_status"] = espn_response.status_code
+                if espn_response.status_code == 200:
+                    espn_payload = espn_response.json()
+                    espn_events = espn_payload.get("events", []) if isinstance(espn_payload, dict) else []
+                    espn_diagnostics["events"] = len(espn_events) if isinstance(espn_events, list) else 0
+                    for espn_event in espn_events if isinstance(espn_events, list) else []:
+                        if not isinstance(espn_event, dict):
+                            continue
+                        competitions = espn_event.get("competitions") or []
+                        competition = competitions[0] if competitions and isinstance(competitions[0], dict) else {}
+                        status = competition.get("status") or espn_event.get("status") or {}
+                        status_type = status.get("type") if isinstance(status, dict) else {}
+                        state = str((status_type or {}).get("state") or "").lower()
+                        if state not in ("in", "live", "in_progress"):
+                            continue
+                        competitors = competition.get("competitors") or []
+                        home_team = next((x for x in competitors if x.get("homeAway") == "home"), None)
+                        away_team = next((x for x in competitors if x.get("homeAway") == "away"), None)
+                        if not home_team or not away_team:
+                            continue
+                        try:
+                            home_score, away_score = int(float(home_team.get("score"))), int(float(away_team.get("score")))
+                        except (TypeError, ValueError, OverflowError):
+                            continue
+                        home_obj, away_obj = home_team.get("team") or {}, away_team.get("team") or {}
+                        home_name = str(home_obj.get("displayName") or home_obj.get("name") or "")
+                        away_name = str(away_obj.get("displayName") or away_obj.get("name") or "")
+                        if not home_name or not away_name:
+                            continue
+                        try:
+                            period = int(status.get("period"))
+                        except (TypeError, ValueError):
+                            period = None
+                        display_clock = str(status.get("displayClock") or "").strip()
+                        clock_match = re.fullmatch(r"(\d{1,2}):([0-5]\d)", display_clock)
+                        clock = (clock_match.group(1).zfill(2) + ":" + clock_match.group(2)) if clock_match else None
+                        if period not in (1, 2, 3, 4) or clock is None:
+                            continue
+                        period_scores = {}
+                        for competitor, side in ((home_team, 0), (away_team, 1)):
+                            for index, line_score in enumerate(competitor.get("linescores") or [], start=1):
+                                try:
+                                    points = int(float(line_score.get("value") if isinstance(line_score, dict) else line_score))
+                                except (TypeError, ValueError, OverflowError):
+                                    continue
+                                period_scores.setdefault(str(index), [None, None])[side] = points
+                        period_scores = {key: value for key, value in period_scores.items()
+                                         if value[0] is not None and value[1] is not None}
+                        external_rows.append({
+                            "home": home_name, "away": away_name,
+                            "score": [home_score, away_score], "period_scores": period_scores,
+                            "period": period, "clock": clock, "status": "NBA live",
+                            "id": "espn:" + str(espn_event.get("id")),
+                            "provider_id": str(espn_event.get("id")),
+                            "period_length_seconds": 720, "detail_source": "ESPN NBA scoreboard",
+                        })
+                        espn_diagnostics["live_events"] += 1
+                    espn_diagnostics["status"] = "ok"
+                else:
+                    espn_diagnostics["status"] = "http_error"
+            except (httpx.HTTPError, ValueError, TypeError) as exc:
+                espn_diagnostics["status"] = type(exc).__name__
             # Merge scored SofaScore fixtures into the candidate pool as well.
             # This prevents the SportScore fallback branch from discarding matches
             # already found by SofaScore when only some PARI events are missing data.
@@ -1082,7 +1172,7 @@ async def _enrich_with_sofascore_live(events):
             # countdown, ask SportScore's documented single-match detail endpoint.
             # This is a bounded, read-only enrichment; only explicit clock and
             # period-duration fields are accepted (never infer 10/12-minute periods).
-            detail_targets = [row for row in external_rows if (not row.get("clock") or not row.get("period_length_seconds")) and row.get("id") and not str(row.get("id")).startswith("sofascore:")]
+            detail_targets = [row for row in external_rows if (not row.get("clock") or not row.get("period_length_seconds")) and row.get("id") and not str(row.get("id")).startswith(("sofascore:", "espn:"))]
             if detail_targets:
                 async with httpx.AsyncClient(
                     timeout=httpx.Timeout(5.0, connect=3.0),
@@ -1277,6 +1367,7 @@ async def _enrich_with_sofascore_live(events):
                 "sportscore_endpoint_diagnostics": sportscore_raw_counts,
                 "sportscore_status_samples": sportscore_status_samples[:16],
                 "sportscore_live_rows_after_filter": len(external_rows),
+                "espn_nba": espn_diagnostics,
                 "sportscore_live_match_samples": [
                     {"home": row["home"], "away": row["away"], "status": row["status"],
                      "period": row["period"], "clock": row.get("clock"),
@@ -1963,6 +2054,19 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "basketball_events": len(basketball),
                         "filter_diagnostics": filter_counts,
                         "live_score_source": live_enrichment,
+                        "forecast_input_samples": [
+                            {
+                                "id": event.get("id"),
+                                "teams": str(event.get("team1") or "") + " — " + str(event.get("team2") or ""),
+                                "score_present": event.get("score") is not None,
+                                "period": event.get("period") or (event.get("external_live") or {}).get("period"),
+                                "clock": event.get("clock") or (event.get("external_live") or {}).get("clock"),
+                                "period_length_seconds": (event.get("external_live") or {}).get("period_length_seconds"),
+                                "total_market_count": len(event.get("match_total_candidates") or []),
+                                "score_source": event.get("score_source") or (event.get("external_live") or {}).get("source"),
+                            }
+                            for event in basketball[:20]
+                        ],
                         "attempts": [
                             {k: item.get(k) for k in ("host", "status", "error") if item.get(k) is not None}
                             for item in attempts
