@@ -356,6 +356,44 @@ function liveShootingContext(ev,estimate){
     boxScorePoints:pointsFromBox
   };
 }
+function liveStatisticsAnalysis(ev){
+  const rows=Array.isArray(ev?.external_statistics)?ev.external_statistics:[];
+  const result=[];
+  const aliases={
+    possessions:["possessions","possession"],fouls:["fouls","personal_fouls","team_fouls"],
+    turnovers:["turnovers"],rebounds:["rebounds"],offensive_rebounds:["offensive_rebounds"],
+    defensive_rebounds:["defensive_rebounds"],assists:["assists"],steals:["steals"],blocks:["blocks"],
+    three_pointers:["three_pointers","three_pointers_made"],two_pointers:["two_pointers","two_pointers_made"],
+    free_throws:["free_throws","free_throws_made"],field_goals:["field_goals","field_goals_made"]
+  };
+  const read=(keys)=>{
+    const row=rows.find(x=>keys.includes(String(x?.metric_key||"").toLowerCase()));
+    if(!row)return null;
+    const h=parseStatCount(row.home),v=parseStatCount(row.away);
+    if(!h||!v)return null;
+    return {home:h,away:v,name:row.name||keys[0]};
+  };
+  for(const [key,labels] of Object.entries(aliases)){
+    const x=read(labels);if(!x)continue;
+    const h=x.home.value,a=x.away.value;
+    if(!Number.isFinite(h)||!Number.isFinite(a))continue;
+    const diff=h-a;
+    let note="";
+    if(key==="possessions")note=diff>2?"больше владений у первой команды":diff< -2?"больше владений у второй команды":"по владениям равенство";
+    else if(key==="fouls")note=diff>2?"первая команда чаще фолит":diff< -2?"вторая команда чаще фолит":"по фолам близко";
+    else if(key==="turnovers")note=diff>2?"у первой команды больше потерь":diff< -2?"у второй команды больше потерь":"по потерям близко";
+    else if(key==="rebounds"||key==="offensive_rebounds")note=diff>2?"преимущество первой команды на щите":diff< -2?"преимущество второй команды на щите":"подборы близки";
+    else if(key==="assists")note=diff>2?"у первой команды больше результативных передач":diff< -2?"у второй команды больше результативных передач":"по передачам близко";
+    else if(key==="steals"||key==="blocks")note=diff>1?"выше у первой команды":diff< -1?"выше у второй команды":"показатели близки";
+    else continue;
+    result.push(x.name+": "+h+" : "+a+" — "+note);
+  }
+  const score=findLiveScore(ev);
+  const shot=liveShootingContext(ev,{elapsed_seconds:1});
+  if(shot.efg!=null)result.unshift("Эффективность бросков eFG: "+(shot.efg*100).toFixed(1)+"%; данные сверены с текущим счётом.");
+  else if(shot.quality)result.push("Броски: "+shot.quality+".");
+  return result;
+}
 function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=null){
   if(!estimate||!Number.isFinite(estimate.projection)||!Number.isFinite(estimate.current))return estimate;
   const context=estimate.source==="period_range"
@@ -429,6 +467,10 @@ function showSelectedMatch(ev){
     (missingMetrics.length?'<p class="muted">Пока отсутствуют: '+missingMetrics.map(escapeHtml).join(", ")+'</p>':'')+
     '<p class="muted">Источник: '+escapeHtml(ev.statistics_source||"PARI LIVE; подробный feed пока не обнаружен")+(ev.statistics_checked_at?' · проверено '+escapeHtml(ev.statistics_checked_at):'')+'</p></details>';
   const statsText=[...new Set(stats)].slice(0,24);
+  const statsAnalysis=liveStatisticsAnalysis(ev);
+  const statsAnalysisHtml='<details class="source-statistics" open><summary>Анализ статистики для прогноза</summary>'+
+    (statsAnalysis.length?statsAnalysis.map(x=>'<p>'+escapeHtml(x)+'</p>').join(""):'<p class="muted">Пока недостаточно числовых показателей для сравнительного анализа.</p>')+
+    '<p class="muted">Сравнительные показатели описывают ход матча; в численную поправку прогноза сейчас включается только проверенная эффективность бросков.</p></details>';
   const rootLines=fmtFactors(rootFactors);
   const allMarketLines=matchLines.map(x=>"линия "+x.line+" · ID "+x.factorId+(x.odds?" · кэф. "+x.odds:"")+(x.stale?" · последняя полученная, не текущая":""));
   const groupHtml=quarterGroups.map(g=>{
@@ -443,6 +485,7 @@ function showSelectedMatch(ev){
     '<p class="muted">'+(rootLines.length?rootLines.map(escapeHtml).join("<br>"):(allMarketLines.length?"В основной строке факторов нет; найдено в иерархии/локальной истории: "+allMarketLines.map(escapeHtml).join(" · "):"В текущем ответе PARI нет факторов ID 930/931."))+'</p>'+
     '<p class="muted">Это пока не подтверждённая расшифровка типа рынка: ID фактора и линия показываются как получены от PARI.</p>'+
     '<p class="muted">'+(score&&period&&clock?"Счёт, четверть и таймер доступны.":"Расчёт темпа заблокирован: нет подтверждённого счёта и/или таймера.")+'</p>'+
+    statsAnalysisHtml+
     (paceEstimate?'<p><b>'+(clocklessCandidate?'Предварительная оценка полного тотала без таймера:':'Темповая оценка полного тотала:')+'</b> '+paceEstimate.projection+' очка · диапазон '+paceEstimate.low+'–'+paceEstimate.high+(paceEstimate.elapsed?' · сыграно около '+paceEstimate.elapsed+' мин.':'')+(clocklessCandidate?' · длительность '+escapeHtml(paceEstimate.period_length_method):'')+(paceEstimate.poisson?' · Пуассон/Монте-Карло '+paceEstimate.poisson.simulations.toLocaleString('ru-RU')+' симуляций · 80% '+paceEstimate.poisson.low80+'–'+paceEstimate.poisson.high80+' · 95% '+paceEstimate.poisson.low95+'–'+paceEstimate.poisson.high95:'')+'</p>'+
     (paceEstimate&&paceEstimate.context_factors?.length?'<p><b>Поправки контекста:</b> '+paceEstimate.context_factors.map(escapeHtml).join(' · ')+'</p>':'')+
     (paceEstimate?.statistics_quality?'<p class="muted"><b>Использование статистики:</b> '+escapeHtml(paceEstimate.statistics_quality)+' · коэффициент оставшегося ожидания ×'+Number(paceEstimate.statistics_adjustment||1).toFixed(3)+'</p>':''):(marketFallback?'<p><b>Рыночный ориентир полного тотала PARI:</b> '+marketFallback.estimate.projection+' очков. Это линия букмекера, а не независимый игровой прогноз.</p>':'<p class="muted">Нет подтверждённой линии и счёта для расчёта.</p>'))+
