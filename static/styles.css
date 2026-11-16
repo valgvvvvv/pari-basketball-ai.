@@ -27,3 +27,18 @@
 .source-statistics{margin-top:10px;border-top:1px solid var(--line);padding-top:9px;color:var(--muted);font-size:11px}
 .source-statistics summary{cursor:pointer;color:#aab9cc;font-weight:700}
 .source-statistics p{margin:5px 0;overflow-wrap:anywhere}
+
+/* Expanded live analysis calculations */
+.model-active{color:var(--green)!important}
+.calc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:9px;margin:12px 0}
+.calc-card{background:#0b1421;border:1px solid var(--line);border-radius:9px;padding:12px;min-width:0}
+.calc-card span{display:block;color:var(--muted);font-size:10px;line-height:1.4}
+.calc-card b{display:block;font-size:18px;color:var(--cyan);margin-top:6px;overflow-wrap:anywhere}
+.calc-formula{background:#14283a;border-left:2px solid var(--cyan);padding:11px 13px;color:#b7c7d9;font-size:11px;line-height:1.65}
+.calc-table{width:100%;border-collapse:collapse;margin:10px 0 18px;font-size:11px}
+.calc-table th,.calc-table td{padding:9px 7px;text-align:left;border-bottom:1px solid var(--line)}
+.calc-table th{color:var(--muted);font-weight:600}
+.calc-table td{color:var(--text);font-variant-numeric:tabular-nums}
+.calc-factors{padding-left:19px;color:#b7c7d9;font-size:11px;line-height:1.8}
+.compact-analysis h3,#matchForecast h3{font-size:14px;margin:18px 0 8px}
+@media(max-width:520px){.calc-table{font-size:10px}.calc-table th,.calc-table td{padding:7px 4px}}
