@@ -236,7 +236,8 @@ function showSelectedMatch(ev){
   const objects=collectEventObjects({root:ev.raw||{},related:ev.related_events||[],live:ev.live_fields||{}});
   const score=findLiveScore(ev),period=findLivePeriod(ev),clock=findLiveClock(ev);
   const periodLength=findPeriodLengthSeconds(ev);
-  const paceEstimate=periodLength ? estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength}},score,period,clock) : null;
+  const paceCandidate=periodLength ? estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength}},score,period,clock) : null;
+  const paceEstimate=paceCandidate && paceCandidate.elapsed_seconds>=12*60 ? paceCandidate : null;
   const matchLines=getMatchTotalLines(ev);
   const childCount=(ev.related_events||[]).length;
   const fieldNames=[...new Set(objects.flatMap(o=>Object.keys(o)))];
