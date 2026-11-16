@@ -416,7 +416,7 @@ function estimateLiveTotalFromPeriod(ev,score,period,lengthInfo) {
   const projection=Math.round((low+high)/2*10)/10;
   return {current:total,projection,low,high,sigma:Math.max(8,(high-low)/2.563),
     elapsed_seconds_min:elapsedMin,elapsed_seconds_max:elapsedMax,
-    elapsed:Math.round((elapsedMin+elapsedMax)/120)/10,
+    elapsed:Math.round((elapsedMin+elapsedMax)/12)/10,
     source:"period_range",period_length_seconds:length,period_count:periods,period_length_method:lengthInfo.method};
 }
 function marketReferenceForecast(lines) {
