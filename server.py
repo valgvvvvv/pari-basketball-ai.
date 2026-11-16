@@ -2759,7 +2759,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 if not isinstance(item, dict):
                                     continue
                                 label = str(item.get("kindName") or item.get("name") or item.get("title") or "").casefold()
-                                match = re.search(r"(?:^|\\D)([1-4])\\s*[-–.]?\\s*(?:я|ая|й)?\\s*(?:четверт|quarter|period)", label)
+                                match = re.search(r"(?:^|\D)([1-4])\s*[-–.]?\s*(?:я|ая|й)?\s*(?:четверт|quarter|period)", label)
                                 if not match:
                                     continue
                                 pair = _score_pair_from_row(item)
@@ -2837,8 +2837,10 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "match_timeline": [
                             {"period": index + 1, "home": pair[0], "away": pair[1],
                              "total": pair[0] + pair[1],
-                             "cumulative_home": sum(x[0] for x in period_scores[:index + 1]),
-                             "cumulative_away": sum(x[1] for x in period_scores[:index + 1])}
+                             "cumulative_home": sum(x[0] for x in period_scores[:index + 1]
+                                                          if isinstance(x, (list, tuple)) and len(x) >= 2),
+                             "cumulative_away": sum(x[1] for x in period_scores[:index + 1]
+                                                          if isinstance(x, (list, tuple)) and len(x) >= 2)}
                             for index, pair in enumerate(period_scores)
                             if isinstance(pair, (list, tuple)) and len(pair) >= 2
                             and all(isinstance(x, (int, float)) for x in pair[:2])
