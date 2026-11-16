@@ -399,7 +399,17 @@ async function refreshLiveMatches() {
   if (liveMessage && !liveList.children.length) liveMessage.textContent = "Запрашиваем events/list у серверов PARI…";
   let pariFeedFailure = null;
   try {
-    const response = await fetch("/api/pari/live", {cache:"no-store"});
+    const controller = new AbortController();
+    const requestTimeout = setTimeout(() => controller.abort(), 15000);
+    let response;
+    try {
+      response = await fetch("/api/pari/live", {cache:"no-store", signal:controller.signal});
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error("PARI API не ответил за 15 секунд");
+      throw error;
+    } finally {
+      clearTimeout(requestTimeout);
+    }
     const data = await response.json();
     if (!response.ok || !data.ok) {
       pariFeedFailure = data;
