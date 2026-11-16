@@ -2243,6 +2243,19 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     if str(event.get("place", "")).lower() != "live":
                         filter_counts["not_live"] += 1
                         continue
+                    event_id = event.get("id")
+                    event_misc = event_misc_by_id.get(str(event_id), {})
+                    live_info = live_info_by_id.get(str(event_id), {})
+                    # Some PARI rows are placed in the LIVE tree before kickoff.
+                    # Explicit notStarted status/comment overrides place=live.
+                    pari_state = " ".join(str(row.get(key) or "") for row in
+                                          (event, event_misc, live_info)
+                                          for key in ("st1", "status", "state", "comment",
+                                                      "scoreComment", "scoreCommentTail")).casefold()
+                    if any(marker in pari_state for marker in
+                           ("notstarted", "не начался", "не началась", "ожидает начала")):
+                        filter_counts["not_live"] += 1
+                        continue
                     pari_gender_text = " ".join(
                         repair_team_encoding(event.get(key) or "")
                         for key in ("team1", "team2", "name", "competitionName", "sportName")
@@ -2251,9 +2264,6 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         filter_counts["excluded_by_name"] += 1
                         continue
                     filter_counts["accepted_live_roots"] += 1
-                    event_id = event.get("id")
-                    event_misc = event_misc_by_id.get(str(event_id), {})
-                    live_info = live_info_by_id.get(str(event_id), {})
                     # Merge only source-provided fields; never infer score or clock
                     # from kickoff timestamps or odds.
                     score_source = dict(event)
@@ -2348,7 +2358,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         clock_value = f"{timer_seconds // 60:02d}:{timer_seconds % 60:02d}"
                     elif clock_value is not None:
                         clock_text = str(clock_value).strip()
-                        clock_match = re.fullmatch(r"(\\d{1,2}):([0-5]\\d)", clock_text)
+                        clock_match = re.fullmatch(r"(\d{1,2}):([0-5]\d)", clock_text)
                         if clock_match and int(clock_match.group(1)) * 60 + int(clock_match.group(2)) <= 1200:
                             clock_value = clock_match.group(1).zfill(2) + ":" + clock_match.group(2)
                         else:
@@ -2481,6 +2491,16 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             {
                                 "id": event.get("id"),
                                 "teams": str(event.get("team1") or "") + " — " + str(event.get("team2") or ""),
+                                "competition_context": {
+                                    "league": event.get("league"),
+                                    "sport_name": event.get("sport_name"),
+                                    "sport_id": event.get("sport_id"),
+                                    "raw_name": (event.get("raw") or {}).get("name"),
+                                    "competitionName": (event.get("raw") or {}).get("competitionName"),
+                                    "tournamentId": (event.get("raw") or {}).get("tournamentId"),
+                                    "tournament": (event.get("raw") or {}).get("tournament"),
+                                    "raw_keys": list((event.get("raw") or {}).keys())[:80],
+                                },
                                 "score_present": event.get("score") is not None,
                                 "pari_score_debug": {
                                     "event": {key: value for key, value in (event.get("raw") or {}).items()
