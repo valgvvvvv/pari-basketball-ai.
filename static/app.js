@@ -400,9 +400,9 @@ function inferPeriodLengthForForecast(ev) {
   // NCAA men's basketball uses two 20-minute halves, not four quarters.
   if(/ncaa|college|university|студент|студ\b|колледж|march madness/.test(text))return null;
   // Verified competition-specific period lengths.
-  if(/\\bc\\s*dbl\\b|chinese basketball development league/.test(text))
+  if(/\bc\s*dbl\b|chinese basketball development league/.test(text))
     return {seconds:720,periods:4,method:"China CDBL · 4×12 минут"};
-  if(/bskt\\s*cup/.test(text))
+  if(/bskt\s*cup/.test(text))
     return {seconds:600,periods:4,method:"BSKT Cup · 4×10 минут"};
   if(/\bnba\b|g league|баскетбол nba/.test(text))
     return {seconds:720,periods:4,method:"формат NBA · 12 минут"};
