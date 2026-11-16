@@ -181,6 +181,11 @@ def index():
     with open("static/index.html", encoding="utf-8") as f:
         return f.read()
 
+@app.head("/")
+def index_head():
+    # Render's readiness probe uses HEAD /. Return 200 instead of a false 405.
+    return HTMLResponse(content="", status_code=200)
+
 @app.get("/api/health")
 def health():
     # This endpoint reports application/adapter readiness only. Actual upstream
@@ -1951,6 +1956,18 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             "matched": 0,
                             "errors": [type(exc).__name__ + ": " + str(exc)[:180]]
                         }
+                    print("PARI_LIVE_DIAG " + json.dumps({
+                        "ok": True,
+                        "host": host,
+                        "total_events": len(all_events),
+                        "basketball_events": len(basketball),
+                        "filter_diagnostics": filter_counts,
+                        "live_score_source": live_enrichment,
+                        "attempts": [
+                            {k: item.get(k) for k in ("host", "status", "error") if item.get(k) is not None}
+                            for item in attempts
+                        ],
+                    }, ensure_ascii=False, default=str), flush=True)
                     return {
                         "ok": True,
                         "connected": True,
@@ -2053,6 +2070,13 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
         + ((" (HTTP " + str(item.get("status")) + ")") if item.get("status") is not None else "")
         for item in attempts
     )
+    print("PARI_LIVE_DIAG " + json.dumps({
+        "ok": False,
+        "attempts": [
+            {k: item.get(k) for k in ("host", "status", "error") if item.get(k) is not None}
+            for item in attempts
+        ],
+    }, ensure_ascii=False, default=str), flush=True)
     return {
         "ok": False,
         "connected": False,
