@@ -1530,28 +1530,37 @@ async def _enrich_with_sofascore_live(events):
                                         "metric_key": metric, "home": home_value,
                                         "away": away_value, "source": "SportScore",
                                     })
+                                def walk_detail_stats(node, group="Матч", depth=0):
+                                    if depth > 7:
+                                        return
+                                    if isinstance(node, list):
+                                        for entry in node:
+                                            walk_detail_stats(entry, group, depth + 1)
+                                        return
+                                    if not isinstance(node, dict):
+                                        return
+                                    label = node.get("name") or node.get("label") or node.get("key") or node.get("type")
+                                    home_value = next((node.get(k) for k in ("home", "homeValue", "home_value", "team1", "homeTeam") if node.get(k) is not None), None)
+                                    away_value = next((node.get(k) for k in ("away", "awayValue", "away_value", "team2", "awayTeam") if node.get(k) is not None), None)
+                                    if isinstance(home_value, dict):
+                                        home_value = home_value.get("displayValue", home_value.get("value", home_value.get("total")))
+                                    if isinstance(away_value, dict):
+                                        away_value = away_value.get("displayValue", away_value.get("value", away_value.get("total")))
+                                    if label and home_value is not None and away_value is not None:
+                                        add_detail_stat(label, home_value, away_value, node.get("groupName") or group)
+                                    home_map, away_map = node.get("home"), node.get("away")
+                                    if isinstance(home_map, dict) and isinstance(away_map, dict):
+                                        for metric_name in set(home_map).intersection(away_map):
+                                            add_detail_stat(metric_name, home_map.get(metric_name), away_map.get(metric_name), node.get("groupName") or group)
+                                    for key, child in node.items():
+                                        if isinstance(child, (dict, list)):
+                                            walk_detail_stats(child, node.get("groupName") or node.get("name") or group, depth + 1)
+
                                 for obj in objects:
-                                    for group_key in ("statistics", "stats", "boxScore", "box_score", "teamStatistics"):
+                                    for group_key in ("statistics", "stats", "boxScore", "box_score", "teamStatistics", "team_statistics", "matchStatistics"):
                                         group_value = obj.get(group_key)
-                                        if isinstance(group_value, list):
-                                            for entry in group_value:
-                                                if not isinstance(entry, dict): continue
-                                                label = entry.get("name") or entry.get("label") or entry.get("key") or entry.get("type")
-                                                home_value = entry.get("home", entry.get("homeValue", entry.get("home_value")))
-                                                away_value = entry.get("away", entry.get("awayValue", entry.get("away_value")))
-                                                if isinstance(home_value, dict): home_value = home_value.get("value", home_value.get("total"))
-                                                if isinstance(away_value, dict): away_value = away_value.get("value", away_value.get("total"))
-                                                add_detail_stat(label or "Показатель", home_value, away_value, obj.get("groupName") or obj.get("name") or "Матч")
-                                        elif isinstance(group_value, dict):
-                                            for label, entry in group_value.items():
-                                                if isinstance(entry, dict):
-                                                    home_value = entry.get("home", entry.get("homeValue", entry.get("home_value")))
-                                                    away_value = entry.get("away", entry.get("awayValue", entry.get("away_value")))
-                                                elif isinstance(entry, (list, tuple)) and len(entry) >= 2:
-                                                    home_value, away_value = entry[0], entry[1]
-                                                else:
-                                                    continue
-                                                add_detail_stat(label, home_value, away_value, obj.get("groupName") or obj.get("name") or "Матч")
+                                        if isinstance(group_value, (dict, list)):
+                                            walk_detail_stats(group_value, obj.get("groupName") or obj.get("name") or "Матч")
                                 if detail_statistics:
                                     unique_stats = {}
                                     for stat in detail_statistics:
