@@ -298,7 +298,9 @@ function applyGameContext(estimate,ev,period,clock){
 }
 function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=null){
   if(!estimate||!Number.isFinite(estimate.projection)||!Number.isFinite(estimate.current))return estimate;
-  const context=applyGameContext(estimate,ev||{},period,clock);
+  const context=estimate.source==="period_range"
+    ? {estimate,factors:["неполный таймер: контекстные поправки отключены"],adjustment:1}
+    : applyGameContext(estimate,ev||{},period,clock);
   const adjusted=context.estimate||estimate;
   const mu=Math.max(0,adjusted.projection-adjusted.current);
   const mc=poissonMonteCarlo(adjusted.current,mu,lines,seedText);
@@ -591,9 +593,8 @@ function automaticQuarterForecast(ev) {
     if(Number.isFinite(line)&&line>0&&line<150&&!lines.some(x=>x.line===line)) lines.push({line});
   }
   const quarterEstimate={current,projection,current_score:current,elapsed:Math.round(elapsed/60*10)/10};
-  const adjusted=applyPoissonModel(quarterEstimate,lines,String(ev.id||"")+"|Q"+period+"|"+clock,ev,period,clock);
-  const poisson=adjusted.poisson;
-  return {ready:true,...adjusted,low80:poisson.low80,high80:poisson.high80,low95:poisson.low95,high95:poisson.high95,poisson,lines:poisson.probabilities};
+  const poisson=poissonMonteCarlo(current,Math.max(0,projection-current),lines,String(ev.id||"")+"|Q"+period+"|"+clock);
+  return {ready:true,...quarterEstimate,low80:poisson.low80,high80:poisson.high80,low95:poisson.low95,high95:poisson.high95,poisson,lines:poisson.probabilities,context_factors:["проекция по темпу текущей четверти"]};
 }
 let liveRefreshInFlight = false;
 let nextLiveRefreshDelay = 30000;
@@ -664,8 +665,9 @@ async function refreshLiveMatches() {
           } else {
             lineText = forecast.lines.length
               ? forecast.lines.map(x => {
-                  const direction=estimate.low>x.line?"ТБ":(estimate.high<x.line?"ТМ":"без преимущества");
-                  return direction+" "+x.line+" · диапазон "+estimate.low+"–"+estimate.high;
+                  const mc=(estimate.poisson?.probabilities||[]).find(p=>Number(p.line)===Number(x.line));
+                  const direction=mc?mc.direction:(estimate.low>x.line?"ТБ":(estimate.high<x.line?"ТМ":"без преимущества"));
+                  return direction+" "+x.line+(mc?" · ТБ "+(mc.pOver*100).toFixed(0)+"% / ТМ "+(mc.pUnder*100).toFixed(0)+"%":"")+" · диапазон "+estimate.low+"–"+estimate.high;
                 }).join(" | ")
               : "ориентир "+estimate.projection+" · диапазон "+estimate.low+"–"+estimate.high;
             if(forecast.kind==="period_range")lineText+=" · без таймера, предварительно";
@@ -676,7 +678,7 @@ async function refreshLiveMatches() {
         }
         if (quarterForecast.ready) {
           const qLines=quarterForecast.lines.length
-            ? quarterForecast.lines.map(x => (quarterForecast.projection>x.line ? "ТБ " : "ТМ ")+x.line).join(" | ")
+            ? quarterForecast.lines.map(x => x.direction+" "+x.line+" · ТБ "+(x.pOver*100).toFixed(0)+"% / ТМ "+(x.pUnder*100).toFixed(0)+"%").join(" | ")
             : "линия четверти пока не найдена";
           forecastHtml += '<span class="live-match-meta forecast-live">Прогноз Q'+escapeHtml(findLivePeriod(ev))+': '+escapeHtml(quarterForecast.projection)+' очков за четверть · '+escapeHtml(qLines)+'</span>';
         } else {
