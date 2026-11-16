@@ -2726,10 +2726,55 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 rows.extend(_collect_period_score_rows(child, depth + 1))
                         return rows
 
+                    def _pari_period_scores(source_row):
+                        if not isinstance(source_row, dict):
+                            return []
+                        scores = source_row.get("scores")
+                        # PARI liveEventInfos commonly uses scores[0] for the
+                        # cumulative match score and scores[1] for quarter rows.
+                        # Never mix that aggregate row into the quarter timeline.
+                        if isinstance(scores, (list, tuple)) and len(scores) >= 2:
+                            quarter_group = scores[1]
+                            if isinstance(quarter_group, (list, tuple)):
+                                labeled = []
+                                for item in quarter_group:
+                                    if not isinstance(item, dict):
+                                        continue
+                                    title = str(item.get("title") or item.get("kindName") or "").casefold()
+                                    if re.search(r"четверт|quarter|period", title):
+                                        pair = _score_pair_from_row(item)
+                                        if pair is not None:
+                                            labeled.append(pair)
+                                if labeled:
+                                    return labeled[:4]
+                                direct = [_score_pair_from_row(item) for item in quarter_group]
+                                direct = [pair for pair in direct if pair is not None]
+                                if len(direct) >= 2:
+                                    return direct[:4]
+                        # Some PARI versions expose named subscores instead.
+                        subscores = source_row.get("subscores")
+                        indexed = {}
+                        if isinstance(subscores, (list, tuple)):
+                            for item in subscores:
+                                if not isinstance(item, dict):
+                                    continue
+                                label = str(item.get("kindName") or item.get("name") or item.get("title") or "").casefold()
+                                match = re.search(r"(?:^|\\D)([1-4])\\s*[-–.]?\\s*(?:я|ая|й)?\\s*(?:четверт|quarter|period)", label)
+                                if not match:
+                                    continue
+                                pair = _score_pair_from_row(item)
+                                if pair is not None:
+                                    indexed[int(match.group(1))] = pair
+                        if indexed:
+                            return [indexed.get(n) for n in range(1, max(indexed) + 1)]
+                        # Last-resort fallback for providers that return a flat
+                        # quarter-only list without labels.
+                        return _collect_period_score_rows(scores)[:4]
+
                     period_scores = []
                     for score_source_row in (live_info, event_misc, event):
-                        candidate_scores = _collect_period_score_rows(score_source_row.get("scores"))
-                        if len(candidate_scores) >= 2:
+                        candidate_scores = _pari_period_scores(score_source_row)
+                        if len(candidate_scores) >= 1 and any(pair is not None for pair in candidate_scores):
                             period_scores = candidate_scores[:4]
                             break
                     # PARI can leave a completed fixture in the LIVE tree for a short
