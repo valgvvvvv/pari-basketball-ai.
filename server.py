@@ -760,6 +760,8 @@ async def _enrich_with_sofascore_live(events):
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130 Safari/537.36",
         "Accept": "application/json",
         "Referer": "https://www.sofascore.com/",
+        "Origin": "https://www.sofascore.com",
+        "X-Requested-With": "XMLHttpRequest",
         "Cache-Control": "no-cache",
     }
     urls = (
@@ -1061,7 +1063,9 @@ async def _enrich_with_sofascore_live(events):
                         display_clock = str(status.get("displayClock") or "").strip()
                         clock_match = re.fullmatch(r"(\d{1,2}):([0-5]\d)", display_clock)
                         clock = (clock_match.group(1).zfill(2) + ":" + clock_match.group(2)) if clock_match else None
-                        if period not in (1, 2, 3, 4) or clock is None:
+                        # The scoreboard may omit displayClock during timeouts,
+                        # quarter breaks or halftime. Keep verified score and period.
+                        if period not in (1, 2, 3, 4):
                             continue
                         period_scores = {}
                         for competitor, side in ((home_team, 0), (away_team, 1)):
@@ -1517,6 +1521,11 @@ async def _enrich_with_sofascore_live(events):
                 "sportscore_status_samples": sportscore_status_samples[:16],
                 "sportscore_live_rows_after_filter": len(external_rows),
                 "sportscore_detail_targets": len(detail_targets),
+                "sportscore_rows_without_detail_id": sum(
+                    1 for row in external_rows
+                    if (not row.get("clock") or not row.get("period_length_seconds"))
+                    and not (row.get("id") or row.get("provider_id"))
+                ),
                 "sportscore_detail_target_ids": [str(row.get("id") or row.get("provider_id")) for row in detail_targets[:12]],
                 "sportscore_detail_diagnostics": detail_diagnostics[:12],
                 "espn_nba": espn_diagnostics,
