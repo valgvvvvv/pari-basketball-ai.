@@ -1292,6 +1292,63 @@ async def _enrich_with_sofascore_live(events):
                                                 hpn, apn = score_number(hp), score_number(ap)
                                                 if hpn is not None and apn is not None:
                                                     row.setdefault("period_scores", {})[str(n)] = [hpn, apn]
+
+                                # Preserve box-score data returned by the match-detail
+                                # endpoint. Providers use several schemas (groups/statistics,
+                                # stats arrays, or flat home/away key pairs), so normalize
+                                # only explicit numeric values and retain original labels.
+                                detail_statistics = []
+                                metric_aliases = (
+                                    ("three_pointers", r"3.?point|three.?point|3pt|тр[её]х.?очк"),
+                                    ("two_pointers", r"2.?point|two.?point|2pt|двух.?очк"),
+                                    ("free_throws", r"free.?throw|штрафн"),
+                                    ("rebounds", r"rebound|подбор"),
+                                    ("assists", r"assist|передач"),
+                                    ("turnovers", r"turnover|потер"),
+                                    ("steals", r"steal|перехват"),
+                                    ("blocks", r"block|блокшот"),
+                                    ("fouls", r"foul|фол"),
+                                    ("possessions", r"possession|владен"),
+                                )
+                                def add_detail_stat(label, home_value, away_value, group="Матч"):
+                                    if home_value is None or away_value is None:
+                                        return
+                                    searchable = (str(group) + " " + str(label)).casefold()
+                                    metric = next((key for key, pattern in metric_aliases
+                                                   if re.search(pattern, searchable, re.I)), None)
+                                    detail_statistics.append({
+                                        "group": str(group), "name": str(label),
+                                        "metric_key": metric, "home": home_value,
+                                        "away": away_value, "source": "SportScore",
+                                    })
+                                for obj in objects:
+                                    for group_key in ("statistics", "stats", "boxScore", "box_score", "teamStatistics"):
+                                        group_value = obj.get(group_key)
+                                        if isinstance(group_value, list):
+                                            for entry in group_value:
+                                                if not isinstance(entry, dict): continue
+                                                label = entry.get("name") or entry.get("label") or entry.get("key") or entry.get("type")
+                                                home_value = entry.get("home", entry.get("homeValue", entry.get("home_value")))
+                                                away_value = entry.get("away", entry.get("awayValue", entry.get("away_value")))
+                                                if isinstance(home_value, dict): home_value = home_value.get("value", home_value.get("total"))
+                                                if isinstance(away_value, dict): away_value = away_value.get("value", away_value.get("total"))
+                                                add_detail_stat(label or "Показатель", home_value, away_value, obj.get("groupName") or obj.get("name") or "Матч")
+                                        elif isinstance(group_value, dict):
+                                            for label, entry in group_value.items():
+                                                if isinstance(entry, dict):
+                                                    home_value = entry.get("home", entry.get("homeValue", entry.get("home_value")))
+                                                    away_value = entry.get("away", entry.get("awayValue", entry.get("away_value")))
+                                                elif isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                                                    home_value, away_value = entry[0], entry[1]
+                                                else:
+                                                    continue
+                                                add_detail_stat(label, home_value, away_value, obj.get("groupName") or obj.get("name") or "Матч")
+                                if detail_statistics:
+                                    unique_stats = {}
+                                    for stat in detail_statistics:
+                                        key = (stat["group"], stat["name"], str(stat["home"]), str(stat["away"]))
+                                        unique_stats[key] = stat
+                                    row["external_statistics"] = list(unique_stats.values())
                                 if row.get("clock") or row.get("period_length_seconds"):
                                     row["detail_source"] = "SportScore match detail"
                                 detail_diagnostics.append({
@@ -1567,6 +1624,21 @@ async def _enrich_with_sofascore_live(events):
         if pari.get("clock") is None and row.get("clock"):
             pari["clock"] = row["clock"]
             pari["clock_source"] = "SofaScore"
+        if row.get("external_statistics"):
+            pari["external_statistics"] = row["external_statistics"]
+            pari["statistics_source"] = "SportScore"
+            pari["statistics_checked_at"] = datetime.now(timezone.utc).isoformat()
+            available = sorted({x.get("metric_key") for x in row["external_statistics"] if x.get("metric_key")})
+            expected = ["three_pointers", "two_pointers", "free_throws", "rebounds", "assists",
+                        "turnovers", "steals", "blocks", "fouls", "possessions"]
+            missing = [key for key in expected if key not in available]
+            pari["statistics_quality"] = {
+                "available_metrics": available, "missing_metrics": missing,
+                "available_count": len(available), "expected_count": len(expected),
+                "coverage_percent": round(len(available) / len(expected) * 100),
+                "raw_fields_count": len(row["external_statistics"]),
+                "complete": not missing,
+            }
         matched_rows.append((pari, row))
         matched += 1
 
