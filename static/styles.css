@@ -13,3 +13,17 @@
 .live-match:hover{border-color:rgba(95,160,255,.65);background:rgba(95,160,255,.08)}
 .live-match-title{font-weight:700}
 .live-match-meta{font-size:12px;color:var(--muted,#9aa9bc);overflow-wrap:anywhere}
+
+
+/* Compact live match analysis */
+.compact-analysis{margin-top:16px;padding-top:14px;border-top:1px solid var(--line);font-size:12px;line-height:1.65}
+.compact-analysis>p{margin:7px 0;color:var(--muted)}
+.compact-analysis>p>b{color:var(--text)}
+.compact-analysis .stat-chip{display:inline-flex;align-items:center;gap:6px;margin:3px 5px 3px 0;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:#0b1421;color:var(--text);font-size:11px}
+.compact-analysis .stat-chip b{color:var(--cyan)}
+.forecast-main{padding:12px 14px;margin:10px 0 14px;border:1px solid var(--line);border-radius:10px;background:#0b1421}
+.forecast-main p{margin:5px 0;color:var(--muted);font-size:12px}
+.forecast-number{font-size:30px;font-weight:800;color:var(--cyan);line-height:1.2;margin:7px 0}
+.source-statistics{margin-top:10px;border-top:1px solid var(--line);padding-top:9px;color:var(--muted);font-size:11px}
+.source-statistics summary{cursor:pointer;color:#aab9cc;font-weight:700}
+.source-statistics p{margin:5px 0;overflow-wrap:anywhere}
