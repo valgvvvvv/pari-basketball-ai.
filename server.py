@@ -1079,7 +1079,7 @@ async def _enrich_with_sofascore_live(events):
                             "period": period, "clock": clock, "status": "NBA live",
                             "id": "espn:" + str(espn_event.get("id")),
                             "provider_id": str(espn_event.get("id")),
-                            "period_length_seconds": 720, "detail_source": "ESPN NBA scoreboard",
+                            "period_length_seconds": 720, "period_count": 4, "detail_source": "ESPN NBA scoreboard",
                         })
                         espn_diagnostics["live_events"] += 1
                     espn_diagnostics["status"] = "ok"
@@ -1087,6 +1087,74 @@ async def _enrich_with_sofascore_live(events):
                     espn_diagnostics["status"] = "http_error"
             except (httpx.HTTPError, ValueError, TypeError) as exc:
                 espn_diagnostics["status"] = type(exc).__name__
+            # ESPN's public men's college basketball scoreboard supplies NCAA live
+            # scores and game clocks. NCAA is two 20-minute halves, not four quarters.
+            espn_ncaa_diagnostics = {"status": "not_checked", "events": 0, "live_events": 0}
+            try:
+                ncaa_date = datetime.now(timezone.utc).strftime("%Y%m%d")
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(3.2, connect=1.8),
+                    follow_redirects=True,
+                    headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+                ) as ncaa_client:
+                    ncaa_response = await ncaa_client.get(
+                        "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard",
+                        params={"dates": ncaa_date, "limit": 500},
+                    )
+                espn_ncaa_diagnostics["http_status"] = ncaa_response.status_code
+                if ncaa_response.status_code == 200:
+                    ncaa_payload = ncaa_response.json()
+                    ncaa_events = ncaa_payload.get("events", []) if isinstance(ncaa_payload, dict) else []
+                    espn_ncaa_diagnostics["events"] = len(ncaa_events) if isinstance(ncaa_events, list) else 0
+                    for ncaa_event in ncaa_events if isinstance(ncaa_events, list) else []:
+                        if not isinstance(ncaa_event, dict): continue
+                        competitions = ncaa_event.get("competitions") or []
+                        competition = competitions[0] if competitions and isinstance(competitions[0], dict) else {}
+                        status = competition.get("status") or ncaa_event.get("status") or {}
+                        status_type = status.get("type") if isinstance(status, dict) else {}
+                        state = str((status_type or {}).get("state") or "").lower()
+                        if state not in ("in", "live", "in_progress"): continue
+                        competitors = competition.get("competitors") or []
+                        home_team = next((x for x in competitors if x.get("homeAway") == "home"), None)
+                        away_team = next((x for x in competitors if x.get("homeAway") == "away"), None)
+                        if not home_team or not away_team: continue
+                        try:
+                            home_score, away_score = int(float(home_team.get("score"))), int(float(away_team.get("score")))
+                        except (TypeError, ValueError, OverflowError): continue
+                        home_obj, away_obj = home_team.get("team") or {}, away_team.get("team") or {}
+                        home_name = str(home_obj.get("displayName") or home_obj.get("name") or "")
+                        away_name = str(away_obj.get("displayName") or away_obj.get("name") or "")
+                        if not home_name or not away_name: continue
+                        try: period = int(status.get("period"))
+                        except (TypeError, ValueError): period = None
+                        display_clock = str(status.get("displayClock") or "").strip()
+                        clock_match = re.fullmatch(r"(\d{1,2}):([0-5]\d)", display_clock)
+                        clock = (clock_match.group(1).zfill(2) + ":" + clock_match.group(2)) if clock_match else None
+                        period_scores = {}
+                        for competitor, side in ((home_team, 0), (away_team, 1)):
+                            for index, line_score in enumerate(competitor.get("linescores") or [], start=1):
+                                try:
+                                    points = int(float(line_score.get("value") if isinstance(line_score, dict) else line_score))
+                                except (TypeError, ValueError, OverflowError): continue
+                                period_scores.setdefault(str(index), [None, None])[side] = points
+                        period_scores = {key: value for key, value in period_scores.items()
+                                         if value[0] is not None and value[1] is not None}
+                        external_rows.append({
+                            "home": home_name, "away": away_name,
+                            "score": [home_score, away_score], "period_scores": period_scores,
+                            "period": period, "clock": clock, "status": "NCAA men's live",
+                            "id": "espn-ncaa:" + str(ncaa_event.get("id")),
+                            "provider_id": str(ncaa_event.get("id")),
+                            "period_length_seconds": 1200, "period_count": 2,
+                            "detail_source": "ESPN men's college basketball scoreboard",
+                        })
+                        espn_ncaa_diagnostics["live_events"] += 1
+                    espn_ncaa_diagnostics["status"] = "ok"
+                else:
+                    espn_ncaa_diagnostics["status"] = "http_error"
+            except (httpx.HTTPError, ValueError, TypeError) as exc:
+                espn_ncaa_diagnostics["status"] = type(exc).__name__
+
             # Merge scored SofaScore fixtures into the candidate pool as well.
             # This prevents the SportScore fallback branch from discarding matches
             # already found by SofaScore when only some PARI events are missing data.
@@ -1418,6 +1486,7 @@ async def _enrich_with_sofascore_live(events):
                     "period": row["period"], "clock": row["clock"],
                     "period_scores": row.get("period_scores", {}),
                     "period_length_seconds": row.get("period_length_seconds"),
+                    "period_count": row.get("period_count") or 4,
                     "clock_detail_source": row.get("detail_source"),
                     "status": row["status"],
                 }
@@ -1451,10 +1520,11 @@ async def _enrich_with_sofascore_live(events):
                 "sportscore_detail_target_ids": [str(row.get("id") or row.get("provider_id")) for row in detail_targets[:12]],
                 "sportscore_detail_diagnostics": detail_diagnostics[:12],
                 "espn_nba": espn_diagnostics,
+                "espn_ncaa": espn_ncaa_diagnostics,
                 "sportscore_live_match_samples": [
                     {"home": row["home"], "away": row["away"], "id": row.get("id"), "provider_id": row.get("provider_id"), "status": row["status"],
                      "period": row["period"], "clock": row.get("clock"),
-                     "period_length_seconds": row.get("period_length_seconds"),
+                     "period_length_seconds": row.get("period_length_seconds"), "period_count": row.get("period_count"),
                      "detail_source": row.get("detail_source"), "score": row["score"]}
                     for row in external_rows[:12]
                 ],
