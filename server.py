@@ -2294,6 +2294,28 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 unique.append(factor)
                         return unique
 
+                    clock_value = next((row.get(key) for row in
+                                        (event, live_info, event_misc)
+                                        for key in ("clock", "timer", "time", "countdown",
+                                                    "timeRemaining", "remainingTime", "periodClock")
+                                        if row.get(key) is not None), None)
+                    if isinstance(clock_value, dict):
+                        clock_value = next((clock_value.get(key) for key in
+                                            ("clock", "timer", "time", "remaining",
+                                             "remainingTime", "seconds", "value")
+                                            if clock_value.get(key) is not None), None)
+                    if isinstance(clock_value, (int, float)):
+                        seconds = int(clock_value)
+                        clock_value = (f"{seconds // 60:02d}:{seconds % 60:02d}"
+                                       if 0 <= seconds <= 1200 else None)
+                    elif clock_value is not None:
+                        clock_text = str(clock_value).strip()
+                        if re.fullmatch(r"\\d{1,4}", clock_text):
+                            seconds = int(clock_text)
+                            clock_value = (f"{seconds // 60:02d}:{seconds % 60:02d}"
+                                           if 0 <= seconds <= 1200 else None)
+                        else:
+                            clock_value = clock_text
                     root_factors = event_factors(event)
                     related_factor_rows = [
                         (child, event_factors(child))
@@ -2314,11 +2336,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                   or _extract_pari_score(live_info)
                                   or _extract_pari_score(score_source)),
                         "period": period_value,
-                        "clock": next((row.get(key) for row in
-                                       (event, live_info, event_misc)
-                                       for key in ("clock", "timer", "time", "countdown",
-                                                   "timeRemaining", "remainingTime", "periodClock")
-                                       if row.get(key) is not None), None),
+                        "clock": clock_value,
                         "statistics_types": event.get("statisticsTypes"),
                         "live_fields": repair_nested_encoding({
                             key: value for key, value in event.items()
