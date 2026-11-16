@@ -300,9 +300,9 @@ function parseStatCount(value){
   if(value==null)return null;
   if(typeof value==="number"&&Number.isFinite(value))return {value,attempts:null};
   const text=String(value).trim().replace(/,/g,".");
-  const pair=text.match(/^(\\d+(?:\\.\\d+)?)\\s*[-/：:]\\s*(\\d+(?:\\.\\d+)?)$/);
+  const pair=text.match(/^(\d+(?:\.\d+)?)\s*[-/：:]\s*(\d+(?:\.\d+)?)$/);
   if(pair)return {value:Number(pair[1]),attempts:Number(pair[2])};
-  const single=text.match(/^\\d+(?:\\.\\d+)?$/);
+  const single=text.match(/^\d+(?:\.\d+)?$/);
   return single?{value:Number(text),attempts:null}:null;
 }
 function liveShootingContext(ev,estimate){
