@@ -2683,17 +2683,55 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         else:
                             clock_value = None
 
-                    period_scores = []
-                    score_rows = live_info.get("scores")
-                    if isinstance(score_rows, list) and len(score_rows) > 1 and isinstance(score_rows[1], list):
-                        for score_row in score_rows[1]:
-                            if not isinstance(score_row, dict):
-                                continue
+                    # PARI versions expose quarter scores in different shapes:
+                    # liveEventInfos.scores[1], scores[0], eventMiscs.scores,
+                    # or a mapping keyed by quarter. Normalize only explicit paired scores.
+                    def _score_pair_from_row(row):
+                        if isinstance(row, (list, tuple)) and len(row) >= 2:
                             try:
-                                q1, q2 = int(score_row.get("c1")), int(score_row.get("c2"))
-                                period_scores.append([q1, q2])
+                                a, b = int(float(row[0])), int(float(row[1]))
+                                return [a, b] if 0 <= a <= 300 and 0 <= b <= 300 else None
                             except (TypeError, ValueError, OverflowError):
-                                continue
+                                return None
+                        if not isinstance(row, dict):
+                            return None
+                        home = next((row.get(k) for k in (
+                            "c1", "home", "homeScore", "home_score", "team1",
+                            "team1Score", "team1_score", "score1"
+                        ) if row.get(k) is not None), None)
+                        away = next((row.get(k) for k in (
+                            "c2", "away", "awayScore", "away_score", "team2",
+                            "team2Score", "team2_score", "score2"
+                        ) if row.get(k) is not None), None)
+                        try:
+                            a, b = int(float(home)), int(float(away))
+                            return [a, b] if 0 <= a <= 300 and 0 <= b <= 300 else None
+                        except (TypeError, ValueError, OverflowError):
+                            return None
+
+                    def _collect_period_score_rows(value, depth=0):
+                        if depth > 5 or value is None:
+                            return []
+                        pair = _score_pair_from_row(value)
+                        if pair is not None:
+                            return [pair]
+                        rows = []
+                        if isinstance(value, dict):
+                            for key, child in value.items():
+                                if str(key).lower() in ("total", "match", "current", "aggregate"):
+                                    continue
+                                rows.extend(_collect_period_score_rows(child, depth + 1))
+                        elif isinstance(value, (list, tuple)):
+                            for child in value:
+                                rows.extend(_collect_period_score_rows(child, depth + 1))
+                        return rows
+
+                    period_scores = []
+                    for score_source_row in (live_info, event_misc, event):
+                        candidate_scores = _collect_period_score_rows(score_source_row.get("scores"))
+                        if len(candidate_scores) >= 2:
+                            period_scores = candidate_scores[:4]
+                            break
                     # PARI can leave a completed fixture in the LIVE tree for a short
                     # period. When the verified cumulative timer reaches full regulation
                     # and all four quarter scores add up exactly to the final score,
