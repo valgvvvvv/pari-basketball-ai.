@@ -324,6 +324,8 @@ function showSelectedMatch(ev){
   $("selectedMatchTitle").textContent=(ev.team1||"Команда 1")+" — "+(ev.team2||"Команда 2");
   const objects=collectEventObjects({root:ev.raw||{},related:ev.related_events||[],live:ev.live_fields||{}});
   const score=findLiveScore(ev),period=findLivePeriod(ev),clock=findLiveClock(ev);
+  const externalScore=Array.isArray(ev.external_live?.score)&&ev.external_live.score.length>=2?ev.external_live.score.map(Number):null;
+  const scoreConflict=score&&externalScore&&(Number(score[0])!==externalScore[0]||Number(score[1])!==externalScore[1]);
   const lengthInfo=inferPeriodLengthForForecast(ev);
   const matchForecast=automaticForecast(ev);
   const clocklessCandidate=matchForecast.kind==="period_range";
@@ -358,7 +360,7 @@ function showSelectedMatch(ev){
     return '<p><b>'+escapeHtml(label)+'</b></p><p class="muted">'+(lines.length?lines.map(escapeHtml).join("<br>"):"Факторы не распознаны")+'</p>';
   }).join("");
   $("selectedMatchMeta").textContent=[ev.league||ev.sport_name,"Строк PARI: "+(childCount+1),"Полей: "+fieldNames.length].filter(Boolean).join(" · ");
-  $("selectedMatchInfo").textContent="Счёт: "+(score?score.join(" : "):"не найден")+" · Четверть: "+(period||"не определена")+" · Время: "+(clock||"не найден")+" · Источник счёта: "+(score?(ev.score_source||"PARI"):"не получен")+" · Источник времени: "+(clock?(ev.clock_source||"PARI"):"не получен")+" · Статистика: "+(ev.external_statistics||[]).length+" показателей"+(ev.statistics_source?" ("+ev.statistics_source+")":"")+" · Рынков-факторов: "+new Set([...(ev.factors||[]),...(ev.related_factors||[])].map(x=>String(x.f)+"|"+String(x.pt||x.p||"")+"|"+String(x.v||""))).size;
+  $("selectedMatchInfo").textContent="Счёт: "+(score?score.join(" : "):"не найден")+" · Четверть: "+(period||"не определена")+" · Время: "+(clock||"не найден")+" · Источник счёта: "+(score?(ev.score_source||"PARI"):"не получен")+" · Источник времени: "+(clock?(ev.clock_source||"PARI"):"не получен")+" · Статистика: "+(ev.external_statistics||[]).length+" показателей"+(ev.statistics_source?" ("+ev.statistics_source+")":"")+" · Рынков-факторов: "+new Set([...(ev.factors||[]),...(ev.related_factors||[])].map(x=>String(x.f)+"|"+String(x.pt||x.p||"")+"|"+String(x.v||""))).size+(scoreConflict?" · ВНИМАНИЕ: внешний счёт "+externalScore.join(" : ")+" не совпадает с PARI":"");
   $("matchForecast").innerHTML=
     '<p><b>Факторы в основной строке матча PARI</b></p>'+
     '<p class="muted">'+(rootLines.length?rootLines.map(escapeHtml).join("<br>"):(allMarketLines.length?"В основной строке факторов нет; найдено в иерархии/локальной истории: "+allMarketLines.map(escapeHtml).join(" · "):"В текущем ответе PARI нет факторов ID 930/931."))+'</p>'+
