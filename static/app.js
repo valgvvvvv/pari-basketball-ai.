@@ -382,20 +382,69 @@ function getMatchTotalLines(ev) {
   return lines;
 }
 
+function inferPeriodLengthForForecast(ev) {
+  const explicit=findPeriodLengthSeconds(ev);
+  if(explicit)return {seconds:explicit,method:"подтверждённая длительность"};
+  const text=[ev.league,ev.sport_name,ev.team1,ev.team2].filter(Boolean).join(" ").toLowerCase();
+  // NCAA men's basketball uses two 20-minute halves, not four quarters.
+  if(/ncaa|college|university|студент|студ\b|колледж|march madness/.test(text))return null;
+  if(/nba|wnba|g league/.test(text))return {seconds:720,method:"стандарт NBA · 12 минут"};
+  // International/FIBA domestic leagues use four 10-minute quarters.
+  return {seconds:600,method:"стандарт FIBA · 10 минут (предварительное допущение)"};
+}
+function estimateLiveTotalFromPeriod(ev,score,period,lengthInfo) {
+  if(!score||!period||period<2||!lengthInfo)return null;
+  const total=Number(score[0])+Number(score[1]), length=lengthInfo.seconds;
+  if(!Number.isFinite(total)||total<=0||!Number.isFinite(length)||length<300)return null;
+  const elapsedMin=(period-1)*length, elapsedMax=period*length;
+  if(elapsedMin<12*60)return null;
+  const gameSeconds=length*4;
+  const low=Math.round(total/elapsedMax*gameSeconds);
+  const high=Math.round(total/elapsedMin*gameSeconds);
+  if(!Number.isFinite(low)||!Number.isFinite(high)||low<=0||high<low||high>500)return null;
+  const projection=Math.round((low+high)/2*10)/10;
+  return {current:total,projection,low,high,sigma:Math.max(8,(high-low)/2.563),
+    elapsed_seconds_min:elapsedMin,elapsed_seconds_max:elapsedMax,
+    elapsed:Math.round((elapsedMin+elapsedMax)/120)/10,
+    source:"period_range",period_length_seconds:length,period_length_method:lengthInfo.method};
+}
+function marketReferenceForecast(lines) {
+  const valid=(lines||[]).filter(x=>Number.isFinite(Number(x.line))&&!x.stale);
+  if(!valid.length)return null;
+  const sorted=valid.map(x=>Number(x.line)).sort((a,b)=>a-b);
+  const projection=sorted[Math.floor((sorted.length-1)/2)];
+  return {ready:true,kind:"market_reference",estimate:{projection,low:sorted[0],high:sorted[sorted.length-1]},
+    lines,message:"Рыночный ориентир PARI, не самостоятельная игровая модель"};
+}
 function automaticForecast(ev) {
-  // Capture market lines on every refresh, even when the timer is missing.
   const lines=getMatchTotalLines(ev);
   const score=findLiveScore(ev), period=findLivePeriod(ev), clock=findLiveClock(ev);
-  const periodLength=findPeriodLengthSeconds(ev), missing=[];
-  if (!score) missing.push("счёт");
-  if (!period) missing.push("четверть");
-  if (!clock) missing.push("таймер");
-  if (!periodLength) missing.push("длительность четверти");
-  if (missing.length) return {ready:false,reason:"Нет подтверждённых данных: "+missing.join(", "),lines};
-  const estimate=estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength}},score,period,clock);
-  if (!estimate) return {ready:false,reason:"Не удалось безопасно рассчитать игровое время",lines};
-  if (estimate.elapsed_seconds < 12*60) return {ready:false,reason:"Для полного матча ждём минимум 12 минут подтверждённой игры",lines,estimate};
-  return {ready:true,estimate,lines,message:"Темповой прогноз; вероятности не откалиброваны на истории лиги"};
+  const lengthInfo=inferPeriodLengthForForecast(ev);
+  const periodLength=lengthInfo?.seconds;
+  if(score&&period&&clock&&periodLength){
+    const estimate=estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength}},score,period,clock);
+    if(estimate&&estimate.elapsed_seconds>=12*60)
+      return {ready:true,kind:"live_tempo",estimate,lines,message:"Темповой прогноз; вероятности не откалиброваны на истории лиги"};
+  }
+  if(score&&period&&lengthInfo){
+    const estimate=estimateLiveTotalFromPeriod(ev,score,period,lengthInfo);
+    if(estimate)return {ready:true,kind:"period_range",estimate,lines,message:"Предварительный диапазон без таймера; длительность периода: "+lengthInfo.method};
+  }
+  const market=marketReferenceForecast(lines);
+  if(market){
+    const missing=[];
+    if(!score)missing.push("счёт");
+    if(!period)missing.push("четверть");
+    if(!clock)missing.push("таймер");
+    if(!periodLength)missing.push("формат/длительность");
+    return {...market,reason:"Игровой расчёт ждёт: "+missing.join(", ")};
+  }
+  const missing=[];
+  if(!score)missing.push("счёт");
+  if(!period)missing.push("четверть");
+  if(!clock)missing.push("таймер");
+  if(!periodLength)missing.push("длительность периода");
+  return {ready:false,reason:"Нет подтверждённых данных: "+missing.join(", "),lines};
 }
 
 function automaticQuarterForecast(ev) {
@@ -483,9 +532,18 @@ async function refreshLiveMatches() {
         let forecastHtml = "";
         if (forecast.ready) {
           const estimate = forecast.estimate;
-          const lineText = forecast.lines.length
-            ? forecast.lines.map(x => (estimate.projection > x.line ? "ТБ " : "ТМ ") + x.line + " · ориентир " + estimate.projection).join(" | ")
-            : forecast.message;
+          let lineText;
+          if(forecast.kind==="market_reference") {
+            lineText="рыночный ориентир PARI "+estimate.projection+" · игровое направление пока не подтверждено";
+          } else {
+            lineText = forecast.lines.length
+              ? forecast.lines.map(x => {
+                  const direction=estimate.low>x.line?"ТБ":(estimate.high<x.line?"ТМ":"без преимущества");
+                  return direction+" "+x.line+" · диапазон "+estimate.low+"–"+estimate.high;
+                }).join(" | ")
+              : "ориентир "+estimate.projection+" · диапазон "+estimate.low+"–"+estimate.high;
+            if(forecast.kind==="period_range")lineText+=" · без таймера, предварительно";
+          }
           forecastHtml = '<span class="live-match-meta forecast-live">Прогноз матча: ' + escapeHtml(lineText) + '</span>';
         } else {
           forecastHtml = '<span class="live-match-meta forecast-pending">Прогноз матча ожидает данные: ' + escapeHtml(forecast.reason) + '</span>';
