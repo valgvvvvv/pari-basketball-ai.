@@ -1607,6 +1607,19 @@ async def _enrich_with_sofascore_live(events):
             source_stats = stats_payload.get("statistics") or stats_payload
             groups = source_stats.get("groups", []) if isinstance(source_stats, dict) else []
             normalized = []
+            metric_patterns = (
+                ("three_pointers", r"3.?point|three.?point|3.?очк|тр[её]х.?очк|3pt|three.?pointers"),
+                ("two_pointers", r"2.?point|two.?point|2.?очк|двух.?очк|2pt|two.?pointers"),
+                ("free_throws", r"free.?throw|штрафн|свободн.*брос|free.?throws"),
+                ("rebounds", r"rebound|подбор"),
+                ("assists", r"assist|передач"),
+                ("turnovers", r"turnover|потер"),
+                ("steals", r"steal|перехват"),
+                ("blocks", r"block|блокшот"),
+                ("fouls", r"foul|фол"),
+                ("possessions", r"possession|владен"),
+            )
+            present_metrics = set()
             for group in groups if isinstance(groups, list) else []:
                 if not isinstance(group, dict):
                     continue
@@ -1618,8 +1631,13 @@ async def _enrich_with_sofascore_live(events):
                     home_value, away_value = stat.get("home"), stat.get("away")
                     if home_value is None and away_value is None:
                         continue
+                    searchable = (group_name + " " + name).casefold()
+                    metric_key = next((key for key, pattern in metric_patterns
+                                       if re.search(pattern, searchable, re.I)), None)
+                    if metric_key:
+                        present_metrics.add(metric_key)
                     normalized.append({
-                        "group": group_name, "name": name,
+                        "group": group_name, "name": name, "metric_key": metric_key,
                         "home": home_value, "away": away_value,
                         "home_value": stat.get("homeValue"),
                         "away_value": stat.get("awayValue"),
@@ -1627,14 +1645,25 @@ async def _enrich_with_sofascore_live(events):
                         "source": "SofaScore",
                     })
             if normalized:
+                expected_metrics = [key for key, _ in metric_patterns]
+                missing_metrics = [key for key in expected_metrics if key not in present_metrics]
                 pari["external_statistics"] = normalized
                 pari["statistics_source"] = "SofaScore"
                 pari["statistics_checked_at"] = datetime.now(timezone.utc).isoformat()
+                pari["statistics_quality"] = {
+                    "available_metrics": sorted(present_metrics),
+                    "missing_metrics": missing_metrics,
+                    "available_count": len(present_metrics),
+                    "expected_count": len(expected_metrics),
+                    "coverage_percent": round(len(present_metrics) / len(expected_metrics) * 100),
+                    "raw_fields_count": len(normalized),
+                    "complete": not missing_metrics,
+                }
                 return True, len(normalized)
             return False, "statistics_empty"
 
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(2.8, connect=1.5),
+            async with httpx.AsyncClient(timeout=httpx.Timeout(5.5, connect=2.0),
                                           follow_redirects=True, headers=headers) as stats_client:
                 results = await asyncio.gather(
                     *(fetch_event_statistics(pari, row) for pari, row in matched_rows),
