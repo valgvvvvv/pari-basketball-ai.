@@ -1350,8 +1350,10 @@ async def _enrich_with_sofascore_live(events):
                 ordered_score = (row["score"] if direct >= reverse else [row["score"][1], row["score"][0]]) if row.get("score") is not None else pari.get("score")
                 if row.get("score") is None:
                     ordered_score = pari.get("score")
+                provider_name = ("SofaScore" if str(row.get("id") or "").startswith("sofascore:") else
+                                 "ESPN" if str(row.get("id") or "").startswith("espn:") else "SportScore")
                 pari["external_live"] = {
-                    "source": ("SofaScore" if str(row.get("id") or "").startswith("sofascore:") else "SportScore"), "event_id": row.get("id"),
+                    "source": provider_name, "event_id": row.get("id"),
                     "match": row["home"] + " — " + row["away"],
                     "match_confidence": round(best[0], 3), "score": ordered_score,
                     "period": row["period"], "clock": row["clock"],
@@ -1362,13 +1364,13 @@ async def _enrich_with_sofascore_live(events):
                 }
                 if pari.get("score") is None and row.get("score") is not None:
                     pari["score"] = ordered_score
-                    pari["score_source"] = "SportScore"
+                    pari["score_source"] = provider_name
                 if pari.get("period") is None and row.get("period") is not None:
                     pari["period"] = row["period"]
-                    pari["period_source"] = "SportScore"
+                    pari["period_source"] = provider_name
                 if pari.get("clock") is None and row.get("clock"):
                     pari["clock"] = row["clock"]
-                    pari["clock_source"] = "SportScore"
+                    pari["clock_source"] = provider_name
                 used.add(row_key)
                 diagnostic["applied"] = True
                 diagnostic["accepted_external_match"] = row["home"] + " — " + row["away"]
@@ -1407,7 +1409,7 @@ async def _enrich_with_sofascore_live(events):
             }
 
     live_rows = []
-    for item in payload.get("events", []):
+    for item in (payload or {}).get("events", []):
         if not isinstance(item, dict):
             continue
         home = item.get("homeTeam") or {}
