@@ -2313,10 +2313,10 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                       if row.get("timerSeconds") is not None), None)
                     if timer_raw is None and clock_value is not None:
                         timer_text = str(clock_value).strip()
-                        timer_match = re.fullmatch(r"(\\d{1,3}):(\\d{2})", timer_text)
+                        timer_match = re.fullmatch(r"(\d{1,3}):(\d{2})", timer_text)
                         if timer_match:
                             timer_raw = int(timer_match.group(1)) * 60 + int(timer_match.group(2))
-                        elif re.fullmatch(r"\\d{1,5}", timer_text):
+                        elif re.fullmatch(r"\d{1,5}", timer_text):
                             timer_raw = int(timer_text)
                     try:
                         timer_seconds = int(float(timer_raw)) if timer_raw is not None else None
@@ -2330,7 +2330,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     period_length_seconds = None
                     if re.search(r"cdb[l1]|chinese basketball development league", competition_text):
                         period_length_seconds = 720
-                    elif re.search(r"bskt\\s*cup", competition_text):
+                    elif re.search(r"bskt\s*cup", competition_text):
                         period_length_seconds = 600
 
                     # PARI's observed timerSeconds are cumulative match elapsed
