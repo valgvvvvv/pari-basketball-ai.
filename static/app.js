@@ -201,7 +201,8 @@ function findLiveClock(ev){
 function estimateLiveTotal(ev, score, period, clock){
   const live=ev.external_live||{};
   const length=Number(live.period_length_seconds||0);
-  if(!score||!period||!clock||!Number.isFinite(length)||length<300||length>900)return null;
+  const periodCount=Number(live.period_count||4);
+  if(!score||!period||!clock||!Number.isFinite(length)||length<300||length>1200||![2,4].includes(periodCount))return null;
   const match=String(clock).match(/^(\d{1,2}):([0-5]\d)$/);
   if(!match)return null;
   const remaining=Number(match[1])*60+Number(match[2]);
@@ -209,7 +210,7 @@ function estimateLiveTotal(ev, score, period, clock){
   const elapsed=(Number(period)-1)*length+(length-remaining);
   if(elapsed<=0)return null;
   const total=score[0]+score[1];
-  const projection=total/elapsed*(length*4);
+  const projection=total/elapsed*(length*periodCount);
   if(!Number.isFinite(projection)||projection<=0)return null;
   const remainingExpected=Math.max(0,projection-total);
   const sigma=Math.max(6,Math.sqrt(Math.max(remainingExpected,1))*1.30+remainingExpected*0.08);
@@ -391,21 +392,24 @@ function getMatchTotalLines(ev) {
 
 function inferPeriodLengthForForecast(ev) {
   const explicit=findPeriodLengthSeconds(ev);
-  if(explicit)return {seconds:explicit,method:"подтверждённая длительность"};
+  if(explicit)return {seconds:explicit,periods:Number(ev.external_live?.period_count||4),
+    method:ev.external_live?.source==="ESPN"&&Number(ev.external_live?.period_count)===2
+      ?"ESPN NCAA · 2 половины по 20 минут":"подтверждённая длительность"};
   const text=[ev.league,ev.sport_name,ev.team1,ev.team2].filter(Boolean).join(" ").toLowerCase();
   // NCAA men's basketball uses two 20-minute halves, not four quarters.
   if(/ncaa|college|university|студент|студ\b|колледж|march madness/.test(text))return null;
-  if(/nba|wnba|g league/.test(text))return {seconds:720,method:"стандарт NBA · 12 минут"};
+  if(/nba|wnba|g league/.test(text))return {seconds:720,periods:4,method:"стандарт NBA · 12 минут"};
   // International/FIBA domestic leagues use four 10-minute quarters.
-  return {seconds:600,method:"стандарт FIBA · 10 минут (предварительное допущение)"};
+  return {seconds:600,periods:4,method:"стандарт FIBA · 10 минут (предварительное допущение)"};
 }
 function estimateLiveTotalFromPeriod(ev,score,period,lengthInfo) {
   if(!score||!period||period<2||!lengthInfo)return null;
-  const total=Number(score[0])+Number(score[1]), length=lengthInfo.seconds;
+  const total=Number(score[0])+Number(score[1]), length=lengthInfo.seconds, periods=Number(lengthInfo.periods||4);
   if(!Number.isFinite(total)||total<=0||!Number.isFinite(length)||length<300)return null;
+  if(![2,4].includes(periods)||period>periods)return null;
   const elapsedMin=(period-1)*length, elapsedMax=period*length;
   if(elapsedMin<12*60)return null;
-  const gameSeconds=length*4;
+  const gameSeconds=length*periods;
   const low=Math.round(total/elapsedMax*gameSeconds);
   const high=Math.round(total/elapsedMin*gameSeconds);
   if(!Number.isFinite(low)||!Number.isFinite(high)||low<=0||high<low||high>500)return null;
@@ -413,7 +417,7 @@ function estimateLiveTotalFromPeriod(ev,score,period,lengthInfo) {
   return {current:total,projection,low,high,sigma:Math.max(8,(high-low)/2.563),
     elapsed_seconds_min:elapsedMin,elapsed_seconds_max:elapsedMax,
     elapsed:Math.round((elapsedMin+elapsedMax)/120)/10,
-    source:"period_range",period_length_seconds:length,period_length_method:lengthInfo.method};
+    source:"period_range",period_length_seconds:length,period_count:periods,period_length_method:lengthInfo.method};
 }
 function marketReferenceForecast(lines) {
   const valid=(lines||[]).filter(x=>Number.isFinite(Number(x.line))&&!x.stale);
@@ -456,6 +460,7 @@ function automaticForecast(ev) {
 
 function automaticQuarterForecast(ev) {
   const period=findLivePeriod(ev), clock=findLiveClock(ev), length=findPeriodLengthSeconds(ev);
+  if(Number(ev.external_live?.period_count)===2)return {ready:false,reason:"в турнире играют две половины, а не четыре четверти"};
   if (!period || !clock || !length) return {ready:false,reason:"нужны четверть, таймер и длительность периода"};
   const scores=ev.external_live?.period_scores || {};
   const score=scores[String(period)];
