@@ -2633,6 +2633,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     timer_raw = next((row.get("timerSeconds") for row in
                                       (live_info, event_misc, event)
                                       if row.get("timerSeconds") is not None), None)
+                    timer_from_explicit_clock = timer_raw is None and clock_value is not None
                     if timer_raw is None and clock_value is not None:
                         timer_text = str(clock_value).strip()
                         timer_match = re.fullmatch(r"(\d{1,3}):(\d{2})", timer_text)
@@ -2653,13 +2654,14 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         sport_names.get(str(event.get("sportId")), "")
                     ))).casefold()
                     period_length_seconds = None
-                    if re.search(r"\bcdb[l1]\b|chinese basketball development league", competition_text):
+                    if re.search(r"\bcdb[l1]\b|chinese basketball development league|nba|g[- ]?лига|g[- ]?league", competition_text):
                         period_length_seconds = 720
-                    elif re.search(r"bskt\s*cup|cup\s*bskt|кубок\s*bskt", competition_text):
+                    elif re.search(r"bskt\s*cup|cup\s*bskt|кубок\s*bskt|philippines.*ncaa|ncaa.*philippines|филиппин.*ncaa", competition_text):
+                        # BSKT Cup and Philippine NCAA use four 10-minute periods.
                         period_length_seconds = 600
-                    elif re.search(r"philippines.*ncaa|ncaa.*philippines|филиппин.*ncaa", competition_text):
-                        # Philippine NCAA follows the four-quarter FIBA format;
-                        # do not confuse it with US men's NCAA two-half rules.
+                    elif (not re.search(r"\bncaa\b|college|university|студент|колледж", competition_text)
+                          and re.search(r"adriatic|аба\s*лига|plk|польша|израил|израиль|super\s*league|суперлиг|bosnia|босни|герцеговин|greece|греци|italy|итал|cyprus|кипр|morocco|марокко|montenegro|черногор|serbia|серби|croatia|хорват|fiba|euroleague|eurocup|eurobasket|vtb|basketball champions league", competition_text)):
+                        # Named national and FIBA competitions use four 10-minute periods.
                         period_length_seconds = 600
 
                     # PARI's observed timerSeconds are cumulative match elapsed
@@ -2673,7 +2675,9 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             clock_value = f"{remaining // 60:02d}:{remaining % 60:02d}"
                         else:
                             clock_value = None
-                    elif timer_seconds is not None and 0 <= timer_seconds <= 1200:
+                    elif timer_from_explicit_clock and timer_seconds is not None and 0 <= timer_seconds <= 1200:
+                        # Only trust a clock explicitly supplied as a clock field.
+                        # PARI timerSeconds is cumulative match elapsed time, not a quarter countdown.
                         clock_value = f"{timer_seconds // 60:02d}:{timer_seconds % 60:02d}"
                     elif clock_value is not None:
                         clock_text = str(clock_value).strip()
@@ -2777,6 +2781,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         if len(candidate_scores) >= 1 and any(pair is not None for pair in candidate_scores):
                             period_scores = candidate_scores[:4]
                             break
+                    if period_value is None and period_scores:
+                        period_value = len(period_scores)
                     # PARI can leave a completed fixture in the LIVE tree for a short
                     # period. When the verified cumulative timer reaches full regulation
                     # and all four quarter scores add up exactly to the final score,
