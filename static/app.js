@@ -252,7 +252,11 @@ function showSelectedMatch(ev){
     if(/score|foul|rebound|assist|attempt|throw|possession|percent|three|two|block|steal|turnover|points|stat/i.test(key)&&!/^statisticsTypes$/i.test(key)&&value!=null&&(typeof value!=="object"||Array.isArray(value)))stats.push(key+": "+(Array.isArray(value)?JSON.stringify(value):String(value)));
   }
   const externalStats=Array.isArray(ev.external_statistics)?ev.external_statistics:[];
-  const externalStatsHtml=externalStats.length?'<details class="source-statistics" open><summary>Статистика матча · SofaScore ('+externalStats.length+')</summary>'+externalStats.map(st=>'<p><b>'+escapeHtml(st.group||"Статистика")+'</b> · '+escapeHtml(st.name||"Показатель")+': '+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+'</p>').join("")+'</details>':"";
+  const statsQuality=ev.statistics_quality||null;
+  const statsCoverage=statsQuality?(" · покрытие ключевых категорий "+statsQuality.available_count+"/"+statsQuality.expected_count+" ("+statsQuality.coverage_percent+"%)"):"";
+  const externalStatsHtml=externalStats.length?'<details class="source-statistics" open><summary>Статистика матча · '+escapeHtml(ev.statistics_source||"внешний источник")+' ('+externalStats.length+statsCoverage+')</summary>'+
+    (statsQuality&&statsQuality.missing_metrics?.length?'<p class="muted">Не получены: '+statsQuality.missing_metrics.map(escapeHtml).join(", ")+'</p>':'')+
+    externalStats.map(st=>'<p><b>'+escapeHtml(st.group||"Статистика")+'</b> · '+escapeHtml(st.name||"Показатель")+': '+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+'</p>').join("")+'</details>':"";
   const statsText=[...new Set(stats)].slice(0,24);
   const rootLines=fmtFactors(rootFactors);
   const allMarketLines=matchLines.map(x=>"линия "+x.line+" · ID "+x.factorId+(x.odds?" · кэф. "+x.odds:"")+(x.stale?" · последняя полученная, не текущая":""));
