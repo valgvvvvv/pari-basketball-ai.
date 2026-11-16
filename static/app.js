@@ -506,7 +506,7 @@ function showSelectedMatch(ev){
   const stat=(keys)=>{
     const row=rows.find(x=>keys.map(norm).includes(norm(x?.metric_key||x?.name)));
     if(!row)return null;
-    const read=v=>{const p=parseStatCount(v);return p?(p.attempts!=null?p.value+"/"+p.attempts:p.value):null;};
+    const read=v=>{if(v&&typeof v==="object")v=v.current??v.value??v.total??v.count??v.displayValue??v.display_value;const p=parseStatCount(v);return p?.value??null;};
     const home=read(row.home),away=read(row.away);
     return home!=null&&away!=null?{home,away,name:row.name||keys[0],source:row.source||""}:null;
   };
@@ -548,7 +548,8 @@ function showSelectedMatch(ev){
     : '<p class="muted">'+escapeHtml(matchForecast.reason||"Для прогноза пока недостаточно подтверждённых данных.")+'</p>';
   $("quarterForecast").innerHTML=quarter.ready
     ? '<div class="forecast-main"><p><b>Ожидаемый тотал четверти</b></p><div class="forecast-number">'+quarter.projection+'</div><p>Сейчас: '+quarter.current+' · прошло: '+quarter.elapsed+' мин · диапазон 80% '+quarter.low80+'–'+quarter.high80+' · 95% '+quarter.low95+'–'+quarter.high95+'</p></div>'+
-      (quarter.lines.length?'<h3>Вероятности по линиям четверти</h3><table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Ориентир</th></tr></thead><tbody>'+quarter.lines.map(x=>'<tr><td>'+escapeHtml(x.line)+'</td><td>'+(x.pOver*100).toFixed(1)+'%</td><td>'+(x.pUnder*100).toFixed(1)+'%</td><td>'+escapeHtml(x.direction)+'</td></tr>').join('')+'</tbody></table>':'<p class="muted">Линия четверти пока недоступна: проценты не рассчитываются без конкретного тотала.</p>')+
+      '<div class="calc-grid"><div class="calc-card"><span>ТБ вероятность</span><b>'+((quarter.poisson?.probabilities?.[0]?.pOver??0)*100).toFixed(1)+'%</b></div><div class="calc-card"><span>ТМ вероятность</span><b>'+((quarter.poisson?.probabilities?.[0]?.pUnder??0)*100).toFixed(1)+'%</b></div></div>'+
+      (quarter.lines.length?'<p>Линии: '+quarter.lines.map(x=>escapeHtml(x.line+' · ТБ '+(x.pOver*100).toFixed(1)+'% / ТМ '+(x.pUnder*100).toFixed(1)+'%')).join(' · ')+'</p>':'<p class="muted">Линия четверти пока недоступна.</p>')+
       '<p class="calc-formula">Ориентир четверти: набранные очки ÷ прошедшие секунды × длительность четверти. Интервал строится по 10 000 симуляций.</p>'
     : '<p class="muted">'+escapeHtml(quarter.reason||"Нет достаточных данных для прогноза четверти.")+'</p>';
   $("matchForecast").insertAdjacentHTML("beforeend",'<div class="compact-analysis"><h3>Статистика матча</h3>'+statHtml+
