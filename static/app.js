@@ -527,10 +527,10 @@ function findPeriodLengthSeconds(ev) {
   // Do not apply a generic 10-minute assumption to unknown competitions.
   const competition = [ev.league, ev.sport_name, raw.name, raw.competitionName]
     .filter(Boolean).join(" ").toLowerCase();
-  if (/\bc\s*dbl\b|chinese basketball development league/.test(competition)) return 720;
-  if (/bskt\s*cup|cup\s*bskt|кубок\s*bskt/.test(competition)) return 600;
-  if (/\bnba\b|g league/.test(competition)) return 720;
-  if (/fiba|euroleague|eurocup|eurobasket|vtb|суперлиг|единая лига|чемпионат европ|world cup|basketball champions league/.test(competition)) return 600;
+  if (/\bc\s*dbl\b|chinese basketball development league|\bnba\b|g[- ]?лига|g[- ]?league/.test(competition)) return 720;
+  if (/bskt\s*cup|cup\s*bskt|кубок\s*bskt|philippines.*ncaa|ncaa.*philippines|филиппин.*ncaa/.test(competition)) return 600;
+  if (!/\bncaa\b|college|university|студент|колледж/.test(competition) &&
+      /adriatic|аба\s*лига|plk|польша|израил|израиль|super\s*league|суперлиг|bosnia|босни|герцеговин|greece|греци|italy|итал|cyprus|кипр|morocco|марокко|montenegro|черногор|serbia|серби|croatia|хорват|fiba|euroleague|eurocup|eurobasket|vtb|basketball champions league/.test(competition)) return 600;
   return null;
 }
 
