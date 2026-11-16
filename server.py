@@ -2057,6 +2057,8 @@ def _pari_stat_metric(label):
         ("turnovers", r"turnover|потер"),
         ("steals", r"steal|перехват"),
         ("blocks", r"block|блокшот"),
+        ("personal_fouls", r"personal.?foul|фол.*личн|личн.*фол"),
+        ("team_fouls", r"team.?foul|командн.*фол|фол.*команд"),
         ("fouls", r"foul|фол"),
         ("possessions", r"possession|владен"),
     )
@@ -2095,6 +2097,19 @@ def _extract_pari_live_statistics(objects):
             away = next((value.get(k) for k in ("away", "awayValue", "away_value", "team2", "team2Value", "c2") if value.get(k) is not None), None)
             if label:
                 add(label, home, away, value.get("groupName") or value.get("group") or value.get("category") or "PARI LIVE")
+            # PARI may encode paired team values as flat sibling keys.
+            scalar_keys = {str(k): v for k, v in value.items()
+                           if isinstance(v, (str, int, float)) and v is not None}
+            normalized_keys = {re.sub(r"[^a-z0-9]", "", k.casefold()): k for k in scalar_keys}
+            for normalized, original in list(normalized_keys.items()):
+                side_match = re.fullmatch(r"(?:team1|home)([a-z][a-z0-9]*)", normalized)
+                if not side_match:
+                    continue
+                suffix = side_match.group(1)
+                away_key = normalized_keys.get("team2" + suffix) or normalized_keys.get("away" + suffix)
+                if away_key:
+                    add(suffix, scalar_keys[original], scalar_keys[away_key],
+                        value.get("groupName") or value.get("group") or value.get("category") or "PARI LIVE")
             for key, child in value.items():
                 if isinstance(child, (dict, list)):
                     walk(child, depth + 1)
@@ -2645,6 +2660,16 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "period_count": 4 if period_length_seconds else None,
                         "match_elapsed_seconds": timer_seconds,
                         "period_scores": period_scores,
+                        "match_timeline": [
+                            {"period": index + 1, "home": pair[0], "away": pair[1],
+                             "total": pair[0] + pair[1],
+                             "cumulative_home": sum(x[0] for x in period_scores[:index + 1]),
+                             "cumulative_away": sum(x[1] for x in period_scores[:index + 1])}
+                            for index, pair in enumerate(period_scores)
+                            if isinstance(pair, (list, tuple)) and len(pair) >= 2
+                            and all(isinstance(x, (int, float)) for x in pair[:2])
+                        ],
+                        "timeline_source": "PARI liveEventInfos.scores",
                         "statistics_types": event.get("statisticsTypes"),
                         "live_fields": repair_nested_encoding({
                             key: value
@@ -2686,28 +2711,33 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                 # the live event, misc, info, or related-event payload. Opaque
                 # statisticsTypes/S1 codes are retained for diagnostics, not guessed.
                 for pari_row in basketball:
+                    pari_id = str(pari_row.get("id") or "")
                     pari_stats = _extract_pari_live_statistics([
                         pari_row.get("raw", {}),
                         pari_row.get("live_fields", {}),
+                        event_misc_by_id.get(pari_id, {}),
+                        live_info_by_id.get(pari_id, {}),
                         pari_row.get("related_events", []),
                     ])
                     if pari_stats:
                         pari_row["external_statistics"] = pari_stats
                         pari_row["statistics_source"] = "PARI"
-                        keys = sorted({x["metric_key"] for x in pari_stats})
-                        expected = ["field_goals", "field_goals_made", "field_goals_attempted",
-                                    "three_pointers_made", "three_pointers_attempted",
-                                    "two_pointers_made", "two_pointers_attempted",
-                                    "free_throws_made", "free_throws_attempted",
-                                    "rebounds", "offensive_rebounds", "defensive_rebounds",
-                                    "assists", "turnovers", "steals", "blocks", "fouls", "possessions"]
-                        pari_row["statistics_quality"] = {
-                            "available_metrics": keys,
-                            "missing_metrics": [key for key in expected if key not in keys],
-                            "available_count": len(keys), "expected_count": len(expected),
-                            "coverage_percent": round(len(keys) / len(expected) * 100),
-                            "raw_fields_count": len(pari_stats), "complete": all(key in keys for key in expected),
-                        }
+                    keys = sorted({x["metric_key"] for x in pari_stats})
+                    expected = ["field_goals", "field_goals_made", "field_goals_attempted",
+                                "three_pointers_made", "three_pointers_attempted",
+                                "two_pointers_made", "two_pointers_attempted",
+                                "free_throws_made", "free_throws_attempted",
+                                "rebounds", "offensive_rebounds", "defensive_rebounds",
+                                "assists", "turnovers", "steals", "blocks",
+                                "personal_fouls", "team_fouls", "fouls", "possessions"]
+                    pari_row["statistics_quality"] = {
+                        "available_metrics": keys,
+                        "missing_metrics": [key for key in expected if key not in keys],
+                        "available_count": len(set(keys).intersection(expected)),
+                        "expected_count": len(expected),
+                        "coverage_percent": round(len(set(keys).intersection(expected)) / len(expected) * 100),
+                        "raw_fields_count": len(pari_stats), "complete": all(key in keys for key in expected),
+                    }
                 attempts.append({
                     "host": host,
                     "status": 200,
@@ -2790,6 +2820,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 "score_source": event.get("score_source") or (event.get("external_live") or {}).get("source"),
                                 "statistics_source": event.get("statistics_source"),
                                 "statistics_fields": len(event.get("external_statistics") or []),
+                                "statistics_missing": (event.get("statistics_quality") or {}).get("missing_metrics", []),
+                                "match_timeline": event.get("match_timeline", []),
                             }
                             for event in basketball[:20]
                         ],
