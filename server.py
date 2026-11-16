@@ -1848,8 +1848,20 @@ async def _enrich_with_sofascore_live(events):
             if normalized:
                 expected_metrics = [key for key, _ in metric_patterns]
                 missing_metrics = [key for key in expected_metrics if key not in present_metrics]
-                pari["external_statistics"] = normalized
-                pari["statistics_source"] = "SofaScore"
+                # Merge provider statistics with explicit PARI values. Keep PARI's
+                # named fields first; deduplicate by metric and values.
+                existing_stats = list(pari.get("external_statistics") or [])
+                merged_stats = existing_stats + normalized
+                deduped_stats = []
+                seen_stats = set()
+                for stat_row in merged_stats:
+                    stat_key = (stat_row.get("metric_key"), str(stat_row.get("home")), str(stat_row.get("away")))
+                    if stat_key not in seen_stats:
+                        seen_stats.add(stat_key)
+                        deduped_stats.append(stat_row)
+                pari["external_statistics"] = deduped_stats
+                sources = list(dict.fromkeys(str(x.get("source") or "unknown") for x in deduped_stats))
+                pari["statistics_source"] = " + ".join(sources)
                 pari["statistics_checked_at"] = datetime.now(timezone.utc).isoformat()
                 pari["statistics_quality"] = {
                     "available_metrics": sorted(present_metrics),
@@ -1899,6 +1911,73 @@ async def _enrich_with_sofascore_live(events):
         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
         "note": "Источники объединяются по однозначному совпадению обеих команд; статистика берётся из box-score SofaScore, SportScore служит резервом для LIVE-счёта и таймера."
     }
+
+
+
+def _pari_stat_metric(label):
+    text = str(label or "").casefold().replace("ё", "е")
+    patterns = (
+        ("three_pointers_made", r"3.?point.*(made|scored)|three.?point.*(made|scored)|трех.?очк.*(попад|забит)|3pm"),
+        ("three_pointers_attempted", r"3.?point.*(attempt|att)|three.?point.*(attempt|att)|трех.?очк.*(брос|попыт)|3pa"),
+        ("two_pointers_made", r"2.?point.*(made|scored)|two.?point.*(made|scored)|двух.?очк.*(попад|забит)|2pm"),
+        ("two_pointers_attempted", r"2.?point.*(attempt|att)|two.?point.*(attempt|att)|двух.?очк.*(брос|попыт)|2pa"),
+        ("free_throws_made", r"free.?throw.*(made|scored)|штрафн.*(попад|реализ)|ftm"),
+        ("free_throws_attempted", r"free.?throw.*(attempt|att)|штрафн.*(брос|попыт)|fta"),
+        ("offensive_rebounds", r"offensive.?rebound|подбор.*атак"),
+        ("defensive_rebounds", r"defensive.?rebound|подбор.*защит"),
+        ("rebounds", r"rebound|подбор"),
+        ("assists", r"assist|передач"),
+        ("turnovers", r"turnover|потер"),
+        ("steals", r"steal|перехват"),
+        ("blocks", r"block|блокшот"),
+        ("fouls", r"foul|фол"),
+        ("possessions", r"possession|владен"),
+    )
+    return next((key for key, pattern in patterns if re.search(pattern, text, re.I)), None)
+
+
+def _extract_pari_live_statistics(objects):
+    """Normalize only explicit, named PARI box-score fields; never guess opaque S1/S2 codes."""
+    found = {}
+    visited = set()
+
+    def add(label, home, away, group="PARI LIVE"):
+        metric = _pari_stat_metric(label)
+        if not metric or home is None or away is None:
+            return
+        # Preserve source representation (including made/attempted strings).
+        marker = (metric, str(home), str(away))
+        if marker in found:
+            return
+        found[marker] = {
+            "group": str(group or "PARI LIVE"), "name": str(label),
+            "metric_key": metric, "home": home, "away": away,
+            "source": "PARI",
+        }
+
+    def walk(value, depth=0):
+        if depth > 7 or not isinstance(value, (dict, list)):
+            return
+        ident = id(value)
+        if ident in visited:
+            return
+        visited.add(ident)
+        if isinstance(value, dict):
+            label = value.get("name") or value.get("label") or value.get("key") or value.get("title")
+            home = next((value.get(k) for k in ("home", "homeValue", "home_value", "team1", "team1Value", "c1") if value.get(k) is not None), None)
+            away = next((value.get(k) for k in ("away", "awayValue", "away_value", "team2", "team2Value", "c2") if value.get(k) is not None), None)
+            if label:
+                add(label, home, away, value.get("groupName") or value.get("group") or value.get("category") or "PARI LIVE")
+            for key, child in value.items():
+                if isinstance(child, (dict, list)):
+                    walk(child, depth + 1)
+        else:
+            for child in value:
+                walk(child, depth + 1)
+
+    for obj in objects:
+        walk(obj)
+    return list(found.values())
 
 
 # PARI public LIVE events feed. The endpoint is read-only; no account or betting actions.
@@ -2345,6 +2424,10 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         period_length_seconds = 720
                     elif re.search(r"bskt\s*cup|cup\s*bskt|кубок\s*bskt", competition_text):
                         period_length_seconds = 600
+                    elif re.search(r"philippines.*ncaa|ncaa.*philippines|филиппин.*ncaa", competition_text):
+                        # Philippine NCAA follows the four-quarter FIBA format;
+                        # do not confuse it with US men's NCAA two-half rules.
+                        period_length_seconds = 600
 
                     # PARI's observed timerSeconds are cumulative match elapsed
                     # seconds (e.g. 38:26 in CDBL, 31:14 in BSKT Cup).
@@ -2472,6 +2555,31 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             if str(factor.get("f")) in ("930", "931")
                         ],
                     })
+                # Extract explicit named team statistics if PARI includes them in
+                # the live event, misc, info, or related-event payload. Opaque
+                # statisticsTypes/S1 codes are retained for diagnostics, not guessed.
+                for pari_row in basketball:
+                    pari_stats = _extract_pari_live_statistics([
+                        pari_row.get("raw", {}),
+                        pari_row.get("live_fields", {}),
+                        pari_row.get("related_events", []),
+                    ])
+                    if pari_stats:
+                        pari_row["external_statistics"] = pari_stats
+                        pari_row["statistics_source"] = "PARI"
+                        keys = sorted({x["metric_key"] for x in pari_stats})
+                        expected = ["three_pointers_made", "three_pointers_attempted",
+                                    "two_pointers_made", "two_pointers_attempted",
+                                    "free_throws_made", "free_throws_attempted",
+                                    "rebounds", "offensive_rebounds", "defensive_rebounds",
+                                    "assists", "turnovers", "steals", "blocks", "fouls", "possessions"]
+                        pari_row["statistics_quality"] = {
+                            "available_metrics": keys,
+                            "missing_metrics": [key for key in expected if key not in keys],
+                            "available_count": len(keys), "expected_count": len(expected),
+                            "coverage_percent": round(len(keys) / len(expected) * 100),
+                            "raw_fields_count": len(pari_stats), "complete": all(key in keys for key in expected),
+                        }
                 attempts.append({
                     "host": host,
                     "status": 200,
