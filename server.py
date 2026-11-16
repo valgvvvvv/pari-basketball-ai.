@@ -545,13 +545,26 @@ async def pari_discover():
                             if map_match:
                                 for key, value in re.findall(r"([0-9]+)\s*:\s*['\"]([^'\"]+)['\"]", map_match.group(1)):
                                     chunk_name_map[key] = value
-                        item["webpack_chunk_name_map"] = {key: chunk_name_map.get(key) for key in ("43010", "5793", "50480")}
+                        # The PARI webpack runtime can put the chunk map beyond the
+                        # small legacy regex window. Recover exact numeric-id/name pairs
+                        # from the complete bootstrap source, then target match-center
+                        # and sport-statistics lazy modules explicitly.
+                        for key, value in re.findall(r"([0-9]+)\s*:\s*['\"]([^'\"]+)['\"]", source):
+                            if re.search(r"matchCenter|sportstats|basketball|eventView", value, re.I):
+                                chunk_name_map[key] = value
+                        item["webpack_chunk_name_map"] = {
+                            key: chunk_name_map.get(key) for key in ("43010", "5793", "50480")
+                        }
+                        item["statistics_chunk_name_map"] = {
+                            key: value for key, value in chunk_name_map.items()
+                            if re.search(r"matchCenter|sportstats|basketball|eventView", value, re.I)
+                        }
                         # Besides bootstrap's initial chunks, inspect a small set of semantically
                         # relevant lazy chunks: live, line, event, sport, market and common API.
                         semantic_candidates = [
                             (chunk_id, filename + ".js")
                             for chunk_id, filename in chunk_name_map.items()
-                            if re.search(r"live|line|event|sport|market|common|api|basket|score|match", filename, re.I)
+                            if re.search(r"live|line|event|sport|market|common|api|basket|score|match|sportstats|matchCenter|eventView", filename, re.I)
                         ]
                         item["semantic_chunk_candidates"] = [
                             {"chunk_id": chunk_id, "filename": filename}
