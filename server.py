@@ -2339,7 +2339,9 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "clock": clock_value,
                         "statistics_types": event.get("statisticsTypes"),
                         "live_fields": repair_nested_encoding({
-                            key: value for key, value in event.items()
+                            key: value
+                            for source_row in (event, event_misc, live_info)
+                            for key, value in source_row.items()
                             if any(token in key.lower() for token in (
                                 "score", "period", "quarter", "clock", "timer", "time",
                                 "team1s", "team2s", "team1m", "team2m", "foul", "stat",
