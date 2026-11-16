@@ -211,7 +211,24 @@ function estimateLiveTotal(ev, score, period, clock){
   const total=score[0]+score[1];
   const projection=total/elapsed*(length*4);
   if(!Number.isFinite(projection)||projection<=0)return null;
-  return {current:total,projection:Math.round(projection*10)/10,low:Math.round(projection*0.88),high:Math.round(projection*1.12),elapsed:Math.round(elapsed/60*10)/10};
+  const remainingExpected=Math.max(0,projection-total);
+  const sigma=Math.max(6,Math.sqrt(Math.max(remainingExpected,1))*1.30+remainingExpected*0.08);
+  const margin=1.2816*sigma;
+  return {current:total,projection:Math.round(projection*10)/10,
+    low:Math.max(total,Math.round(projection-margin)),high:Math.round(projection+margin),
+    sigma:Math.round(sigma*10)/10,elapsed:Math.round(elapsed/60*10)/10,
+    elapsed_seconds:elapsed,period_elapsed_seconds:length-remaining};
+}
+function normalCdf(z){
+  const sign=z<0?-1:1,x=Math.abs(z),t=1/(1+0.2316419*x);
+  const density=0.3989422804014327*Math.exp(-0.5*x*x);
+  const tail=density*t*(0.319381530+t*(-0.356563782+t*(1.781477937+t*(-1.821255978+t*1.330274429))));
+  return sign>0?1-tail:tail;
+}
+function probabilityOverLine(estimate,line){
+  const boundary=Math.floor(Number(line))+0.5;
+  const pOver=1-normalCdf((boundary-estimate.projection)/estimate.sigma);
+  return Math.max(0,Math.min(1,pOver));
 }
 function showSelectedMatch(ev){
   const panel=$("selectedMatch");panel.hidden=false;
@@ -250,14 +267,24 @@ function showSelectedMatch(ev){
     '<p class="muted">'+(rootLines.length?rootLines.map(escapeHtml).join("<br>"):(allMarketLines.length?"В основной строке факторов нет; найдено в иерархии/локальной истории: "+allMarketLines.map(escapeHtml).join(" · "):"В текущем ответе PARI нет факторов ID 930/931."))+'</p>'+
     '<p class="muted">Это пока не подтверждённая расшифровка типа рынка: ID фактора и линия показываются как получены от PARI.</p>'+
     '<p class="muted">'+(score&&period&&clock?"Счёт, четверть и таймер доступны.":"Расчёт темпа заблокирован: нет подтверждённого счёта и/или таймера.")+'</p>'+
-    (paceEstimate?'<p><b>Предварительная оценка полного тотала по текущему темпу:</b> '+paceEstimate.projection+' очка · ориентировочный диапазон '+paceEstimate.low+'–'+paceEstimate.high+' · сыграно около '+paceEstimate.elapsed+' мин. Это оценка темпа, не обученный прогноз.</p>':'<p class="muted">Оценка пока недоступна: нужны подтверждённые счёт, четверть, таймер и длительность периода. Формат и время не подставляются наугад.</p>')+
-    (paceEstimate && matchLines.length ? '<p><b>Направление относительно линий PARI:</b> '+matchLines.map(x=>(paceEstimate.projection>x.line?'ТБ ':'ТМ ')+x.line+' (ориентир '+paceEstimate.projection+')'+(x.stale?' · линия не текущая':'' )).map(escapeHtml).join(' · ')+'</p>' : '<p class="muted">'+(matchLines.length?'Линия найдена, но данных для сравнения пока недостаточно.':'В текущем ответе и локальной истории нет линии полного тотала 930/931.')+'</p>');
+    (paceEstimate?'<p><b>Темповая оценка полного тотала:</b> '+paceEstimate.projection+' очка · ориентировочный диапазон 80% '+paceEstimate.low+'–'+paceEstimate.high+' · сыграно около '+paceEstimate.elapsed+' мин.</p>':'<p class="muted">Оценка пока недоступна: нужны подтверждённые счёт, четверть, таймер и длительность периода; для полного матча также нужно минимум 12 минут игры.</p>')+
+    (paceEstimate && matchLines.length ? '<p><b>Сравнение с линиями PARI:</b> '+matchLines.map(x=>{
+      if(x.stale)return 'Тотал '+x.line+' · устаревшая линия, направление не рассчитывается';
+      const pOver=probabilityOverLine(paceEstimate,x.line),pUnder=1-pOver;
+      const direction=pOver>=0.57?'ТБ':(pUnder>=0.57?'ТМ':'без выраженного преимущества');
+      return direction+' '+x.line+' · ТБ '+(pOver*100).toFixed(1)+'% / ТМ '+(pUnder*100).toFixed(1)+'%';
+    }).map(escapeHtml).join(' · ')+'<p class="muted">Приближённые вероятности по текущему темпу и расширенной неопределённости; модель ещё не откалибрована на истории лиги.</p>' : '<p class="muted">'+(matchLines.length?'Линия найдена, но данных для сравнения пока недостаточно.':'В текущем ответе и локальной истории нет линии полного тотала 930/931.')+'</p>');
   const quarterEstimate=automaticQuarterForecast(ev);
   $("quarterForecast").innerHTML=
     '<p><b>Текущая четверть:</b> '+(period||"не определена")+'</p>'+
     (quarterEstimate.ready
       ? '<p><b>Ориентир по темпу четверти:</b> '+quarterEstimate.projection+' очка · набрано '+quarterEstimate.current+' · сыграно около '+quarterEstimate.elapsed+' мин.</p>'+
-        (quarterEstimate.lines.length?'<p><b>Направление по линиям:</b> '+quarterEstimate.lines.map(x=>(quarterEstimate.projection>x.line?'ТБ ':'ТМ ')+x.line).map(escapeHtml).join(' · ')+'</p>':'<p class="muted">Линия тотала текущей четверти не найдена.</p>')
+        (quarterEstimate.lines.length?'<p><b>Сравнение с линиями:</b> '+quarterEstimate.lines.map(x=>{
+          const sigma=Math.max(3,Math.sqrt(Math.max(quarterEstimate.projection-quarterEstimate.current,1))*1.3);
+          const pOver=probabilityOverLine({projection:quarterEstimate.projection,sigma},x.line),pUnder=1-pOver;
+          const direction=pOver>=0.57?'ТБ':(pUnder>=0.57?'ТМ':'без выраженного преимущества');
+          return direction+' '+x.line+' · ТБ '+(pOver*100).toFixed(1)+'% / ТМ '+(pUnder*100).toFixed(1)+'%';
+        }).map(escapeHtml).join(' · ')+'</p><p class="muted">Темповая вероятность без исторической калибровки.</p>':'<p class="muted">Линия тотала текущей четверти не найдена.</p>')
       : '<p class="muted">Прогноз четверти пока недоступен: '+escapeHtml(quarterEstimate.reason)+'.</p>')+
     (groupHtml||'<p class="muted">В дочерних строках не найдено факторов ID 930/931.</p>')+
     '<p class="muted">'+(clock?"Таймер: "+escapeHtml(clock):"Таймер четверти отсутствует в полученных строках PARI.")+'</p>';
@@ -364,7 +391,8 @@ function automaticForecast(ev) {
   if (missing.length) return {ready:false,reason:"Нет подтверждённых данных: "+missing.join(", "),lines};
   const estimate=estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength}},score,period,clock);
   if (!estimate) return {ready:false,reason:"Не удалось безопасно рассчитать игровое время",lines};
-  return {ready:true,estimate,lines,message:"Темп рассчитан; линия матча PARI не найдена"};
+  if (estimate.elapsed_seconds < 12*60) return {ready:false,reason:"Для полного матча ждём минимум 12 минут подтверждённой игры",lines,estimate};
+  return {ready:true,estimate,lines,message:"Темповой прогноз; вероятности не откалиброваны на истории лиги"};
 }
 
 function automaticQuarterForecast(ev) {
@@ -377,6 +405,7 @@ function automaticQuarterForecast(ev) {
   if (!m) return {ready:false,reason:"неизвестный формат таймера"};
   const remaining=Number(m[1])*60+Number(m[2]), elapsed=length-remaining;
   const current=Number(score[0])+Number(score[1]);
+  if (elapsed<180 || elapsed>360) return {ready:false,reason:"четверть анализируется после 3–6 минут игры"};
   if (elapsed<=0 || elapsed>length || !Number.isFinite(current)) return {ready:false,reason:"недостаточно времени для расчёта"};
   const projection=Math.round(current/elapsed*length*10)/10;
   const groups=(ev.related_factor_groups||[]).filter(g=>String(g.name||"").toLowerCase().includes(String(period)));
