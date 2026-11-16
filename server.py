@@ -1930,6 +1930,9 @@ async def _enrich_with_sofascore_live(events):
                 ("three_pointers", r"3.?point|three.?point|3.?очк|тр[её]х.?очк|3pt|three.?pointers"),
                 ("two_pointers", r"2.?point|two.?point|2.?очк|двух.?очк|2pt|two.?pointers"),
                 ("free_throws", r"free.?throw|штрафн|свободн.*брос|free.?throws"),
+                ("field_goals", r"field.?goal|броск.*с игры"),
+                ("offensive_rebounds", r"offensive.?rebound|подбор.*атак"),
+                ("defensive_rebounds", r"defensive.?rebound|подбор.*защит"),
                 ("rebounds", r"rebound|подбор"),
                 ("assists", r"assist|передач"),
                 ("turnovers", r"turnover|потер"),
@@ -2692,7 +2695,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         pari_row["external_statistics"] = pari_stats
                         pari_row["statistics_source"] = "PARI"
                         keys = sorted({x["metric_key"] for x in pari_stats})
-                        expected = ["three_pointers_made", "three_pointers_attempted",
+                        expected = ["field_goals", "field_goals_made", "field_goals_attempted",
+                                    "three_pointers_made", "three_pointers_attempted",
                                     "two_pointers_made", "two_pointers_attempted",
                                     "free_throws_made", "free_throws_attempted",
                                     "rebounds", "offensive_rebounds", "defensive_rebounds",
