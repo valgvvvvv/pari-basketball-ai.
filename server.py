@@ -3170,13 +3170,15 @@ async def _pari_startup_stats_discovery():
                    "chunks_scanned": len(result.get("chunk_scans", [])) if isinstance(result, dict) else 0,
                    "bootstrap": [{"url": item.get("url"), "status": item.get("status"),
                                   "chunk_map": item.get("webpack_chunk_name_map"),
-                                  "api_paths": (item.get("api_path_hints") or [])[:30],
+                                  "api_paths": (item.get("api_path_hints") or [])[:50],
+                                  "runtime_windows": (item.get("runtime_windows") or [])[:8],
                                   "semantic_chunks": (item.get("semantic_chunk_candidates") or [])[:40]}
                                  for item in result.get("bootstrap_scans", []) if isinstance(item, dict)],
                    "chunk_summaries": [{"url": item.get("url"), "status": item.get("status"),
                                         "bytes": item.get("bytes"), "paths": (item.get("api_path_hints") or [])[:30],
                                         "service_terms": item.get("service_keyword_counts"),
-                                        "stat_terms": item.get("data_model_keyword_counts")}
+                                        "stat_terms": item.get("data_model_keyword_counts"),
+                                        "runtime_windows": (item.get("runtime_windows") or [])[:6]}
                                        for item in result.get("chunk_scans", []) if isinstance(item, dict)],
                    "candidate_count": len(unique),
                    "candidates": [{**item, "snippet": str(item.get("snippet") or "")[:260]}
