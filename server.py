@@ -1982,6 +1982,27 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     attempts.append(item)
                     continue
                 all_events = payload["events"]
+                # PARI/Fonbet-style feeds keep live scoreboard data in top-level
+                # eventMiscs/liveEventInfos arrays, keyed by event id, not inside
+                # events[]. A parser that reads only events[] silently loses score
+                # and timer even while the bookmaker page displays them.
+                def index_live_rows(rows):
+                    indexed = {}
+                    if not isinstance(rows, list):
+                        return indexed
+                    for row in rows:
+                        if not isinstance(row, dict):
+                            continue
+                        row_id = next((row.get(k) for k in
+                                       ("id", "eventId", "event_id", "e", "event")
+                                       if row.get(k) is not None), None)
+                        if isinstance(row_id, dict):
+                            row_id = row_id.get("id")
+                        if row_id is not None:
+                            indexed.setdefault(str(row_id), {}).update(row)
+                    return indexed
+                event_misc_by_id = index_live_rows(payload.get("eventMiscs", []))
+                live_info_by_id = index_live_rows(payload.get("liveEventInfos", []))
                 factors = payload.get("customFactors", []) if isinstance(payload, dict) else []
                 factor_map = {}
                 for row in factors if isinstance(factors, list) else []:
@@ -2231,10 +2252,23 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         continue
                     filter_counts["accepted_live_roots"] += 1
                     event_id = event.get("id")
+                    event_misc = event_misc_by_id.get(str(event_id), {})
+                    live_info = live_info_by_id.get(str(event_id), {})
+                    # Merge only source-provided fields; never infer score or clock
+                    # from kickoff timestamps or odds.
+                    score_source = dict(event)
+                    for source_row in (event_misc, live_info):
+                        for key, value in source_row.items():
+                            if value is not None and (score_source.get(key) is None or key not in score_source):
+                                score_source[key] = value
                     related_rows = collect_related_event_rows(event_id)
                     repaired_raw = repair_nested_encoding(event)
                     repaired_related_rows = repair_nested_encoding(related_rows)
-                    period_value = event.get("period") or event.get("periodName")
+                    period_value = next((row.get(key) for row in
+                                          (event, live_info, event_misc)
+                                          for key in ("period", "currentPeriod", "periodNumber",
+                                                      "quarter", "currentQuarter", "periodName")
+                                          if row.get(key) is not None), None)
                     if period_value is None:
                         for child_row in repaired_related_rows:
                             child_name = str(child_row.get("name", ""))
@@ -2275,10 +2309,16 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "status": "live",
                         "league": repair_team_encoding(event.get("name") or event.get("competitionName") or ""),
                         "start_time": event.get("startTime"),
-                        "score": (event.get("score") or event.get("scoreInfo")
-                                  or _extract_pari_score(event)),
+                        "score": (_extract_pari_score(event)
+                                  or _extract_pari_score(event_misc)
+                                  or _extract_pari_score(live_info)
+                                  or _extract_pari_score(score_source)),
                         "period": period_value,
-                        "clock": event.get("time") or event.get("timer"),
+                        "clock": next((row.get(key) for row in
+                                       (event, live_info, event_misc)
+                                       for key in ("clock", "timer", "time", "countdown",
+                                                   "timeRemaining", "remainingTime", "periodClock")
+                                       if row.get(key) is not None), None),
                         "statistics_types": event.get("statisticsTypes"),
                         "live_fields": repair_nested_encoding({
                             key: value for key, value in event.items()
@@ -2356,6 +2396,11 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "ok": True,
                         "host": host,
                         "total_events": len(all_events),
+                        "payload_keys": list(payload.keys())[:60],
+                        "event_miscs_count": len(payload.get("eventMiscs", [])) if isinstance(payload.get("eventMiscs"), list) else None,
+                        "live_event_infos_count": len(payload.get("liveEventInfos", [])) if isinstance(payload.get("liveEventInfos"), list) else None,
+                        "event_misc_sample_keys": list((payload.get("eventMiscs") or [{}])[0].keys())[:40] if isinstance(payload.get("eventMiscs"), list) and payload.get("eventMiscs") and isinstance(payload.get("eventMiscs")[0], dict) else [],
+                        "live_info_sample_keys": list((payload.get("liveEventInfos") or [{}])[0].keys())[:40] if isinstance(payload.get("liveEventInfos"), list) and payload.get("liveEventInfos") and isinstance(payload.get("liveEventInfos")[0], dict) else [],
                         "basketball_events": len(basketball),
                         "filter_diagnostics": filter_counts,
                         "live_score_source": live_enrichment,
@@ -2365,8 +2410,10 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 "teams": str(event.get("team1") or "") + " — " + str(event.get("team2") or ""),
                                 "score_present": event.get("score") is not None,
                                 "pari_score_debug": {
-                                    key: value for key, value in (event.get("raw") or {}).items()
-                                    if any(token in str(key).lower() for token in ("score", "point", "team1s", "team2s"))
+                                    "event": {key: value for key, value in (event.get("raw") or {}).items()
+                                              if any(token in str(key).lower() for token in ("score", "point", "team1s", "team2s"))},
+                                    "event_misc": event_misc_by_id.get(str(event.get("id")), {}),
+                                    "live_info": live_info_by_id.get(str(event.get("id")), {}),
                                 },
                                 "pari_clock_debug": {
                                     key: value for key, value in (event.get("raw") or {}).items()
