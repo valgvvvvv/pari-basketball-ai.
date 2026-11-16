@@ -579,7 +579,20 @@ async def pari_discover():
                         semantic_candidates.sort(
                             key=lambda item: (0 if re.search(r"sportstats|matchCenter|basketball", item[1], re.I) else 1, item[0])
                         )
-                        chunk_candidates.extend(semantic_candidates[:12])
+                        # Always inspect the exact basketball match-centre and stats widgets first.
+                        # The earlier first-12 slice could omit basketball modules because generic
+                        # match-centre chunks sorted ahead of them.
+                        priority_ids = ("92727", "72848", "82212", "991", "39563", "6599")
+                        priority_candidates = [
+                            (chunk_id, chunk_name_map[chunk_id] + ".js")
+                            for chunk_id in priority_ids if chunk_id in chunk_name_map
+                        ]
+                        chunk_candidates.extend(priority_candidates)
+                        priority_urls = {base_name for _, base_name in priority_candidates}
+                        chunk_candidates.extend([
+                            item for item in semantic_candidates
+                            if item[1] not in priority_urls
+                        ][:12])
                         base = bootstrap_url.rsplit("/", 1)[0] + "/"
                         seen_chunk_urls = set()
                         for chunk_id, filename in chunk_candidates:
@@ -706,16 +719,16 @@ async def pari_discover():
         hints = list(dict.fromkeys(inline_hints + bundle_hints))
         return {
             "ok": any(x.get("status") == 200 for x in pages),
-            "diagnostic_version": 10, "pages": pages,
+            "diagnostic_version": 11, "pages": pages,
             "asset_refs_found": len(asset_refs), "first_party_assets_scanned": len(scanned),
             "scanned_assets": scanned, "bootstrap_scans": bootstrap_scans, "chunk_scans": chunk_scans, "bootstrap_urls_found": len(set(bootstrap_urls)), "inline_route_hints": list(dict.fromkeys(inline_hints))[:100],
             "route_candidates": hints[:200], "confirmed_api": False,
-            "note": "Версия 10 приоритизирует полный контекст getServerAgentSettings/coreSetup, пользовательских service mappings и диспетчеризации запросов; это всё ещё анализ кода, а не подтверждение LIVE-feed. Feed подтверждается только реальным ответом и повторным изменением счёта/времени/коэффициентов."
+            "note": "Версия 11 в первую очередь сканирует basketball match-centre и sportstats widgets, затем общие модули; полный контекст getServerAgentSettings/coreSetup, пользовательских service mappings и диспетчеризации запросов; это всё ещё анализ кода, а не подтверждение LIVE-feed. Feed подтверждается только реальным ответом и повторным изменением счёта/времени/коэффициентов."
         }
     except httpx.TimeoutException:
-        return {"ok": False, "diagnostic_version": 10, "error": "PARI diagnostic timed out", "checked_at_utc": datetime.now(timezone.utc).isoformat()}
+        return {"ok": False, "diagnostic_version": 11, "error": "PARI diagnostic timed out", "checked_at_utc": datetime.now(timezone.utc).isoformat()}
     except httpx.HTTPError as exc:
-        return {"ok": False, "diagnostic_version": 10, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
+        return {"ok": False, "diagnostic_version": 11, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
     except Exception as exc:
         # Keep the diagnostic response machine-readable instead of returning an opaque 500.
         return {"ok": False, "diagnostic_version": 10, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
