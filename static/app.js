@@ -632,48 +632,52 @@ function automaticForecast(ev) {
   const periodLength=lengthInfo?.seconds;
   if(score&&period&&clock&&periodLength){
     const estimate=estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength}},score,period,clock);
-    if(estimate&&estimate.elapsed_seconds>=12*60)
-      return {ready:true,kind:"live_tempo",estimate:applyPoissonModel(estimate,lines,String(ev.id||"")+"|"+score.join(":")+"|"+clock,ev,period,clock),lines,message:"Линейный темп + распределение Пуассона + 10 000 симуляций Монте-Карло"};
+    if(estimate&&estimate.elapsed_seconds>0){
+      const early=estimate.elapsed_seconds<12*60;
+      const modeled=applyPoissonModel(estimate,lines,String(ev.id||"")+"|"+score.join(":")+"|"+clock,ev,period,clock);
+      return {ready:true,kind:"live_tempo",estimate:{...modeled,confidence:early?"низкая · ранняя стадия":"рабочая",preliminary:early},lines,
+        message:early?"Предварительный темп с начала матча; обновляется с каждым снимком":"Линейный темп + модель статистики + симуляции Монте-Карло"};
+    }
   }
   if(score&&period&&lengthInfo){
     const estimate=estimateLiveTotalFromPeriod(ev,score,period,lengthInfo);
-    if(estimate)return {ready:true,kind:"period_range",estimate:applyPoissonModel(estimate,lines,String(ev.id||"")+"|"+score.join(":")+"|Q"+period,ev,period,clock),lines,message:"Предварительная оценка без таймера; вероятность не считается подтверждённой"};
+    if(estimate)return {ready:true,kind:"period_range",estimate:applyPoissonModel(estimate,lines,String(ev.id||"")+"|"+score.join(":")+"|Q"+period,ev,period,clock),lines,message:"Диапазон по номеру периода без подтверждённого таймера"};
   }
   const market=marketReferenceForecast(lines);
   if(market){
     const missing=[];
     if(!score)missing.push("счёт");
-    if(!period)missing.push("четверть");
+    if(!period)missing.push("период");
     if(!clock)missing.push("таймер");
-    if(!periodLength)missing.push("формат/длительность");
-    return {...market,reason:"Игровой расчёт ждёт: "+missing.join(", ")};
+    if(!periodLength)missing.push("длительность");
+    return {...market,reason:"Игровая модель уточнит ориентир после получения: "+missing.join(", ")};
   }
   const missing=[];
   if(!score)missing.push("счёт");
-  if(!period)missing.push("четверть");
+  if(!period)missing.push("период");
   if(!clock)missing.push("таймер");
   if(!periodLength)missing.push("длительность периода");
-  return {ready:false,reason:"Нет подтверждённых данных: "+missing.join(", "),lines};
+  return {ready:false,reason:"Нельзя достоверно спрогнозировать без: "+missing.join(", "),lines};
 }
 
 function automaticQuarterForecast(ev) {
-  const period=findLivePeriod(ev), clock=findLiveClock(ev), length=findPeriodLengthSeconds(ev) || inferPeriodLengthForForecast(ev)?.seconds;
-  if(Number(ev.external_live?.period_count)===2)return {ready:false,reason:"в турнире играют две половины, а не четыре четверти"};
-  if (!period || !clock || !length) return {ready:false,reason:"нужны подтверждённые четверть, таймер и длительность периода"};
+  const period=findLivePeriod(ev), clock=findLiveClock(ev);
+  const info=inferPeriodLengthForForecast(ev);
+  const length=findPeriodLengthSeconds(ev)||info?.seconds;
+  const periods=Number(ev.external_live?.period_count||info?.periods||4);
   const matchScore=findLiveScore(ev);
-  const quarterScore=currentQuarterScore(ev,period,matchScore);
-  if(!quarterScore)return {ready:false,reason:"PARI не передал счёт текущей четверти и недостаточно данных по предыдущим четвертям для восстановления"};
-  const m=String(clock).match(/^(\d{1,2}):([0-5]\d)$/);
-  if (!m) return {ready:false,reason:"неизвестный формат таймера"};
-  const remaining=Number(m[1])*60+Number(m[2]), elapsed=length-remaining;
-  const current=quarterScore.pair[0]+quarterScore.pair[1];
-  if (elapsed<180) return {ready:false,reason:"ожидаем минимум 3 минуты игрового времени в четверти"};
-  if (elapsed<=0 || elapsed>length || !Number.isFinite(current)) return {ready:false,reason:"недостаточно времени для расчёта"};
-  const projection=Math.round(current/elapsed*length*10)/10;
-  const groups=(ev.related_factor_groups||[]).filter(g=>{
-    const label=String(g.name||g.kindName||"");
-    const explicit=Number(g.period??g.periodNumber??g.quarter??g.quarterNumber);
-    if([1,2,3,4].includes(explicit))return explicit===period;
+  const matchForecast=automaticForecast(ev);
+  if(periods===2)return {ready:false,reason:"формат 2×20 минут: четвертей в этом матче нет"};
+  const m=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
+  const remaining=m?Number(m[1])*60+Number(m[2]):null;
+  const elapsed=m&&length?length-remaining:null;
+  const currentQuarter=period&&matchScore?currentQuarterScore(ev,period,matchScore):null;
+  const current=currentQuarter?currentQuarter.pair[0]+currentQuarter.pair[1]:null;
+  const quarterLines=[];
+  const groups=(ev.related_factor_groups||[]);
+  for(const group of groups){
+    const label=String(group.name||group.kindName||"");
+    const explicit=Number(group.period??group.periodNumber??group.quarter??group.quarterNumber);
     const patterns=[
       new RegExp("\\bq\\s*"+period+"\\b","i"),
       new RegExp("\\bquarter\\s*"+period+"\\b","i"),
@@ -681,17 +685,45 @@ function automaticQuarterForecast(ev) {
       new RegExp("\\b"+period+"\\s*[-–.]?\\s*(?:я|й|ая|ый)?\\s*четверт\\w*","i"),
       new RegExp("четверт\\w*\\s*"+period+"\\b","i")
     ];
-    return patterns.some(pattern=>pattern.test(label));
-  });
-  const lines=[];
-  for(const group of groups) for(const factor of (group.factors||[])) {
-    if(!factor || !["930","931"].includes(String(factor.f))) continue;
-    const line=factor.pt!=null?Number(factor.pt):(factor.p!=null?Number(factor.p)/100:NaN);
-    if(Number.isFinite(line)&&line>0&&line<150&&!lines.some(x=>x.line===line)) lines.push({line,odds:factor.v==null?null:String(factor.v),source:"PARI"});
+    if(!(Number.isInteger(period)&&period>=1&&period<=4&&(explicit===period||(![1,2,3,4].includes(explicit)&&patterns.some(rx=>rx.test(label))))))continue;
+    for(const factor of (group.factors||[])){
+      if(!factor||!["930","931"].includes(String(factor.f)))continue;
+      const line=factor.pt!=null?Number(factor.pt):(factor.p!=null?Number(factor.p)/100:NaN);
+      if(Number.isFinite(line)&&line>0&&line<150&&!quarterLines.some(x=>x.line===line))
+        quarterLines.push({line,odds:factor.v==null?null:String(factor.v),source:"PARI"});
+    }
   }
-  const quarterEstimate={current,projection,current_score:current,home:quarterScore.pair[0],away:quarterScore.pair[1],score_source:quarterScore.source,elapsed:Math.round(elapsed/60*10)/10};
-  const poisson=poissonMonteCarlo(current,Math.max(0,projection-current),lines,String(ev.id||"")+"|Q"+period+"|"+clock);
-  return {ready:true,...quarterEstimate,low80:poisson.low80,high80:poisson.high80,low95:poisson.low95,high95:poisson.high95,poisson,lines:poisson.probabilities,context_factors:["проекция по темпу текущей четверти",quarterScore.source]};
+  let projection=null,source="",elapsedMinutes=null,observed=current??0;
+  if(Number.isFinite(current)&&Number.isFinite(elapsed)&&length&&elapsed>0&&elapsed<=length){
+    projection=current/elapsed*length;
+    source=currentQuarter.source+" · темп текущей четверти";
+    elapsedMinutes=Math.round(elapsed/60*10)/10;
+  } else if(Number.isFinite(current)&&length&&period){
+    // Missing countdown: keep the forecast available using a transparent
+    // midpoint-of-period assumption; never present this as a live clock reading.
+    projection=current/(length/2)*length;
+    source=currentQuarter.source+" · предварительно, таймер отсутствует";
+    elapsedMinutes=null;
+  } else if(matchForecast.ready&&matchForecast.kind!=="market_reference"&&info?.periods===4){
+    projection=matchForecast.estimate.projection/4;
+    source="средний темп матча · ориентир на четверть, счёт четверти не подтверждён";
+    observed=0;
+  } else if(matchForecast.ready&&matchForecast.kind==="market_reference"&&periods===4){
+    projection=matchForecast.estimate.projection/4;
+    source="рыночный ориентир матча ÷ 4 · не игровая оценка";
+    observed=0;
+  }
+  if(!Number.isFinite(projection)||projection<0){
+    return {ready:false,reason:!period?"не определён номер четверти":!length?"не определена длительность четверти":!matchScore?"нет подтверждённого счёта":"нет данных для оценки темпа"};
+  }
+  const mu=Math.max(0,projection-observed);
+  const poisson=poissonMonteCarlo(observed,mu,quarterLines,String(ev.id||"")+"|Q"+(period||"?")+"|"+(clock||"no-clock"));
+  const preliminary=!elapsed||elapsed<180||source.includes("ориентир")||source.includes("таймер отсутствует");
+  return {ready:true,period,current:observed,projection:Math.round(projection*10)/10,
+    home:currentQuarter?.pair?.[0]??null,away:currentQuarter?.pair?.[1]??null,
+    score_source:source,elapsed:elapsedMinutes,low80:poisson.low80,high80:poisson.high80,
+    low95:poisson.low95,high95:poisson.high95,poisson,lines:poisson.probabilities,
+    preliminary,context_factors:[source]};
 }
 let liveRefreshInFlight = false;
 let nextLiveRefreshDelay = 30000;
