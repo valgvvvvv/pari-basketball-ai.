@@ -1005,12 +1005,33 @@ async def _enrich_with_sofascore_live(events):
                     if av is None: av = item.get("away_period" + str(n), item.get("awayPeriod" + str(n)))
                     hpn, apn = score_number(hv), score_number(av)
                     if hpn is not None and apn is not None: period_scores[str(n)] = [hpn, apn]
+                # Keep the human-readable slug separate from the provider's numeric ID:
+                # /api/widget/match/ requires slug, while /api/widget/tracker/ requires id.
+                nested_match = item.get("match") if isinstance(item.get("match"), dict) else {}
+                nested_fixture = item.get("fixture") if isinstance(item.get("fixture"), dict) else {}
+                identity_sources = (item, nested_match, nested_fixture)
+                def first_identity(keys):
+                    for source in identity_sources:
+                        for key in keys:
+                            value = source.get(key) if isinstance(source, dict) else None
+                            if value not in (None, ""):
+                                return str(value)
+                    return None
+                match_slug = first_identity(("slug", "url_slug", "match_slug", "matchSlug", "seo_slug", "seoSlug"))
+                provider_id = first_identity(("id", "match_id", "matchId", "fixture_id", "fixtureId", "event_id", "eventId", "_id", "game_id", "gameId"))
+                if not match_slug:
+                    raw_url = first_identity(("url", "href", "match_url", "matchUrl", "link"))
+                    if raw_url:
+                        match_slug = raw_url.rstrip("/").split("/")[-1].split("?")[0] or None
                 external_rows.append({
                     "home": home_name, "away": away_name, "score": score_pair,
                     "period_scores": period_scores, "period": period, "clock": clock,
-                    "status": status_label, "id": (item.get("slug") or item.get("url_slug") or item.get("match_slug") or item.get("id") or item.get("match_id") or item.get("matchId") or item.get("fixture_id") or item.get("event_id") or item.get("eventId") or item.get("_id")),
-                    "provider_id": (item.get("id") or item.get("match_id") or item.get("matchId") or item.get("fixture_id") or item.get("event_id") or item.get("eventId") or item.get("_id")), "period_length_seconds": None,
-                    "detail_source": None,
+                    "status": status_label, "slug": match_slug,
+                    "id": match_slug or provider_id, "provider_id": provider_id,
+                    "raw_identity_keys": list(dict.fromkeys(
+                        str(k) for obj in identity_sources if isinstance(obj, dict) for k in obj.keys()
+                    ))[:50],
+                    "period_length_seconds": None, "detail_source": None,
                 })
 
             # ESPN's public NBA scoreboard is an independent fallback for NBA fixtures.
@@ -1245,7 +1266,10 @@ async def _enrich_with_sofascore_live(events):
             # countdown, ask SportScore's documented single-match detail endpoint.
             # This is a bounded, read-only enrichment; only explicit clock and
             # period-duration fields are accepted (never infer 10/12-minute periods).
-            detail_targets = [row for row in external_rows if (not row.get("clock") or not row.get("period_length_seconds")) and (row.get("id") or row.get("provider_id")) and not str(row.get("id") or "").startswith(("sofascore:", "espn:", "espn-ncaa:"))]
+            detail_targets = [row for row in external_rows
+                              if (not row.get("clock") or not row.get("period_length_seconds"))
+                              and (row.get("slug") or row.get("provider_id"))
+                              and not str(row.get("id") or "").startswith(("sofascore:", "espn:", "espn-ncaa:"))]
             detail_diagnostics = []
             if detail_targets:
                 async with httpx.AsyncClient(
@@ -1258,23 +1282,37 @@ async def _enrich_with_sofascore_live(events):
                     async def enrich_sportscore_detail(row):
                         async with semaphore:
                             try:
-                                detail_identifier = str(row.get("id") or row.get("provider_id"))
-                                params = {"sport": "basketball", "slug": detail_identifier,
-                                          "id": str(row.get("provider_id") or detail_identifier),
-                                          "src": "pari-basketball-ai"}
-                                response = await detail_client.get(
-                                    "https://sportscore.com/api/widget/match/", params=params
-                                )
-                                if response.status_code != 200:
-                                    # Documented v1 alias; try it before declaring detail unavailable.
-                                    response = await detail_client.get(
-                                        "https://sportscore.com/api/v1/match/", params=params
+                                detail_identifier = str(row.get("slug") or row.get("provider_id") or row.get("id"))
+                                payload = None
+                                attempts = []
+                                # Official detail route takes a slug, not an arbitrary numeric id.
+                                if row.get("slug"):
+                                    detail_response = await detail_client.get(
+                                        "https://sportscore.com/api/widget/match/",
+                                        params={"sport": "basketball", "slug": str(row["slug"]),
+                                                "src": "pari-basketball-ai"}
                                     )
-                                if response.status_code != 200:
-                                    detail_diagnostics.append({"id": str(row.get("id")), "http_status": response.status_code})
+                                    attempts.append({"route": "match_by_slug", "status": detail_response.status_code})
+                                    if detail_response.status_code == 200:
+                                        payload = detail_response.json()
+                                # The official tracker route takes a provider match ID.
+                                # It can expose live clock/timeline even when detail has no timer.
+                                if payload is None and row.get("provider_id"):
+                                    tracker_response = await detail_client.get(
+                                        "https://sportscore.com/api/widget/tracker/",
+                                        params={"sport": "basketball", "id": str(row["provider_id"]),
+                                                "src": "pari-basketball-ai"}
+                                    )
+                                    attempts.append({"route": "tracker_by_id", "status": tracker_response.status_code})
+                                    if tracker_response.status_code == 200:
+                                        payload = tracker_response.json()
+                                if payload is None:
+                                    detail_diagnostics.append({"id": str(row.get("id")),
+                                                               "slug": row.get("slug"),
+                                                               "provider_id": row.get("provider_id"),
+                                                               "attempts": attempts})
                                     return
-                                payload = response.json()
-                                # Walk nested detail envelopes without assuming a
+                                # Walk nested detail/tracker envelopes without assuming a
                                 # single response wrapper/schema.
                                 objects, seen = [], set()
                                 def walk(value, depth=0):
@@ -1526,7 +1564,11 @@ async def _enrich_with_sofascore_live(events):
                     if (not row.get("clock") or not row.get("period_length_seconds"))
                     and not (row.get("id") or row.get("provider_id"))
                 ),
-                "sportscore_detail_target_ids": [str(row.get("id") or row.get("provider_id")) for row in detail_targets[:12]],
+                "sportscore_detail_target_ids": [
+                    {"id": row.get("id"), "slug": row.get("slug"), "provider_id": row.get("provider_id"),
+                     "identity_keys": row.get("raw_identity_keys", [])}
+                    for row in detail_targets[:12]
+                ],
                 "sportscore_detail_diagnostics": detail_diagnostics[:12],
                 "espn_nba": espn_diagnostics,
                 "espn_ncaa": espn_ncaa_diagnostics,
