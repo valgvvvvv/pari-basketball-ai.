@@ -1185,6 +1185,97 @@ async def _enrich_with_sofascore_live(events):
             except (httpx.HTTPError, ValueError, TypeError) as exc:
                 espn_ncaa_diagnostics["status"] = type(exc).__name__
 
+            # ESPN's summary endpoint includes live team/player box-score values
+            # for NBA and US men's NCAA. It is an optional enrichment only; PARI
+            # remains the authoritative event/market feed.
+            espn_stats_cache = globals().setdefault("_ESPN_LIVE_STATS_CACHE", {})
+            async def enrich_espn_boxscore(row):
+                event_ref = str(row.get("id") or "")
+                if not event_ref.startswith(("espn:", "espn-ncaa:")):
+                    return
+                event_id = event_ref.split(":", 1)[1]
+                league_slug = "nba" if event_ref.startswith("espn:") else "mens-college-basketball"
+                cache_key = league_slug + ":" + event_id
+                cached = espn_stats_cache.get(cache_key, {})
+                if cached.get("expires", 0) > datetime.now(timezone.utc).timestamp():
+                    row["external_statistics"] = cached.get("statistics", [])
+                    return
+                try:
+                    async with espn_stats_semaphore:
+                        response = await espn_client.get(
+                            "https://site.api.espn.com/apis/site/v2/sports/basketball/" + league_slug + "/summary",
+                            params={"event": event_id},
+                        )
+                    if response.status_code != 200:
+                        espn_diagnostics.setdefault("boxscore_errors", []).append(
+                            league_slug + ":" + str(response.status_code)
+                        )
+                        return
+                    summary = response.json()
+                    teams = ((summary.get("boxscore") or {}).get("teams") or [])
+                    by_metric = {}
+                    metric_aliases = {
+                        "fieldgoalsmade-fieldgoalsattempted": "field_goals",
+                        "threepointfieldgoalsmade-threepointfieldgoalsattempted": "three_pointers",
+                        "freethrowsmade-freethrowsattempted": "free_throws",
+                        "rebounds": "rebounds", "offensiverebounds": "offensive_rebounds",
+                        "defensiverebounds": "defensive_rebounds", "assists": "assists",
+                        "turnovers": "turnovers", "steals": "steals", "blocks": "blocks",
+                        "fouls": "fouls", "personalFouls": "fouls",
+                    }
+                    for team_row in teams if isinstance(teams, list) else []:
+                        if not isinstance(team_row, dict):
+                            continue
+                        team_obj = team_row.get("team") or {}
+                        team_name = str(team_obj.get("displayName") or team_obj.get("name") or "")
+                        side = "home" if team_score(team_name, row.get("home")) >= team_score(team_name, row.get("away")) else "away"
+                        for stat in team_row.get("statistics", []) if isinstance(team_row.get("statistics"), list) else []:
+                            if not isinstance(stat, dict):
+                                continue
+                            name = str(stat.get("name") or stat.get("abbreviation") or "")
+                            key = metric_aliases.get(name.replace("_", "").replace(" ", "").casefold())
+                            if key is None:
+                                key = _pari_stat_metric(name)
+                            if not key:
+                                continue
+                            value = stat.get("displayValue", stat.get("value"))
+                            if value is None:
+                                continue
+                            by_metric.setdefault(key, {})[side] = value
+                    normalized = []
+                    for key, values in by_metric.items():
+                        if "home" in values and "away" in values:
+                            normalized.append({
+                                "group": "ESPN team box score", "name": key,
+                                "metric_key": key, "home": values["home"],
+                                "away": values["away"], "source": "ESPN",
+                            })
+                    if normalized:
+                        row["external_statistics"] = normalized
+                        espn_stats_cache[cache_key] = {
+                            "expires": datetime.now(timezone.utc).timestamp() + 30,
+                            "statistics": normalized,
+                        }
+                except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
+                    espn_diagnostics.setdefault("boxscore_errors", []).append(
+                        league_slug + ":" + type(exc).__name__
+                    )
+
+            espn_stats_semaphore = asyncio.Semaphore(3)
+            if any(str(row.get("id") or "").startswith(("espn:", "espn-ncaa:")) for row in external_rows):
+                try:
+                    async with httpx.AsyncClient(
+                        timeout=httpx.Timeout(3.5, connect=2.0),
+                        follow_redirects=True,
+                        headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+                    ) as espn_client:
+                        await asyncio.gather(
+                            *(enrich_espn_boxscore(row) for row in external_rows),
+                            return_exceptions=True,
+                        )
+                except Exception as exc:
+                    espn_diagnostics["boxscore_error"] = type(exc).__name__
+
             # Merge scored SofaScore fixtures into the candidate pool as well.
             # This prevents the SportScore fallback branch from discarding matches
             # already found by SofaScore when only some PARI events are missing data.
