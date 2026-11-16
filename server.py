@@ -2667,7 +2667,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # PARI's observed timerSeconds are cumulative match elapsed
                     # seconds (e.g. 38:26 in CDBL, 31:14 in BSKT Cup).
                     # Derive the quarter and its remaining clock from that value.
-                    if timer_seconds is not None and period_length_seconds and timer_seconds >= period_length_seconds:
+                    if timer_seconds is not None and period_length_seconds and timer_seconds >= 0:
                         elapsed_periods = timer_seconds // period_length_seconds
                         if 0 <= elapsed_periods < 4:
                             period_value = elapsed_periods + 1
@@ -2677,8 +2677,11 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             clock_value = None
                     elif timer_from_explicit_clock and timer_seconds is not None and 0 <= timer_seconds <= 1200:
                         # Only trust a clock explicitly supplied as a clock field.
-                        # PARI timerSeconds is cumulative match elapsed time, not a quarter countdown.
                         clock_value = f"{timer_seconds // 60:02d}:{timer_seconds % 60:02d}"
+                    elif timer_seconds is not None:
+                        # PARI timerSeconds is cumulative match elapsed time.
+                        # Without a verified period length it is not a quarter countdown.
+                        clock_value = None
                     elif clock_value is not None:
                         clock_text = str(clock_value).strip()
                         clock_match = re.fullmatch(r"(\d{1,2}):([0-5]\d)", clock_text)
