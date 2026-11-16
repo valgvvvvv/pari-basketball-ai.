@@ -243,12 +243,68 @@ function poissonMonteCarlo(current, mu, lines=[], seedText="") {
   return {simulations:n,mu:Math.round(mu*100)/100,low80:quantile(.10),high80:quantile(.90),
     low95:quantile(.025),high95:quantile(.975),probabilities:probs};
 }
-function applyPoissonModel(estimate, lines, seedText) {
+function clampForecast(value,min,max){return Math.max(min,Math.min(max,value));}
+function readPeriodScore(ev,index){
+  const scores=ev.period_scores??ev.external_live?.period_scores??[];
+  const row=Array.isArray(scores)?scores[index]:scores[String(index+1)];
+  if(!Array.isArray(row)||row.length<2)return null;
+  const a=Number(row[0]),b=Number(row[1]);
+  return Number.isFinite(a)&&Number.isFinite(b)?a+b:null;
+}
+function applyGameContext(estimate,ev,period,clock){
+  const factors=[];
+  if(!estimate||!Number.isFinite(estimate.projection)||!Number.isFinite(estimate.current))
+    return {estimate,factors,adjustment:1};
+  const length=Number(ev.period_length_seconds||ev.external_live?.period_length_seconds||inferPeriodLengthForForecast(ev)?.seconds||0);
+  const count=Number(ev.external_live?.period_count||4);
+  const totalSeconds=length*count;
+  const elapsed=Number(estimate.elapsed_seconds||Number(estimate.elapsed||0)*60);
+  const remaining=Math.max(0,totalSeconds-elapsed);
+  const baseMu=Math.max(0,estimate.projection-estimate.current);
+  let multiplier=1;
+  const globalRate=elapsed>0?estimate.current/elapsed:0;
+  const previousQuarter=Number(period)>1?readPeriodScore(ev,Number(period)-2):null;
+  if(previousQuarter!=null&&length>0&&globalRate>0){
+    const ratio=clampForecast((previousQuarter/length)/globalRate,0.85,1.15);
+    const delta=1+(ratio-1)*0.20;
+    multiplier*=delta;
+    factors.push("темп последней завершённой четверти "+Math.round((ratio-1)*100)+"% (вес 20%)");
+  }
+  const currentQuarter=Number(period)>0?readPeriodScore(ev,Number(period)-1):null;
+  const clockMatch=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
+  const periodElapsed=clockMatch&&length>0?length-(Number(clockMatch[1])*60+Number(clockMatch[2])):0;
+  if(currentQuarter!=null&&periodElapsed>=180&&globalRate>0){
+    const ratio=clampForecast((currentQuarter/periodElapsed)/globalRate,0.85,1.15);
+    const delta=1+(ratio-1)*0.15;
+    multiplier*=delta;
+    factors.push("темп текущей четверти "+Math.round((ratio-1)*100)+"% (вес 15%)");
+  }
+  const score=findLiveScore(ev);
+  if(Number(period)===4&&score&&remaining>0){
+    const margin=Math.abs(Number(score[0])-Number(score[1]));
+    let delta=1;
+    if(remaining<=180&&margin<=8)delta=1.08;
+    else if(remaining<=360&&margin<=8)delta=1.04;
+    else if(remaining<=180&&margin>=16)delta=0.94;
+    else if(remaining<=360&&margin>=16)delta=0.96;
+    if(delta!==1){
+      multiplier*=delta;
+      factors.push((margin<=8?"вероятность тактических фолов в близкой концовке":"риск замедления при крупном преимуществе")+" ("+Math.round((delta-1)*100)+"%)");
+    }
+  }
+  multiplier=clampForecast(multiplier,0.82,1.20);
+  return {estimate:{...estimate,projection:Math.round((estimate.current+baseMu*multiplier)*10)/10},
+    factors,adjustment:multiplier,remainingSeconds:remaining};
+}
+function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=null){
   if(!estimate||!Number.isFinite(estimate.projection)||!Number.isFinite(estimate.current))return estimate;
-  const mu=Math.max(0,estimate.projection-estimate.current);
-  const mc=poissonMonteCarlo(estimate.current,mu,lines,seedText);
-  return {...estimate,poisson:mc,low:mc.low80,high:mc.high80,
-    sigma:Math.sqrt(Math.max(mu,0)),projection:Math.round((estimate.current+mu)*10)/10};
+  const context=applyGameContext(estimate,ev||{},period,clock);
+  const adjusted=context.estimate||estimate;
+  const mu=Math.max(0,adjusted.projection-adjusted.current);
+  const mc=poissonMonteCarlo(adjusted.current,mu,lines,seedText);
+  return {...adjusted,context_factors:context.factors,context_adjustment:context.adjustment,
+    poisson:mc,low:mc.low80,high:mc.high80,sigma:Math.sqrt(Math.max(mu,0)),
+    projection:Math.round((adjusted.current+mu)*10)/10};
 }
 function normalCdf(z){
   const sign=z<0?-1:1,x=Math.abs(z),t=1/(1+0.2316419*x);
@@ -305,7 +361,8 @@ function showSelectedMatch(ev){
     '<p class="muted">'+(rootLines.length?rootLines.map(escapeHtml).join("<br>"):(allMarketLines.length?"В основной строке факторов нет; найдено в иерархии/локальной истории: "+allMarketLines.map(escapeHtml).join(" · "):"В текущем ответе PARI нет факторов ID 930/931."))+'</p>'+
     '<p class="muted">Это пока не подтверждённая расшифровка типа рынка: ID фактора и линия показываются как получены от PARI.</p>'+
     '<p class="muted">'+(score&&period&&clock?"Счёт, четверть и таймер доступны.":"Расчёт темпа заблокирован: нет подтверждённого счёта и/или таймера.")+'</p>'+
-    (paceEstimate?'<p><b>'+(clocklessCandidate?'Предварительная оценка полного тотала без таймера:':'Темповая оценка полного тотала:')+'</b> '+paceEstimate.projection+' очка · диапазон '+paceEstimate.low+'–'+paceEstimate.high+(paceEstimate.elapsed?' · сыграно около '+paceEstimate.elapsed+' мин.':'')+(clocklessCandidate?' · длительность '+escapeHtml(paceEstimate.period_length_method):'')+(paceEstimate.poisson?' · Пуассон/Монте-Карло '+paceEstimate.poisson.simulations.toLocaleString('ru-RU')+' симуляций · 80% '+paceEstimate.poisson.low80+'–'+paceEstimate.poisson.high80+' · 95% '+paceEstimate.poisson.low95+'–'+paceEstimate.poisson.high95:'')+'</p>':(marketFallback?'<p><b>Рыночный ориентир полного тотала PARI:</b> '+marketFallback.estimate.projection+' очков. Это линия букмекера, а не независимый игровой прогноз.</p>':'<p class="muted">Нет подтверждённой линии и счёта для расчёта.</p>'))+
+    (paceEstimate?'<p><b>'+(clocklessCandidate?'Предварительная оценка полного тотала без таймера:':'Темповая оценка полного тотала:')+'</b> '+paceEstimate.projection+' очка · диапазон '+paceEstimate.low+'–'+paceEstimate.high+(paceEstimate.elapsed?' · сыграно около '+paceEstimate.elapsed+' мин.':'')+(clocklessCandidate?' · длительность '+escapeHtml(paceEstimate.period_length_method):'')+(paceEstimate.poisson?' · Пуассон/Монте-Карло '+paceEstimate.poisson.simulations.toLocaleString('ru-RU')+' симуляций · 80% '+paceEstimate.poisson.low80+'–'+paceEstimate.poisson.high80+' · 95% '+paceEstimate.poisson.low95+'–'+paceEstimate.poisson.high95:'')+'</p>'+
+    (paceEstimate&&paceEstimate.context_factors?.length?'<p><b>Поправки контекста:</b> '+paceEstimate.context_factors.map(escapeHtml).join(' · ')+'</p>':''):(marketFallback?'<p><b>Рыночный ориентир полного тотала PARI:</b> '+marketFallback.estimate.projection+' очков. Это линия букмекера, а не независимый игровой прогноз.</p>':'<p class="muted">Нет подтверждённой линии и счёта для расчёта.</p>'))+
     (paceEstimate && matchLines.length ? '<p><b>Сравнение с линиями PARI:</b> '+matchLines.map(x=>{
       if(x.stale)return 'Тотал '+x.line+' · устаревшая линия';
       if(clocklessCandidate){
@@ -322,6 +379,7 @@ function showSelectedMatch(ev){
     '<p><b>Текущая четверть:</b> '+(period||"не определена")+'</p>'+
     (quarterEstimate.ready
       ? '<p><b>Ожидаемый тотал четверти:</b> '+quarterEstimate.projection+' очка · набрано '+quarterEstimate.current+' · сыграно около '+quarterEstimate.elapsed+' мин. · диапазон 80% '+quarterEstimate.low80+'–'+quarterEstimate.high80+' · 95% '+quarterEstimate.low95+'–'+quarterEstimate.high95+' · 10 000 симуляций Монте-Карло</p>'+
+        (quarterEstimate.context_factors?.length?'<p><b>Поправки контекста:</b> '+quarterEstimate.context_factors.map(escapeHtml).join(' · ')+'</p>':'')+
         (quarterEstimate.lines.length?'<p><b>Сравнение с линиями:</b> '+quarterEstimate.lines.map(x=>{
           const mc=(quarterEstimate.poisson?.probabilities||[]).find(p=>Number(p.line)===Number(x.line));
           const pOver=mc?mc.pOver:0.5,pUnder=1-pOver;
@@ -483,11 +541,11 @@ function automaticForecast(ev) {
   if(score&&period&&clock&&periodLength){
     const estimate=estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength}},score,period,clock);
     if(estimate&&estimate.elapsed_seconds>=12*60)
-      return {ready:true,kind:"live_tempo",estimate:applyPoissonModel(estimate,lines,String(ev.id||"")+"|"+score.join(":")+"|"+clock),lines,message:"Линейный темп + распределение Пуассона + 10 000 симуляций Монте-Карло"};
+      return {ready:true,kind:"live_tempo",estimate:applyPoissonModel(estimate,lines,String(ev.id||"")+"|"+score.join(":")+"|"+clock,ev,period,clock),lines,message:"Линейный темп + распределение Пуассона + 10 000 симуляций Монте-Карло"};
   }
   if(score&&period&&lengthInfo){
     const estimate=estimateLiveTotalFromPeriod(ev,score,period,lengthInfo);
-    if(estimate)return {ready:true,kind:"period_range",estimate:applyPoissonModel(estimate,lines,String(ev.id||"")+"|"+score.join(":")+"|Q"+period),lines,message:"Предварительная оценка без таймера; вероятность не считается подтверждённой"};
+    if(estimate)return {ready:true,kind:"period_range",estimate:applyPoissonModel(estimate,lines,String(ev.id||"")+"|"+score.join(":")+"|Q"+period,ev,period,clock),lines,message:"Предварительная оценка без таймера; вероятность не считается подтверждённой"};
   }
   const market=marketReferenceForecast(lines);
   if(market){
@@ -533,8 +591,9 @@ function automaticQuarterForecast(ev) {
     if(Number.isFinite(line)&&line>0&&line<150&&!lines.some(x=>x.line===line)) lines.push({line});
   }
   const quarterEstimate={current,projection,current_score:current,elapsed:Math.round(elapsed/60*10)/10};
-  const poisson=poissonMonteCarlo(current,Math.max(0,projection-current),lines,String(ev.id||"")+"|Q"+period+"|"+clock);
-  return {ready:true,...quarterEstimate,low80:poisson.low80,high80:poisson.high80,low95:poisson.low95,high95:poisson.high95,poisson,lines:poisson.probabilities};
+  const adjusted=applyPoissonModel(quarterEstimate,lines,String(ev.id||"")+"|Q"+period+"|"+clock,ev,period,clock);
+  const poisson=adjusted.poisson;
+  return {ready:true,...adjusted,low80:poisson.low80,high80:poisson.high80,low95:poisson.low95,high95:poisson.high95,poisson,lines:poisson.probabilities};
 }
 let liveRefreshInFlight = false;
 let nextLiveRefreshDelay = 30000;
