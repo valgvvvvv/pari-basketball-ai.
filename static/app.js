@@ -310,18 +310,46 @@ function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 }
 function eventScore(ev) {
-  const score = ev.score ?? ev.external_live?.score ?? ev.live_score ?? null;
-  if (score == null) return "";
-  if (Array.isArray(score) && score.length >= 2) return String(score[0]) + ":" + String(score[1]);
-  if (typeof score === "object") {
-    const home = score.home ?? score.homeScore ?? score.team1;
-    const away = score.away ?? score.awayScore ?? score.team2;
-    if (home != null && away != null) return String(home) + ":" + String(away);
+  const candidates = [ev.score, ev.external_live?.score, ev.live_score, ev.raw?.score, ev.raw?.scoreInfo];
+  for (const score of candidates) {
+    if (score == null) continue;
+    if (Array.isArray(score) && score.length >= 2) {
+      const a=Number(score[0]), b=Number(score[1]);
+      if (Number.isFinite(a)&&Number.isFinite(b)) return String(a)+":"+String(b);
+    }
+    if (typeof score === "object") {
+      const home=score.home??score.homeScore??score.team1??score.current?.home;
+      const away=score.away??score.awayScore??score.team2??score.current?.away;
+      const a=Number(home),b=Number(away);
+      if(home!=null&&away!=null&&Number.isFinite(a)&&Number.isFinite(b))return String(a)+":"+String(b);
+    }
+    if (typeof score === "string") {
+      const m=score.match(/(?:^|[^0-9])(\d{1,3})\s*[:\-]\s*(\d{1,3})(?:[^0-9]|$)/);
+      if(m)return m[1]+":"+m[2];
+    }
   }
-  return String(score);
+  return "";
 }
-function eventPeriod(ev) { return ev.period ?? ev.external_live?.period ?? ev.live_period ?? null; }
-function eventClock(ev) { return ev.clock ?? ev.external_live?.clock ?? ev.live_clock ?? null; }
+function eventPeriod(ev) {
+  for (const value of [ev.period,ev.external_live?.period,ev.live_period,ev.raw?.period]) {
+    if (Number.isInteger(Number(value)) && Number(value)>=1 && Number(value)<=4) return Number(value);
+    const m=String(value??"").match(/(?:q|quarter|period|четверть)\s*([1-4])|^([1-4])$/i);
+    if(m)return Number(m[1]||m[2]);
+  }
+  return null;
+}
+function eventClock(ev) {
+  for (const value of [ev.clock,ev.external_live?.clock,ev.live_clock,ev.raw?.time,ev.raw?.timer]) {
+    if (value == null) continue;
+    if (typeof value === "object") continue;
+    const m=String(value).trim().match(/^(\d{1,2}):([0-5]\d)$/);
+    if(m&&Number(m[1])<=15)return m[1].padStart(2,"0")+":"+m[2];
+    if(/^\d{1,3}$/.test(String(value))&&Number(value)<=900){
+      const s=Number(value);return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");
+    }
+  }
+  return null;
+}
 
 function findPeriodLengthSeconds(ev) {
   const raw = ev.raw || {};
