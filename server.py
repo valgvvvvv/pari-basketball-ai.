@@ -3183,6 +3183,7 @@ async def _pari_startup_stats_discovery():
                    "chunks_scanned": len(result.get("chunk_scans", [])) if isinstance(result, dict) else 0,
                    "bootstrap": [{"url": item.get("url"), "status": item.get("status"),
                                   "chunk_map": item.get("webpack_chunk_name_map"),
+                                  "statistics_chunk_map": item.get("statistics_chunk_name_map"),
                                   "api_paths": (item.get("api_path_hints") or [])[:50],
                                   "runtime_windows": (item.get("runtime_windows") or [])[:8],
                                   "semantic_chunks": (item.get("semantic_chunk_candidates") or [])[:40]}
