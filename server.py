@@ -3131,3 +3131,48 @@ async def pari_live_events(catalog_only: bool = False):
             "data": data,
         }
     return data
+
+
+async def _pari_startup_stats_discovery():
+    """Run one bounded PARI frontend bundle inspection per deploy and log likely stats endpoints."""
+    try:
+        result = await pari_discover()
+        pattern = re.compile(r"statistic|box.?score|possession|foul|rebound|assist|turnover|steal|block|three.?point|two.?point|free.?throw|field.?goal|play.?by.?play|timeline|tracker", re.I)
+        candidates = []
+        for chunk in result.get("chunk_scans", []) if isinstance(result, dict) else []:
+            if not isinstance(chunk, dict):
+                continue
+            url = str(chunk.get("url") or "")
+            if pattern.search(url):
+                candidates.append({"kind": "chunk", "url": url, "status": chunk.get("status")})
+            for key in ("targeted_context_windows", "api_context_windows", "data_model_context_windows"):
+                windows = chunk.get(key, [])
+                for window in windows if isinstance(windows, list) else []:
+                    token = str(window.get("token") or "")
+                    snippet = str(window.get("snippet") or "")
+                    if pattern.search(token + " " + snippet):
+                        candidates.append({"kind": "code", "chunk": url, "token": token, "snippet": snippet[:900]})
+            for value in chunk.get("request_string_hints", []):
+                if pattern.search(str(value)):
+                    candidates.append({"kind": "request", "chunk": url, "value": str(value)[:200]})
+        unique = []
+        seen = set()
+        for item in candidates:
+            marker = json.dumps(item, ensure_ascii=False, sort_keys=True)
+            if marker not in seen:
+                seen.add(marker)
+                unique.append(item)
+        summary = {"ok": bool(result.get("ok")) if isinstance(result, dict) else False,
+                   "diagnostic_version": result.get("diagnostic_version") if isinstance(result, dict) else None,
+                   "pages": result.get("pages", []) if isinstance(result, dict) else [],
+                   "chunks_scanned": len(result.get("chunk_scans", [])) if isinstance(result, dict) else 0,
+                   "candidate_count": len(unique), "candidates": unique[:35]}
+        print("PARI_STATS_DISCOVERY " + json.dumps(summary, ensure_ascii=False, default=str), flush=True)
+    except Exception as exc:
+        print("PARI_STATS_DISCOVERY_ERROR " + type(exc).__name__ + ": " + str(exc)[:240], flush=True)
+
+
+@app.on_event("startup")
+async def _schedule_pari_stats_discovery():
+    # Do not delay app readiness; one diagnostic runs in the background after startup.
+    asyncio.create_task(_pari_startup_stats_discovery())
