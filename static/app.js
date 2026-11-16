@@ -720,7 +720,7 @@ async function refreshLiveMatches() {
     try {
       response = await fetch("/api/pari/live", {cache:"no-store", signal:controller.signal});
     } catch (error) {
-      if (controller.signal.aborted) throw new Error("PARI API не ответил за 15 секунд");
+      if (controller.signal.aborted) throw new Error("PARI API не ответил за 22 секунды");
       throw error;
     } finally {
       clearTimeout(requestTimeout);
