@@ -532,7 +532,7 @@ function getMatchTotalLines(ev) {
     if (Array.isArray(value)) { for (const item of value) add(item); return; }
     if (!value || typeof value !== "object") return;
     const groupLabel=String(value.name||value.kindName||"");
-    const isQuarterGroup=/(?:\\bq\\s*[1-4]\\b|\\bquarter\\s*[1-4]\\b|\\bperiod\\s*[1-4]\\b|[1-4]\\s*[-–.]?\\s*(?:я|й|ая|ый)?\\s*четверт\\w*|четверт\\w*\\s*[1-4])/i.test(groupLabel);
+    const isQuarterGroup=/(?:\bq\s*[1-4]\b|\bquarter\s*[1-4]\b|\bperiod\s*[1-4]\b|[1-4]\s*[-–.]?\s*(?:я|й|ая|ый)?\s*четверт\w*|четверт\w*\s*[1-4])/i.test(groupLabel);
     if(isQuarterGroup && (Array.isArray(value.factors)||Array.isArray(value.markets)))return;
     if (["930","931"].includes(String(value.f))) factors.push(value);
     for (const [key, child] of Object.entries(value)) {
