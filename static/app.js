@@ -215,10 +215,16 @@ function estimateLiveTotal(ev, score, period, clock){
   const remainingExpected=Math.max(0,projection-total);
   const sigma=Math.max(6,Math.sqrt(Math.max(remainingExpected,1))*1.30+remainingExpected*0.08);
   const margin=1.2816*sigma;
+  const elapsedMinutes=elapsed/60,remainingSeconds=length*periodCount-elapsed;
   return {current:total,projection:Math.round(projection*10)/10,
     low:Math.max(total,Math.round(projection-margin)),high:Math.round(projection+margin),
-    sigma:Math.round(sigma*10)/10,elapsed:Math.round(elapsed/60*10)/10,
-    elapsed_seconds:elapsed,period_elapsed_seconds:length-remaining};
+    sigma:Math.round(sigma*10)/10,elapsed:Math.round(elapsedMinutes*10)/10,
+    elapsed_minutes:Math.round(elapsedMinutes*10)/10,
+    remaining_minutes:Math.round(remainingSeconds/60*10)/10,
+    pace_per_min:Math.round((total/elapsedMinutes)*100)/100,
+    expected_remaining_points:Math.round(remainingExpected*10)/10,
+    elapsed_seconds:elapsed,remaining_seconds:remainingSeconds,
+    period_elapsed_seconds:length-remaining};
 }
 function poissonMonteCarlo(current, mu, lines=[], seedText="") {
   const n=10000;
@@ -407,8 +413,8 @@ function possessionModelContext(ev,estimate,period,clock){
   const read=(side,keys)=>{
     const row=rows.find(x=>keys.includes(normalizeKey(x?.metric_key||x?.name)));
     if(!row)return null;
-    let value=row[side];
-    if(value&&typeof value==="object")value=value.current??value.value??value.total??value.count??value.displayValue;
+    const value=row[side];
+    // parseStatCount understands both scalar and provider-specific value objects.
     const parsed=parseStatCount(value);
     return parsed&&Number.isFinite(parsed.value)?parsed.value:null;
   };
@@ -434,13 +440,18 @@ function possessionModelContext(ev,estimate,period,clock){
   if(!length||!elapsed||elapsed>=totalSeconds)return {applied:false,reason:"не хватает подтверждённого времени матча"};
   const pointsPerPossession=current/possessions,remaining=totalSeconds-elapsed;
   const possPerMinute=possessions/(elapsed/60);
+  // Team-level possession efficiency is retained separately for diagnostics.
+  // The combined projection uses the average team possession count, avoiding
+  // double-counting the two teams' possessions in a single game total.
   const projected=current+possPerMinute*(remaining/60)*pointsPerPossession;
   const baseline=Math.max(1,Number(estimate.projection)-current);
   return {applied:true,method,home:Math.round(home*10)/10,away:Math.round(away*10)/10,
     average:Math.round(possessions*10)/10,imbalance_percent:Math.round(imbalance*100),
     pointsPerPossession:Math.round(pointsPerPossession*1000)/1000,
     possPerMinute:Math.round(possPerMinute*100)/100,
-    projection:Math.round(projected*10)/10,adjustment:clampForecast((projected-current)/baseline,0.94,1.06)};
+    projection:Math.round(projected*10)/10,
+    remaining_minutes:Math.round(remaining/60*100)/100,
+    adjustment:clampForecast((projected-current)/baseline,0.94,1.06)};
 }
 function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=null){
   if(!estimate||!Number.isFinite(estimate.projection)||!Number.isFinite(estimate.current))return estimate;
@@ -532,8 +543,7 @@ function showSelectedMatch(ev){
     : '<p class="muted">'+escapeHtml(matchForecast.reason||"Для прогноза пока недостаточно подтверждённых данных.")+'</p>';
   $("quarterForecast").innerHTML=quarter.ready
     ? '<div class="forecast-main"><p><b>Ожидаемый тотал четверти</b></p><div class="forecast-number">'+quarter.projection+'</div><p>Сейчас: '+quarter.current+' · прошло: '+quarter.elapsed+' мин · диапазон 80% '+quarter.low80+'–'+quarter.high80+' · 95% '+quarter.low95+'–'+quarter.high95+'</p></div>'+
-      '<div class="calc-grid"><div class="calc-card"><span>ТБ вероятность</span><b>'+((quarter.poisson?.probabilities?.[0]?.pOver??0)*100).toFixed(1)+'%</b></div><div class="calc-card"><span>ТМ вероятность</span><b>'+((quarter.poisson?.probabilities?.[0]?.pUnder??0)*100).toFixed(1)+'%</b></div></div>'+
-      (quarter.lines.length?'<p>Линии: '+quarter.lines.map(x=>escapeHtml(x.line+' · ТБ '+(x.pOver*100).toFixed(1)+'% / ТМ '+(x.pUnder*100).toFixed(1)+'%')).join(' · ')+'</p>':'<p class="muted">Линия четверти пока недоступна.</p>')+
+      (quarter.lines.length?'<h3>Вероятности по линиям четверти</h3><table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Ориентир</th></tr></thead><tbody>'+quarter.lines.map(x=>'<tr><td>'+escapeHtml(x.line)+'</td><td>'+(x.pOver*100).toFixed(1)+'%</td><td>'+(x.pUnder*100).toFixed(1)+'%</td><td>'+escapeHtml(x.direction)+'</td></tr>').join('')+'</tbody></table>':'<p class="muted">Линия четверти пока недоступна: проценты не рассчитываются без конкретного тотала.</p>')+
       '<p class="calc-formula">Ориентир четверти: набранные очки ÷ прошедшие секунды × длительность четверти. Интервал строится по 10 000 симуляций.</p>'
     : '<p class="muted">'+escapeHtml(quarter.reason||"Нет достаточных данных для прогноза четверти.")+'</p>';
   $("matchForecast").insertAdjacentHTML("beforeend",'<div class="compact-analysis"><h3>Статистика матча</h3>'+statHtml+
