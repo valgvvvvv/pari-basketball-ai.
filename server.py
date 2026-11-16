@@ -183,9 +183,16 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status":"ok","version":"0.1.0","pari_live_connected":False,
-            "source_status":"not_configured",
-            "message":"Нужен подтверждённый официальный/лицензированный LIVE feed PARI."}
+    # This endpoint reports application/adapter readiness only. Actual upstream
+    # connectivity is measured by /api/pari/live and must not be hard-coded false.
+    return {
+        "status": "ok",
+        "version": "0.2.0",
+        "pari_live_adapter_configured": True,
+        "pari_live_endpoint": "/api/pari/live",
+        "source_status": "configured_check_live_endpoint",
+        "message": "Проверяйте фактическое соединение и число матчей через /api/pari/live."
+    }
 
 @app.post("/api/analyze")
 def api_analyze(req: AnalyzeRequest):
@@ -1545,7 +1552,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
     ipv4_transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0", retries=1)
     async with httpx.AsyncClient(
         transport=ipv4_transport,
-        timeout=httpx.Timeout(22.0, connect=12.0),
+        timeout=httpx.Timeout(6.0, connect=3.0),
         follow_redirects=True,
         headers=headers,
     ) as client:
@@ -1554,7 +1561,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
             try:
                 response = None
                 # Retry the primary host once on transient transport failure.
-                retries = 2 if host == hosts[0] else 1
+                retries = 1
                 for attempt_no in range(retries):
                     try:
                         response = await client.get(
@@ -1923,7 +1930,27 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                 if not catalog_only:
                     # PARI is authoritative for markets/odds. Fill missing score,
                     # period and clock only from a separately verified live event.
-                    live_enrichment = await _enrich_with_sofascore_live(basketball)
+                    # External score providers must never prevent PARI matches and
+                    # markets from reaching the browser. Give enrichment a short
+                    # budget; return the authoritative PARI feed even on timeout.
+                    try:
+                        live_enrichment = await asyncio.wait_for(
+                            _enrich_with_sofascore_live(basketball), timeout=7.0
+                        )
+                    except asyncio.TimeoutError:
+                        live_enrichment = {
+                            "source": "sofascore+sportscore",
+                            "status": "timeout",
+                            "matched": 0,
+                            "errors": ["Внешнее обогащение превысило лимит 7 секунд; матчи PARI возвращены без него."]
+                        }
+                    except Exception as exc:
+                        live_enrichment = {
+                            "source": "sofascore+sportscore",
+                            "status": "error",
+                            "matched": 0,
+                            "errors": [type(exc).__name__ + ": " + str(exc)[:180]]
+                        }
                     return {
                         "ok": True,
                         "connected": True,
