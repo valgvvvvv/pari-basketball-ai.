@@ -464,6 +464,15 @@ function probabilityOverLine(estimate,line){
   return Math.max(0,Math.min(1,pOver));
 }
 function showSelectedMatch(ev){
+  const modelBadge=$("possessionModelStatus");
+  if(modelBadge){
+    const initialRows=Array.isArray(ev?.external_statistics)?ev.external_statistics:[];
+    const directPoss=initialRows.some(x=>/^(possessions?|team_possessions|total_possessions|ball_possessions|possession_count)$/i.test(String(x?.metric_key||x?.name||"").toLowerCase())&&parseStatCount(x?.home)&&parseStatCount(x?.away));
+    const hasDerived=["home","away"].every(side=>["field_goals_attempted","fga","offensive_rebounds","oreb","turnovers","free_throws_attempted","fta"].every(k=>initialRows.some(x=>String(x?.metric_key||x?.name||"").toLowerCase()===k&&parseStatCount(x?.[side]))));
+    modelBadge.textContent=directPoss?"Подключена: факт. владения":hasDerived?"Подключена: расчёт владений":"Ожидает статистику PARI";
+    modelBadge.className=directPoss||hasDerived?"model-active":"muted";
+  }
+
   const panel=$("selectedMatch");panel.hidden=false;
   $("selectedMatchTitle").textContent=(ev.team1||"Команда 1")+" — "+(ev.team2||"Команда 2");
   const score=findLiveScore(ev),period=findLivePeriod(ev),clock=findLiveClock(ev);
