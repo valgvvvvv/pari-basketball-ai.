@@ -474,10 +474,9 @@ function showSelectedMatch(ev){
       '<h3>Факторы, вошедшие в расчёт</h3><ul class="calc-factors">'+(estimate.context_factors||[]).map(x=>'<li>'+escapeHtml(x)+'</li>').join("")+'</ul>'
     : '<p class="muted">'+escapeHtml(matchForecast.reason||"Для прогноза пока недостаточно подтверждённых данных.")+'</p>';
   $("quarterForecast").innerHTML=quarter.ready
-    ? '<div class="forecast-main"><p><b>Ожидаемый тотал четверти</b></p><div class="forecast-number">'+quarter.projection+'</div><p>Счёт: '+quarter.home+' : '+quarter.away+' · сейчас: '+quarter.current+' · прошло: '+quarter.elapsed+' мин · источник: '+escapeHtml(quarter.score_source||"не указан")+' · диапазон 80% '+quarter.low80+'–'+quarter.high80+' · 95% '+quarter.low95+'–'+quarter.high95+'</p></div>'+
-      '<div class="calc-grid"><div class="calc-card"><span>ТБ вероятность</span><b>'+((quarter.poisson?.probabilities?.[0]?.pOver??0)*100).toFixed(1)+'%</b></div><div class="calc-card"><span>ТМ вероятность</span><b>'+((quarter.poisson?.probabilities?.[0]?.pUnder??0)*100).toFixed(1)+'%</b></div></div>'+
-      (quarter.lines.length?'<p>Линии: '+quarter.lines.map(x=>escapeHtml(x.line+' · ТБ '+(x.pOver*100).toFixed(1)+'% / ТМ '+(x.pUnder*100).toFixed(1)+'%')).join(' · ')+'</p>':'<p class="muted">Линия четверти пока недоступна.</p>')+
-      '<p class="calc-formula">Ориентир четверти: набранные очки ÷ прошедшие секунды × длительность четверти. Интервал строится по 10 000 симуляций.</p>'
+    ? '<div class="forecast-main"><p><b>Ожидаемый тотал четверти</b></p><div class="forecast-number">'+quarter.projection+'</div><p>Счёт: '+(quarter.home==null?"не получен":quarter.home+' : '+quarter.away)+' · текущие очки: '+quarter.current+(quarter.elapsed!=null?' · прошло: '+quarter.elapsed+' мин':' · таймер не получен')+' · источник: '+escapeHtml(quarter.score_source||"не указан")+' · диапазон 80% '+quarter.low80+'–'+quarter.high80+' · 95% '+quarter.low95+'–'+quarter.high95+(quarter.preliminary?' · предварительная оценка':'')+'</p></div>'+
+      (quarter.lines.length?'<div class="calc-grid"><div class="calc-card"><span>ТБ вероятность по первой линии</span><b>'+((quarter.lines[0]?.pOver??0)*100).toFixed(1)+'%</b></div><div class="calc-card"><span>ТМ вероятность по первой линии</span><b>'+((quarter.lines[0]?.pUnder??0)*100).toFixed(1)+'%</b></div></div><p>Линии: '+quarter.lines.map(x=>escapeHtml(x.line+' · ТБ '+(x.pOver*100).toFixed(1)+'% / ТМ '+(x.pUnder*100).toFixed(1)+'%')).join(' · ')+'</p>':'<p class="muted">Линия PARI на эту четверть не получена; показан расчётный ориентир без вероятности относительно букмекерской линии.</p>')+
+      '<p class="calc-formula">Расчёт по темпу текущей четверти; если таймер или её счёт отсутствуют, используется явно помеченный предварительный ориентир на основе темпа матча/середины периода. Диапазон строится по 10 000 симуляций.</p>'
     : '<p class="muted">'+escapeHtml(quarter.reason||"Нет достаточных данных для прогноза четверти.")+'</p>';
   $("matchForecast").insertAdjacentHTML("beforeend",'<div class="compact-analysis"><h3>Статистика матча</h3>'+statHtml+
     (timeline?'<p><b>Счёт по четвертям:</b> '+escapeHtml(timeline)+'</p>':'')+
@@ -800,7 +799,8 @@ async function refreshLiveMatches() {
                   return direction+" "+x.line+(mc?" · ТБ "+(mc.pOver*100).toFixed(0)+"% / ТМ "+(mc.pUnder*100).toFixed(0)+"%":"")+" · диапазон "+estimate.low+"–"+estimate.high;
                 }).join(" | ")
               : "ориентир "+estimate.projection+" · диапазон "+estimate.low+"–"+estimate.high;
-            if(forecast.kind==="period_range")lineText+=" · без таймера, предварительно";
+            if(forecast.kind==="period_range")lineText+=" · без точного таймера, предварительно";
+            if(estimate.preliminary)lineText+=" · ранняя оценка, низкая уверенность";
           }
           forecastHtml = '<span class="live-match-meta forecast-live">Прогноз матча: ' + escapeHtml(lineText) + '</span>';
         } else {
@@ -810,7 +810,7 @@ async function refreshLiveMatches() {
           const qLines=quarterForecast.lines.length
             ? quarterForecast.lines.map(x => x.direction+" "+x.line+" · ТБ "+(x.pOver*100).toFixed(0)+"% / ТМ "+(x.pUnder*100).toFixed(0)+"%").join(" | ")
             : "линия четверти пока не найдена";
-          forecastHtml += '<span class="live-match-meta forecast-live">Прогноз Q'+escapeHtml(findLivePeriod(ev))+': '+escapeHtml(quarterForecast.projection)+' очков за четверть · '+escapeHtml(qLines)+'</span>';
+          forecastHtml += '<span class="live-match-meta forecast-live">Прогноз Q'+escapeHtml(quarterForecast.period||findLivePeriod(ev)||"?")+': '+escapeHtml(quarterForecast.projection)+' очков за четверть · '+escapeHtml(qLines)+(quarterForecast.preliminary?' · предварительно':'')+'</span>';
         } else {
           forecastHtml += '<span class="live-match-meta forecast-pending">Прогноз четверти: '+escapeHtml(quarterForecast.reason)+'</span>';
         }
