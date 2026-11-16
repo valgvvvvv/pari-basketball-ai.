@@ -296,15 +296,80 @@ function applyGameContext(estimate,ev,period,clock){
   return {estimate:{...estimate,projection:Math.round((estimate.current+baseMu*multiplier)*10)/10},
     factors,adjustment:multiplier,remainingSeconds:remaining};
 }
+function parseStatCount(value){
+  if(value==null)return null;
+  if(typeof value==="number"&&Number.isFinite(value))return {value,attempts:null};
+  const text=String(value).trim().replace(/,/g,".");
+  const pair=text.match(/^(\\d+(?:\\.\\d+)?)\\s*[-/：:]\\s*(\\d+(?:\\.\\d+)?)$/);
+  if(pair)return {value:Number(pair[1]),attempts:Number(pair[2])};
+  const single=text.match(/^\\d+(?:\\.\\d+)?$/);
+  return single?{value:Number(text),attempts:null}:null;
+}
+function liveShootingContext(ev,estimate){
+  const stats=Array.isArray(ev?.external_statistics)?ev.external_statistics:[];
+  if(!stats.length||!estimate?.elapsed_seconds)return {adjustment:1,factors:[],quality:"нет пригодных показателей бросков"};
+  const sides={home:{},away:{}};
+  const set=(side,key,value)=>{const parsed=parseStatCount(value);if(parsed)sides[side][key]=parsed;};
+  for(const row of stats){
+    if(!row||!row.metric_key)continue;
+    const key=String(row.metric_key).toLowerCase();
+    for(const side of ["home","away"]){
+      const value=row[side];
+      if(["field_goals","three_pointers","two_pointers","free_throws"].includes(key)){
+        const parsed=parseStatCount(value);
+        if(parsed){sides[side][key+"_made"]=parsed.value;if(parsed.attempts!=null)sides[side][key+"_attempted"]=parsed.attempts;}
+      } else if(/^(field_goals|three_pointers|two_pointers|free_throws)_(made|attempted)$/.test(key)){
+        set(side,key,value);
+      }
+    }
+  }
+  let weightedEfg=0,totalAttempts=0,pointsFromBox=0,completeTeams=0;
+  for(const side of ["home","away"]){
+    const x=sides[side];
+    const fgm=x.field_goals_made??((x.two_pointers_made??0)+(x.three_pointers_made??0));
+    const fga=x.field_goals_attempted??((x.two_pointers_attempted??0)+(x.three_pointers_attempted??0));
+    const tpm=x.three_pointers_made??0;
+    const ftm=x.free_throws_made??0;
+    if(Number.isFinite(fgm)&&Number.isFinite(fga)&&fga>0&&
+       (x.field_goals_attempted!=null||x.two_pointers_attempted!=null||x.three_pointers_attempted!=null)){
+      weightedEfg+=(fgm+0.5*tpm)/fga*fga;
+      totalAttempts+=fga;
+      completeTeams++;
+    }
+    if(Number.isFinite(fgm))pointsFromBox+=2*fgm+tpm+ftm;
+  }
+  if(completeTeams<2||totalAttempts<=0)
+    return {adjustment:1,factors:[],quality:"недостаточно парных бросковых показателей обеих команд"};
+  // Reject a box score that contradicts the authoritative live score.
+  const score=findLiveScore(ev),boxError=score?Math.abs(pointsFromBox-(Number(score[0])+Number(score[1]))):Infinity;
+  if(!score||boxError>Math.max(6,(Number(score[0])+Number(score[1]))*0.08))
+    return {adjustment:1,factors:["бросковая статистика не прошла сверку со счётом — не использована"],quality:"расхождение со счётом"};
+  const efg=weightedEfg/totalAttempts;
+  // Small regression-to-neutral correction: current hot/cold shooting is not
+  // projected unchanged for the whole remaining game.
+  const adjustment=clampForecast(1+(efg-0.50)*0.20,0.96,1.04);
+  return {
+    adjustment,
+    factors:["эффективность бросков eFG "+(efg*100).toFixed(1)+"% · поправка оставшегося ожидания "+((adjustment-1)*100).toFixed(1)+"%"],
+    quality:"сверено со счётом (ошибка "+boxError+" оч.)",
+    efg:Math.round(efg*1000)/1000,
+    boxScorePoints:pointsFromBox
+  };
+}
 function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=null){
   if(!estimate||!Number.isFinite(estimate.projection)||!Number.isFinite(estimate.current))return estimate;
   const context=estimate.source==="period_range"
     ? {estimate,factors:["неполный таймер: контекстные поправки отключены"],adjustment:1}
     : applyGameContext(estimate,ev||{},period,clock);
   const adjusted=context.estimate||estimate;
-  const mu=Math.max(0,adjusted.projection-adjusted.current);
+  const statsContext=liveShootingContext(ev||{},adjusted);
+  const baseMu=Math.max(0,adjusted.projection-adjusted.current);
+  const mu=baseMu*statsContext.adjustment;
   const mc=poissonMonteCarlo(adjusted.current,mu,lines,seedText);
-  return {...adjusted,context_factors:context.factors,context_adjustment:context.adjustment,
+  const factors=[...(context.factors||[]),...(statsContext.factors||[])];
+  return {...adjusted,context_factors:factors,context_adjustment:context.adjustment,
+    statistics_adjustment:statsContext.adjustment,statistics_quality:statsContext.quality,
+    shooting_efg:statsContext.efg??null,
     poisson:mc,low:mc.low80,high:mc.high80,sigma:Math.sqrt(Math.max(mu,0)),
     projection:Math.round((adjusted.current+mu)*10)/10};
 }
