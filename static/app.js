@@ -163,8 +163,17 @@ function readPeriodScore(ev,index){
 }
 function currentQuarterScore(ev,period,matchScore){
   const direct=readPeriodScorePair(ev,period-1);
-  if(direct)return {pair:direct,source:"PARI · счёт текущей четверти"};
-  if(!Array.isArray(matchScore)||matchScore.length<2||period<2)return null;
+  if(direct)return {pair:direct,source:"PARI/внешний источник · счёт текущей четверти"};
+  if(!Array.isArray(matchScore)||matchScore.length<2)return null;
+  // In Q1 the match score is also the current-quarter score. This is exact,
+  // not an estimate, provided the event is confirmed to be in period one.
+  if(Number(period)===1){
+    const home=Number(matchScore[0]),away=Number(matchScore[1]);
+    if(Number.isFinite(home)&&Number.isFinite(away)&&home>=0&&away>=0)
+      return {pair:[home,away],source:"общий счёт матча · первая четверть"};
+    return null;
+  }
+  if(!Number.isInteger(Number(period))||period<2||period>4)return null;
   let previousHome=0,previousAway=0;
   for(let i=0;i<period-1;i++){
     const pair=readPeriodScorePair(ev,i);
