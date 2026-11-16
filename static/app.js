@@ -235,9 +235,12 @@ function showSelectedMatch(ev){
   $("selectedMatchTitle").textContent=(ev.team1||"Команда 1")+" — "+(ev.team2||"Команда 2");
   const objects=collectEventObjects({root:ev.raw||{},related:ev.related_events||[],live:ev.live_fields||{}});
   const score=findLiveScore(ev),period=findLivePeriod(ev),clock=findLiveClock(ev);
-  const periodLength=findPeriodLengthSeconds(ev);
-  const paceCandidate=periodLength ? estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength}},score,period,clock) : null;
-  const paceEstimate=paceCandidate && paceCandidate.elapsed_seconds>=12*60 ? paceCandidate : null;
+  const lengthInfo=inferPeriodLengthForForecast(ev);
+  const periodLength=lengthInfo?.seconds;
+  const paceCandidate=(periodLength&&score&&period&&clock) ? estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength}},score,period,clock) : null;
+  const clocklessCandidate=(!paceCandidate&&score&&period) ? estimateLiveTotalFromPeriod(ev,score,period,lengthInfo) : null;
+  const paceEstimate=(paceCandidate&&paceCandidate.elapsed_seconds>=12*60)?paceCandidate:clocklessCandidate;
+  const marketFallback=marketReferenceForecast(getMatchTotalLines(ev));
   const matchLines=getMatchTotalLines(ev);
   const childCount=(ev.related_events||[]).length;
   const fieldNames=[...new Set(objects.flatMap(o=>Object.keys(o)))];
@@ -272,13 +275,17 @@ function showSelectedMatch(ev){
     '<p class="muted">'+(rootLines.length?rootLines.map(escapeHtml).join("<br>"):(allMarketLines.length?"В основной строке факторов нет; найдено в иерархии/локальной истории: "+allMarketLines.map(escapeHtml).join(" · "):"В текущем ответе PARI нет факторов ID 930/931."))+'</p>'+
     '<p class="muted">Это пока не подтверждённая расшифровка типа рынка: ID фактора и линия показываются как получены от PARI.</p>'+
     '<p class="muted">'+(score&&period&&clock?"Счёт, четверть и таймер доступны.":"Расчёт темпа заблокирован: нет подтверждённого счёта и/или таймера.")+'</p>'+
-    (paceEstimate?'<p><b>Темповая оценка полного тотала:</b> '+paceEstimate.projection+' очка · ориентировочный диапазон 80% '+paceEstimate.low+'–'+paceEstimate.high+' · сыграно около '+paceEstimate.elapsed+' мин.</p>':'<p class="muted">Оценка пока недоступна: нужны подтверждённые счёт, четверть, таймер и длительность периода; для полного матча также нужно минимум 12 минут игры.</p>')+
+    (paceEstimate?'<p><b>'+(clocklessCandidate?'Предварительная оценка полного тотала без таймера:':'Темповая оценка полного тотала:')+'</b> '+paceEstimate.projection+' очка · диапазон '+paceEstimate.low+'–'+paceEstimate.high+(paceEstimate.elapsed?' · сыграно около '+paceEstimate.elapsed+' мин.':'')+(clocklessCandidate?' · длительность '+escapeHtml(paceEstimate.period_length_method):'')+'</p>':(marketFallback?'<p><b>Рыночный ориентир полного тотала PARI:</b> '+marketFallback.estimate.projection+' очков. Это линия букмекера, а не независимый игровой прогноз.</p>':'<p class="muted">Нет подтверждённой линии и счёта для расчёта.</p>'))+
     (paceEstimate && matchLines.length ? '<p><b>Сравнение с линиями PARI:</b> '+matchLines.map(x=>{
-      if(x.stale)return 'Тотал '+x.line+' · устаревшая линия, направление не рассчитывается';
+      if(x.stale)return 'Тотал '+x.line+' · устаревшая линия';
+      if(clocklessCandidate){
+        const direction=paceEstimate.low>x.line?'ТБ':(paceEstimate.high<x.line?'ТМ':'диапазон пересекает линию');
+        return direction+' '+x.line+' · оценка '+paceEstimate.low+'–'+paceEstimate.high;
+      }
       const pOver=probabilityOverLine(paceEstimate,x.line),pUnder=1-pOver;
       const direction=pOver>=0.57?'ТБ':(pUnder>=0.57?'ТМ':'без выраженного преимущества');
       return direction+' '+x.line+' · ТБ '+(pOver*100).toFixed(1)+'% / ТМ '+(pUnder*100).toFixed(1)+'%';
-    }).map(escapeHtml).join(' · ')+'<p class="muted">Приближённые вероятности по текущему темпу и расширенной неопределённости; модель ещё не откалибрована на истории лиги.</p>' : '<p class="muted">'+(matchLines.length?'Линия найдена, но данных для сравнения пока недостаточно.':'В текущем ответе и локальной истории нет линии полного тотала 930/931.')+'</p>');
+    }).map(escapeHtml).join(' · ')+'<p class="muted">'+(clocklessCandidate?'Широкий диапазон построен по номеру периода без таймера и не является откалиброванной вероятностью.':'Приближённые вероятности по текущему темпу; модель ещё не откалибрована на истории лиги.')+'</p>' : '<p class="muted">'+(marketFallback?'Рыночная линия отображена. Направление ТБ/ТМ не назначается без счёта и подтверждённых цен сторон.':'Линия полного тотала не найдена.')+'</p>');
   const quarterEstimate=automaticQuarterForecast(ev);
   $("quarterForecast").innerHTML=
     '<p><b>Текущая четверть:</b> '+(period||"не определена")+'</p>'+
