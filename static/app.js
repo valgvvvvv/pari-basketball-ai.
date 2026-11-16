@@ -298,6 +298,12 @@ function applyGameContext(estimate,ev,period,clock){
 }
 function parseStatCount(value){
   if(value==null)return null;
+  if(typeof value==="object"){
+    for(const key of ["current","value","total","count","displayValue","display_value","made","attempted","score"]){
+      if(value[key]!=null){const parsed=parseStatCount(value[key]);if(parsed)return parsed;}
+    }
+    return null;
+  }
   if(typeof value==="number"&&Number.isFinite(value))return {value,attempts:null};
   const text=String(value).trim().replace(/,/g,".");
   const pair=text.match(/^(\d+(?:\.\d+)?)\s*[-/：:]\s*(\d+(?:\.\d+)?)$/);
@@ -396,8 +402,8 @@ function liveStatisticsAnalysis(ev){
 }
 function possessionModelContext(ev,estimate,period,clock){
   const rows=Array.isArray(ev?.external_statistics)?ev.external_statistics:[];
-  const aliases={fga:["field_goals_attempted","field_goal_attempts","fga","fg_attempted"],oreb:["offensive_rebounds","offensive_rebound","oreb"],tov:["turnovers","turnover","lost_balls"],fta:["free_throws_attempted","free_throw_attempts","fta"],poss:["possessions","possession","team_possessions","total_possessions","ball_possessions","possession_count"]};
-  const normalizeKey=value=>String(value||"").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
+  const aliases={fga:["field_goals_attempted","field_goal_attempts","field_goals_attempts","field_goal_attempted","fga","fg_attempted","fg_attempts"],oreb:["offensive_rebounds","offensive_rebound","offensive_rebound_count","oreb"],tov:["turnovers","turnover","lost_balls","turnover_count"],fta:["free_throws_attempted","free_throw_attempts","free_throw_attempts_total","free_throw_attempted","fta"],poss:["possessions","possession","team_possessions","total_possessions","ball_possessions","possession_count","team_possession","possessions_total","total_possession"]};
+  const normalizeKey=value=>String(value||"").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"").replace(/_+/g,"_");
   const read=(side,keys)=>{
     const row=rows.find(x=>keys.includes(normalizeKey(x?.metric_key||x?.name)));
     if(!row)return null;
