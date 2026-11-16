@@ -852,6 +852,11 @@ async def _enrich_with_sofascore_live(events):
                 # endpoint with status=live is a second independent way to obtain
                 # today's in-progress basketball games.
                 requests = [
+                    # Ask the widget feed explicitly for live rows; its default response
+                    # can be a recent-results list dominated by finished matches.
+                    ("widget_live", "https://sportscore.com/api/widget/matches/",
+                     {"sport": "basketball", "status": "live", "live": "true",
+                      "limit": 100, "src": "pari-basketball-ai"}),
                     ("widget", "https://sportscore.com/api/widget/matches/",
                      {"sport": "basketball", "limit": 50, "src": "pari-basketball-ai"}),
                     ("fixtures", "https://sportscore.com/api/v1/fixtures/",
@@ -2155,6 +2160,33 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         return {key: repair_nested_encoding(item) for key, item in value.items()}
                     return value
 
+                def _extract_pari_score(source):
+                    # Read only explicit PARI score fields; never turn missing values into 0.
+                    if not isinstance(source, dict):
+                        return None
+                    nested = source.get("score") or source.get("scoreInfo") or source.get("scores")
+                    if isinstance(nested, dict):
+                        home = next((nested.get(k) for k in ("home", "homeScore", "home_score", "team1", "team1Score", "score1") if nested.get(k) is not None), None)
+                        away = next((nested.get(k) for k in ("away", "awayScore", "away_score", "team2", "team2Score", "score2") if nested.get(k) is not None), None)
+                    else:
+                        home = away = None
+                    if home is None:
+                        home = next((source.get(k) for k in ("team1Score", "team1_score", "homeScore", "home_score", "score1", "scoreHome", "homePoints") if source.get(k) is not None), None)
+                    if away is None:
+                        away = next((source.get(k) for k in ("team2Score", "team2_score", "awayScore", "away_score", "score2", "scoreAway", "awayPoints") if source.get(k) is not None), None)
+                    def numeric(v):
+                        if isinstance(v, dict):
+                            v = next((v.get(k) for k in ("current", "total", "value", "points", "score") if v.get(k) is not None), None)
+                        if isinstance(v, (list, tuple)) and v:
+                            v = v[-1]
+                        try:
+                            n = float(v)
+                            return int(n) if math.isfinite(n) and n >= 0 else None
+                        except (TypeError, ValueError, OverflowError):
+                            return None
+                    h, a = numeric(home), numeric(away)
+                    return [h, a] if h is not None and a is not None else None
+
                 for event in all_events:
                     if not isinstance(event, dict):
                         continue
@@ -2243,7 +2275,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "status": "live",
                         "league": repair_team_encoding(event.get("name") or event.get("competitionName") or ""),
                         "start_time": event.get("startTime"),
-                        "score": event.get("score") or event.get("scoreInfo"),
+                        "score": (event.get("score") or event.get("scoreInfo")
+                                  or _extract_pari_score(event)),
                         "period": period_value,
                         "clock": event.get("time") or event.get("timer"),
                         "statistics_types": event.get("statisticsTypes"),
@@ -2331,6 +2364,14 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 "id": event.get("id"),
                                 "teams": str(event.get("team1") or "") + " — " + str(event.get("team2") or ""),
                                 "score_present": event.get("score") is not None,
+                                "pari_score_debug": {
+                                    key: value for key, value in (event.get("raw") or {}).items()
+                                    if any(token in str(key).lower() for token in ("score", "point", "team1s", "team2s"))
+                                },
+                                "pari_clock_debug": {
+                                    key: value for key, value in (event.get("raw") or {}).items()
+                                    if any(token in str(key).lower() for token in ("clock", "timer", "period", "quarter", "time"))
+                                },
                                 "period": event.get("period") or (event.get("external_live") or {}).get("period"),
                                 "clock": event.get("clock") or (event.get("external_live") or {}).get("clock"),
                                 "period_length_seconds": (event.get("external_live") or {}).get("period_length_seconds"),
