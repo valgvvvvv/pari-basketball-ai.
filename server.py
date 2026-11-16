@@ -2845,7 +2845,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             "source": "sofascore+sportscore",
                             "status": "timeout",
                             "matched": 0,
-                            "errors": ["Внешнее обогащение превысило лимит 7 секунд; матчи PARI возвращены без него."]
+                            "errors": ["Внешнее обогащение превысило лимит 12 секунд; матчи PARI возвращены без него."]
                         }
                     except Exception as exc:
                         live_enrichment = {
