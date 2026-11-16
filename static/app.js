@@ -186,12 +186,12 @@ function findLiveClock(ev){
     const m=text.match(/^(\d{1,2}):([0-5]\d)$/);
     if(m){
       const seconds=Number(m[1])*60+Number(m[2]);
-      if(seconds<=900)return m[1].padStart(2,"0")+":"+m[2];
+      if(seconds<=1200)return m[1].padStart(2,"0")+":"+m[2];
       continue;
     }
     if(typeof value==="number" || /^\d{1,3}$/.test(text)){
       const seconds=Number(value);
-      if(Number.isInteger(seconds)&&seconds>=0&&seconds<=900){
+      if(Number.isInteger(seconds)&&seconds>=0&&seconds<=1200){
         return String(Math.floor(seconds/60)).padStart(2,"0")+":"+String(seconds%60).padStart(2,"0");
       }
     }
@@ -339,12 +339,12 @@ function findPeriodLengthSeconds(ev) {
     if (typeof value === "string" && /^\d{1,2}:[0-5]\d$/.test(value.trim())) {
       const [m,s] = value.trim().split(":").map(Number);
       const seconds = m*60+s;
-      if (seconds >= 300 && seconds <= 900) return seconds;
+      if (seconds >= 300 && seconds <= 1200) return seconds;
     }
     const n = Number(value);
     if (Number.isFinite(n) && n > 0) {
       const seconds = n > 100000 ? Math.round(n/1000) : Math.round(n);
-      if (seconds >= 300 && seconds <= 900) return seconds;
+      if (seconds >= 300 && seconds <= 1200) return seconds;
     }
   }
   return null;
