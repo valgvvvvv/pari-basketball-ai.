@@ -408,7 +408,7 @@ function liveStatisticsAnalysis(ev){
 }
 function possessionModelContext(ev,estimate,period,clock){
   const rows=Array.isArray(ev?.external_statistics)?ev.external_statistics:[];
-  const aliases={fga:["field_goals_attempted","field_goal_attempts","field_goals_attempts","field_goal_attempted","fga","fg_attempted","fg_attempts"],oreb:["offensive_rebounds","offensive_rebound","offensive_rebound_count","oreb"],tov:["turnovers","turnover","lost_balls","turnover_count"],fta:["free_throws_attempted","free_throw_attempts","free_throw_attempts_total","free_throw_attempted","fta"],poss:["possessions","possession","team_possessions","total_possessions","ball_possessions","possession_count","team_possession","possessions_total","total_possession"]};
+  const aliases={fga:["field_goals_attempted","field_goal_attempts","field_goals_attempts","field_goal_attempted","fga","fg_attempted","fg_attempts","field_goals"],oreb:["offensive_rebounds","offensive_rebound","offensive_rebound_count","oreb"],tov:["turnovers","turnover","lost_balls","turnover_count"],fta:["free_throws_attempted","free_throw_attempts","free_throw_attempts_total","free_throw_attempted","fta","free_throws"],poss:["possessions","possession","team_possessions","total_possessions","ball_possessions","possession_count","team_possession","possessions_total","total_possession"]};
   const normalizeKey=value=>String(value||"").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"").replace(/_+/g,"_");
   const read=(side,keys)=>{
     const row=rows.find(x=>keys.includes(normalizeKey(x?.metric_key||x?.name)));
@@ -416,7 +416,12 @@ function possessionModelContext(ev,estimate,period,clock){
     const value=row[side];
     // parseStatCount understands both scalar and provider-specific value objects.
     const parsed=parseStatCount(value);
-    return parsed&&Number.isFinite(parsed.value)?parsed.value:null;
+    if(!parsed)return null;
+    // PARI/SofaScore may encode made-attempted as "M/A". For FGA/FTA
+    // use the attempted component, never the made component.
+    const compositeAttemptMetric=keys.includes("field_goals")||keys.includes("free_throws");
+    const result=compositeAttemptMetric?parsed.attempts:parsed.value;
+    return result!=null&&Number.isFinite(result)?result:null;
   };
   const sides={home:{},away:{}};
   for(const side of ["home","away"])for(const [key,names] of Object.entries(aliases))sides[side][key]=read(side,names);
@@ -501,7 +506,7 @@ function showSelectedMatch(ev){
   const stat=(keys)=>{
     const row=rows.find(x=>keys.map(norm).includes(norm(x?.metric_key||x?.name)));
     if(!row)return null;
-    const read=v=>{if(v&&typeof v==="object")v=v.current??v.value??v.total??v.count??v.displayValue??v.display_value;const p=parseStatCount(v);return p?.value??null;};
+    const read=v=>{const p=parseStatCount(v);return p?(p.attempts!=null?p.value+"/"+p.attempts:p.value):null;};
     const home=read(row.home),away=read(row.away);
     return home!=null&&away!=null?{home,away,name:row.name||keys[0],source:row.source||""}:null;
   };
