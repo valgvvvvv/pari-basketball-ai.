@@ -396,35 +396,43 @@ function liveStatisticsAnalysis(ev){
 }
 function possessionModelContext(ev,estimate,period,clock){
   const rows=Array.isArray(ev?.external_statistics)?ev.external_statistics:[];
-  const aliases={fga:["field_goals_attempted","field_goal_attempts","fga"],oreb:["offensive_rebounds","offensive_rebound","oreb"],tov:["turnovers","turnover"],fta:["free_throws_attempted","free_throw_attempts","fta"],poss:["possessions","possession","team_possessions"]};
+  const aliases={fga:["field_goals_attempted","field_goal_attempts","fga","fg_attempted"],oreb:["offensive_rebounds","offensive_rebound","oreb"],tov:["turnovers","turnover","lost_balls"],fta:["free_throws_attempted","free_throw_attempts","fta"],poss:["possessions","possession","team_possessions","total_possessions","ball_possessions","possession_count"]};
+  const normalizeKey=value=>String(value||"").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
   const read=(side,keys)=>{
-    const row=rows.find(x=>keys.includes(String(x?.metric_key||"").toLowerCase().replace(/[\\s-]+/g,"_")));
-    if(!row)return null;const parsed=parseStatCount(row[side]);
+    const row=rows.find(x=>keys.includes(normalizeKey(x?.metric_key||x?.name)));
+    if(!row)return null;
+    let value=row[side];
+    if(value&&typeof value==="object")value=value.current??value.value??value.total??value.count??value.displayValue;
+    const parsed=parseStatCount(value);
     return parsed&&Number.isFinite(parsed.value)?parsed.value:null;
   };
   const sides={home:{},away:{}};
   for(const side of ["home","away"])for(const [key,names] of Object.entries(aliases))sides[side][key]=read(side,names);
-  let home=sides.home.poss,away=sides.away.poss,method="показатели владений источника";
+  let home=sides.home.poss,away=sides.away.poss,method="фактические владения источника";
   if(!(home>0&&away>0)){
     if(!["home","away"].every(side=>["fga","oreb","tov","fta"].every(k=>sides[side][k]!=null)))
-      return {applied:false,reason:"нет владений или полного набора FGA, подборов в нападении, потерь и штрафных"};
+      return {applied:false,reason:"нет владений или полного набора бросков, подборов в нападении, потерь и штрафных"};
     home=sides.home.fga-sides.home.oreb+sides.home.tov+0.44*sides.home.fta;
     away=sides.away.fga-sides.away.oreb+sides.away.tov+0.44*sides.away.fta;
-    method="формула FGA − OREB + потери + 0,44×FTA";
+    method="расчёт по FGA − OREB + потери + 0,44×FTA";
   }
   if(!(home>0&&away>0))return {applied:false,reason:"некорректные значения владений"};
+  const imbalance=Math.abs(home-away)/Math.max(home,away);
+  if(imbalance>0.25)return {applied:false,reason:"владения команд расходятся более чем на 25% — проверка качества не пройдена"};
   const score=findLiveScore(ev);if(!score)return {applied:false,reason:"нет подтверждённого счёта"};
   const current=Number(score[0])+Number(score[1]),possessions=(home+away)/2;
   if(possessions<10||possessions>180)return {applied:false,reason:"значение владений вне допустимого диапазона"};
-  const pointsPerPossession=current/possessions;
   const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||inferPeriodLengthForForecast(ev)?.seconds||0);
-  const count=Number(ev?.external_live?.period_count||4),totalSeconds=length*count,elapsed=Number(estimate?.elapsed_seconds||0);
+  const count=Number(ev?.external_live?.period_count||inferPeriodLengthForForecast(ev)?.periods||4);
+  const totalSeconds=length*count,elapsed=Number(estimate?.elapsed_seconds||0);
   if(!length||!elapsed||elapsed>=totalSeconds)return {applied:false,reason:"не хватает подтверждённого времени матча"};
-  const remaining=totalSeconds-elapsed,possPerMinute=possessions/(elapsed/60);
+  const pointsPerPossession=current/possessions,remaining=totalSeconds-elapsed;
+  const possPerMinute=possessions/(elapsed/60);
   const projected=current+possPerMinute*(remaining/60)*pointsPerPossession;
   const baseline=Math.max(1,Number(estimate.projection)-current);
   return {applied:true,method,home:Math.round(home*10)/10,away:Math.round(away*10)/10,
-    average:Math.round(possessions*10)/10,pointsPerPossession:Math.round(pointsPerPossession*1000)/1000,
+    average:Math.round(possessions*10)/10,imbalance_percent:Math.round(imbalance*100),
+    pointsPerPossession:Math.round(pointsPerPossession*1000)/1000,
     possPerMinute:Math.round(possPerMinute*100)/100,
     projection:Math.round(projected*10)/10,adjustment:clampForecast((projected-current)/baseline,0.94,1.06)};
 }
