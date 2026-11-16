@@ -1241,7 +1241,7 @@ async def _enrich_with_sofascore_live(events):
             # countdown, ask SportScore's documented single-match detail endpoint.
             # This is a bounded, read-only enrichment; only explicit clock and
             # period-duration fields are accepted (never infer 10/12-minute periods).
-            detail_targets = [row for row in external_rows if (not row.get("clock") or not row.get("period_length_seconds")) and (row.get("id") or row.get("provider_id")) and not str(row.get("id") or "").startswith(("sofascore:", "espn:"))]
+            detail_targets = [row for row in external_rows if (not row.get("clock") or not row.get("period_length_seconds")) and (row.get("id") or row.get("provider_id")) and not str(row.get("id") or "").startswith(("sofascore:", "espn:", "espn-ncaa:"))]
             detail_diagnostics = []
             if detail_targets:
                 async with httpx.AsyncClient(
@@ -1478,7 +1478,7 @@ async def _enrich_with_sofascore_live(events):
                 if row.get("score") is None:
                     ordered_score = pari.get("score")
                 provider_name = ("SofaScore" if str(row.get("id") or "").startswith("sofascore:") else
-                                 "ESPN" if str(row.get("id") or "").startswith("espn:") else "SportScore")
+                                 "ESPN" if str(row.get("id") or "").startswith(("espn:", "espn-ncaa:")) else "SportScore")
                 pari["external_live"] = {
                     "source": provider_name, "event_id": row.get("id"),
                     "match": row["home"] + " — " + row["away"],
