@@ -563,7 +563,7 @@ async def pari_discover():
                             if semantic_name:
                                 chunk_candidates.append((chunk_id, semantic_name + ".js"))
                             chunk_candidates.append((chunk_id, chunk_id + ".js"))
-                        chunk_candidates.extend(semantic_candidates[:5])
+                        chunk_candidates.extend(semantic_candidates[:30])
                         base = bootstrap_url.rsplit("/", 1)[0] + "/"
                         seen_chunk_urls = set()
                         for chunk_id, filename in chunk_candidates:
@@ -3166,7 +3166,16 @@ async def _pari_startup_stats_discovery():
                    "diagnostic_version": result.get("diagnostic_version") if isinstance(result, dict) else None,
                    "pages": result.get("pages", []) if isinstance(result, dict) else [],
                    "chunks_scanned": len(result.get("chunk_scans", [])) if isinstance(result, dict) else 0,
-                   "candidate_count": len(unique), "candidates": unique[:35]}
+                   "bootstrap": [{"url": item.get("url"), "status": item.get("status"),
+                                  "chunk_map": item.get("webpack_chunk_name_map"),
+                                  "semantic_chunks": item.get("semantic_chunk_candidates", [])}
+                                 for item in result.get("bootstrap_scans", []) if isinstance(item, dict)],
+                   "chunk_summaries": [{"url": item.get("url"), "status": item.get("status"),
+                                        "bytes": item.get("bytes"), "paths": item.get("api_path_hints", [])[:50],
+                                        "service_terms": item.get("service_keyword_counts"),
+                                        "stat_terms": item.get("data_model_keyword_counts")}
+                                       for item in result.get("chunk_scans", []) if isinstance(item, dict)],
+                   "candidate_count": len(unique), "candidates": unique[:45]}
         print("PARI_STATS_DISCOVERY " + json.dumps(summary, ensure_ascii=False, default=str), flush=True)
     except Exception as exc:
         print("PARI_STATS_DISCOVERY_ERROR " + type(exc).__name__ + ": " + str(exc)[:240], flush=True)
