@@ -2333,14 +2333,17 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     except (TypeError, ValueError, OverflowError):
                         timer_seconds = None
 
-                    competition_text = " ".join(str(x or "") for x in (
+                    # Use PARI's resolved sport catalogue name, not only the often-empty
+                    # event.name/competitionName fields. Some catalogue labels reverse
+                    # the order ("Кубок BSKT"), so match both forms explicitly.
+                    competition_text = repair_team_encoding(" ".join(str(x or "") for x in (
                         event.get("name"), event.get("competitionName"),
                         sport_names.get(str(event.get("sportId")), "")
-                    )).lower()
+                    ))).casefold()
                     period_length_seconds = None
-                    if re.search(r"cdb[l1]|chinese basketball development league", competition_text):
+                    if re.search(r"\bcdb[l1]\b|chinese basketball development league", competition_text):
                         period_length_seconds = 720
-                    elif re.search(r"bskt\s*cup", competition_text):
+                    elif re.search(r"bskt\s*cup|cup\s*bskt|кубок\s*bskt", competition_text):
                         period_length_seconds = 600
 
                     # PARI's observed timerSeconds are cumulative match elapsed
@@ -2375,6 +2378,25 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 period_scores.append([q1, q2])
                             except (TypeError, ValueError, OverflowError):
                                 continue
+                    # PARI can leave a completed fixture in the LIVE tree for a short
+                    # period. When the verified cumulative timer reaches full regulation
+                    # and all four quarter scores add up exactly to the final score,
+                    # suppress this stale row instead of presenting it as a live game.
+                    if (timer_seconds is not None and period_length_seconds
+                            and timer_seconds >= 4 * period_length_seconds
+                            and len(period_scores) == 4):
+                        pari_score_check = (_extract_pari_score(event)
+                                            or _extract_pari_score(event_misc)
+                                            or _extract_pari_score(live_info))
+                        quarter_totals = [sum(pair[side] for pair in period_scores)
+                                          for side in (0, 1)]
+                        if pari_score_check == quarter_totals:
+                            filter_counts["accepted_live_roots"] = max(
+                                0, filter_counts["accepted_live_roots"] - 1
+                            )
+                            filter_counts["not_live"] += 1
+                            continue
+
                     root_factors = event_factors(event)
                     related_factor_rows = [
                         (child, event_factors(child))
@@ -2391,11 +2413,24 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "league": repair_team_encoding(event.get("name") or event.get("competitionName") or ""),
                         "start_time": event.get("startTime"),
                         "score": (_extract_pari_score(event)
-                                  or _extract_pari_score(event_misc)
                                   or _extract_pari_score(live_info)
+                                  or _extract_pari_score(event_misc)
                                   or _extract_pari_score(score_source)),
+                        "score_source": "PARI" if (
+                            _extract_pari_score(event) or _extract_pari_score(live_info)
+                            or _extract_pari_score(event_misc) or _extract_pari_score(score_source)
+                        ) else None,
                         "period": period_value,
+                        "period_source": "PARI_timer_and_catalogue" if (
+                            timer_seconds is not None and period_length_seconds
+                            and timer_seconds >= period_length_seconds
+                        ) else ("PARI_event" if period_value is not None else None),
                         "clock": clock_value,
+                        "clock_source": "PARI_timer_and_catalogue" if (
+                            timer_seconds is not None and period_length_seconds
+                            and timer_seconds >= period_length_seconds
+                            and timer_seconds < 4 * period_length_seconds
+                        ) else ("PARI_clock_field" if clock_value is not None else None),
                         "period_length_seconds": period_length_seconds,
                         "period_count": 4 if period_length_seconds else None,
                         "match_elapsed_seconds": timer_seconds,
