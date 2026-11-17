@@ -2640,10 +2640,14 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 unique.append(factor)
                         return unique
 
+                    # Only countdown-style fields are eligible as a quarter clock.
+                    # Generic "time" may be elapsed match time or a timestamp and must
+                    # never be treated as remaining period time.
                     clock_value = next((row.get(key) for row in
-                                        (event, live_info, event_misc)
-                                        for key in ("clock", "timer", "time", "countdown",
-                                                    "timeRemaining", "remainingTime", "periodClock")
+                                        (live_info, event_misc, event)
+                                        for key in ("clock", "countdown", "timeRemaining",
+                                                    "remainingTime", "periodClock", "period_clock",
+                                                    "time_remaining", "remaining_time")
                                         if row.get(key) is not None), None)
                     if isinstance(clock_value, dict):
                         clock_value = next((clock_value.get(key) for key in
