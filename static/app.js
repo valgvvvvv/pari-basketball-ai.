@@ -53,10 +53,12 @@ function findLiveScore(ev){
   return null;
 }
 function findLivePeriod(ev){
-  const objects=collectEventObjects({root:ev.raw||{},related:ev.related_events||[],live:ev.live_fields||{}});
+  const roots=[ev.raw||{},ev.live_fields||{}];
   const direct=ev.period??ev.external_live?.period??ev.live_period??(ev.raw||{}).period??(ev.raw||{}).periodName;
   const candidates=[direct];
-  for(const obj of objects)for(const [key,value] of Object.entries(obj))if(/period|quarter|gamePart|stageNumber/i.test(key))candidates.push(value);
+  for(const root of roots)for(const obj of collectEventObjects(root))
+    for(const [key,value] of Object.entries(obj))
+      if(/^(period|periodNumber|quarter|quarterNumber|gamePart|stageNumber)$/i.test(key))candidates.push(value);
   for(const value of candidates){
     if(value==null)continue;
     if(typeof value==="number"&&Number.isInteger(value)&&value>=1&&value<=4)return value;
@@ -67,24 +69,36 @@ function findLivePeriod(ev){
   return null;
 }
 function findLiveClock(ev){
-  const objects=collectEventObjects({root:ev.raw||{},related:ev.related_events||[],live:ev.live_fields||{}});
-  const candidates=[ev.clock,ev.external_live?.clock,ev.live_clock,(ev.raw||{}).time,(ev.raw||{}).timer];
-  for(const obj of objects)for(const [key,value] of Object.entries(obj))if(/^(time|timer|clock|matchTime|gameTime|remainingTime|periodTime|timeRemaining|time_remaining|countdown|remaining_seconds|clock_seconds)$/i.test(key))candidates.push(value);
+  // A clock is usable only when it is explicitly a period countdown. Do not
+  // recursively scan related market events: they may contain unrelated timers.
+  if(ev?.clock_integrity?.valid===false)return null;
+  const candidates=[ev.clock,ev.external_live?.clock,ev.live_clock];
+  const roots=[ev.raw||{},ev.live_fields||{}];
+  const allowed=/^(clock|timer|countdown|timeRemaining|remainingTime|periodClock|period_clock|time_remaining|remaining_time|remaining_seconds|clock_seconds|countdown_seconds)$/i;
+  for(const root of roots){
+    for(const obj of collectEventObjects(root)){
+      for(const [key,value] of Object.entries(obj))if(allowed.test(key))candidates.push(value);
+    }
+  }
   for(const value of candidates){
     if(value==null)continue;
-    const text=String(value).trim();
-    if(/^\d{4}-\d{2}-\d{2}[T ]/.test(text)) continue;
+    let candidate=value;
+    if(candidate&&typeof candidate==="object"){
+      candidate=candidate.remaining??candidate.remainingTime??candidate.seconds??candidate.value??candidate.clock??candidate.timer;
+    }
+    if(candidate==null)continue;
+    const text=String(candidate).trim();
+    if(/^\d{4}-\d{2}-\d{2}[T ]/.test(text))continue;
     const m=text.match(/^(\d{1,2}):([0-5]\d)$/);
     if(m){
       const seconds=Number(m[1])*60+Number(m[2]);
       if(seconds<=1200)return m[1].padStart(2,"0")+":"+m[2];
       continue;
     }
-    if(typeof value==="number" || /^\d{1,3}$/.test(text)){
-      const seconds=Number(value);
-      if(Number.isInteger(seconds)&&seconds>=0&&seconds<=1200){
+    if(typeof candidate==="number"||/^\d{1,4}$/.test(text)){
+      const seconds=Number(candidate);
+      if(Number.isInteger(seconds)&&seconds>=0&&seconds<=1200)
         return String(Math.floor(seconds/60)).padStart(2,"0")+":"+String(seconds%60).padStart(2,"0");
-      }
     }
   }
   return null;
