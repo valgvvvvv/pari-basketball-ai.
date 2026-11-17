@@ -608,7 +608,7 @@ function inferPeriodLengthForForecast(ev) {
   if(/\bnba\b|g league|баскетбол nba/.test(text))
     return {seconds:720,periods:4,method:"формат NBA · 12 минут"};
   // Apply the 10-minute FIBA format to identified competitions.
-  if(/adriatic|адриат|аба\\s*лига|plk|польша|израил|израиль|super\\s*league|суперлиг|bosnia|босни|герцеговин|greece|греци|italy|итал|cyprus|кипр|morocco|марокко|montenegro|черногор|serbia|серби|croatia|хорват|fiba|euroleague|eurocup|eurobasket|vtb|basketball champions league/.test(text))
+  if(/adriatic|адриат|аба\s*лига|plk|польша|израил|израиль|super\s*league|суперлиг|bosnia|босни|герцеговин|greece|греци|italy|итал|cyprus|кипр|morocco|марокко|montenegro|черногор|serbia|серби|croatia|хорват|fiba|euroleague|eurocup|eurobasket|vtb|basketball champions league/.test(text))
     return {seconds:600,periods:4,method:"формат FIBA · 10 минут (по типу турнира)"};
   // If PARI supplies the countdown but not the period length, use >10:00
   // as evidence of a 12-minute period. Otherwise provide a clearly marked
@@ -694,7 +694,7 @@ function automaticQuarterForecast(ev) {
   const m=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
   const remaining=m?Number(m[1])*60+Number(m[2]):null;
   const elapsed=m&&length?length-remaining:null;
-  const currentQuarter=period&&matchScore?currentQuarterScore(ev,period,matchScore):null;
+  const currentQuarter=period?currentQuarterScore(ev,period,matchScore):null;
   const current=currentQuarter?currentQuarter.pair[0]+currentQuarter.pair[1]:null;
   const quarterLines=[];
   const groups=(ev.related_factor_groups||[]);
