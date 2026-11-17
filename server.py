@@ -2667,7 +2667,11 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # PARI's observed timerSeconds are cumulative match elapsed
                     # seconds (e.g. 38:26 in CDBL, 31:14 in BSKT Cup).
                     # Derive the quarter and its remaining clock from that value.
-                    if timer_seconds is not None and period_length_seconds and timer_seconds >= 0:
+                    if timer_from_explicit_clock and timer_seconds is not None and 0 <= timer_seconds <= 1200:
+                        # An explicit clock field is already the remaining time in this period.
+                        # Never reinterpret it as cumulative match elapsed time.
+                        clock_value = f"{timer_seconds // 60:02d}:{timer_seconds % 60:02d}"
+                    elif timer_seconds is not None and period_length_seconds and timer_seconds >= 0:
                         elapsed_periods = timer_seconds // period_length_seconds
                         if 0 <= elapsed_periods < 4:
                             period_value = elapsed_periods + 1
@@ -2675,9 +2679,6 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             clock_value = f"{remaining // 60:02d}:{remaining % 60:02d}"
                         else:
                             clock_value = None
-                    elif timer_from_explicit_clock and timer_seconds is not None and 0 <= timer_seconds <= 1200:
-                        # Only trust a clock explicitly supplied as a clock field.
-                        clock_value = f"{timer_seconds // 60:02d}:{timer_seconds % 60:02d}"
                     elif timer_seconds is not None:
                         # PARI timerSeconds is cumulative match elapsed time.
                         # Without a verified period length it is not a quarter countdown.
@@ -2756,7 +2757,10 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                     return labeled[:4]
                                 direct = [_score_pair_from_row(item) for item in quarter_group]
                                 direct = [pair for pair in direct if pair is not None]
-                                if len(direct) >= 2:
+                                # A single current-quarter row is valid. Do not
+                                # fall through and accidentally count scores[0]
+                                # (the aggregate match score) as quarter one.
+                                if direct:
                                     return direct[:4]
                         # Some PARI versions expose named subscores instead.
                         subscores = source_row.get("subscores")
@@ -2774,8 +2778,11 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                     indexed[int(match.group(1))] = pair
                         if indexed:
                             return [indexed.get(n) for n in range(1, max(indexed) + 1)]
-                        # Last-resort fallback for providers that return a flat
-                        # quarter-only list without labels.
+                        # scores[0] is commonly the aggregate match score.
+                        # Only inspect scores[1] as the quarter group; never shift
+                        # the aggregate into Q1 when just one quarter is available.
+                        if isinstance(scores, (list, tuple)) and len(scores) >= 2:
+                            return _collect_period_score_rows(scores[1])[:4]
                         return _collect_period_score_rows(scores)[:4]
 
                     period_scores = []
