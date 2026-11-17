@@ -2315,6 +2315,29 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     return indexed
                 event_misc_by_id = index_live_rows(payload.get("eventMiscs", []))
                 live_info_by_id = index_live_rows(payload.get("liveEventInfos", []))
+                # PARI can expose team-stat rows in eventBlocks on some site versions.
+                # Index only explicit event references, never a block's own ID.
+                event_blocks_by_id = {}
+                def index_event_blocks(value, inherited_event_id=None, depth=0):
+                    if depth > 7:
+                        return
+                    if isinstance(value, list):
+                        for child in value:
+                            index_event_blocks(child, inherited_event_id, depth + 1)
+                        return
+                    if not isinstance(value, dict):
+                        return
+                    event_ref = next((value.get(k) for k in
+                                      ("eventId", "event_id", "eventID", "sportEventId", "sport_event_id", "e")
+                                      if value.get(k) is not None), inherited_event_id)
+                    if isinstance(event_ref, dict):
+                        event_ref = event_ref.get("id")
+                    if event_ref is not None:
+                        event_blocks_by_id.setdefault(str(event_ref), []).append(value)
+                    for child in value.values():
+                        if isinstance(child, (dict, list)):
+                            index_event_blocks(child, event_ref, depth + 1)
+                index_event_blocks(payload.get("eventBlocks", []))
                 factors = payload.get("customFactors", []) if isinstance(payload, dict) else []
                 factor_map = {}
                 for row in factors if isinstance(factors, list) else []:
@@ -2558,6 +2581,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     event_id = event.get("id")
                     event_misc = event_misc_by_id.get(str(event_id), {})
                     live_info = live_info_by_id.get(str(event_id), {})
+                    event_block_rows = event_blocks_by_id.get(str(event_id), [])
                     # Some PARI rows are placed in the LIVE tree before kickoff.
                     # Explicit notStarted status/comment overrides place=live.
                     pari_state = " ".join(str(row.get(key) or "") for row in
@@ -2579,7 +2603,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # Merge only source-provided fields; never infer score or clock
                     # from kickoff timestamps or odds.
                     score_source = dict(event)
-                    for source_row in (event_misc, live_info):
+                    for source_row in (event_misc, live_info, *event_block_rows):
                         for key, value in source_row.items():
                             if value is not None and (score_source.get(key) is None or key not in score_source):
                                 score_source[key] = value
@@ -2865,7 +2889,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "statistics_types": event.get("statisticsTypes"),
                         "live_fields": repair_nested_encoding({
                             key: value
-                            for source_row in (event, event_misc, live_info)
+                            for source_row in (event, event_misc, live_info, *event_block_rows)
                             for key, value in source_row.items()
                             if any(token in key.lower() for token in (
                                 "score", "period", "quarter", "clock", "timer", "time",
@@ -2909,6 +2933,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         pari_row.get("live_fields", {}),
                         event_misc_by_id.get(pari_id, {}),
                         live_info_by_id.get(pari_id, {}),
+                        event_blocks_by_id.get(pari_id, []),
                         pari_row.get("related_events", []),
                     ])
                     if pari_stats:
@@ -2975,6 +3000,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "payload_keys": list(payload.keys())[:60],
                         "event_miscs_count": len(payload.get("eventMiscs", [])) if isinstance(payload.get("eventMiscs"), list) else None,
                         "live_event_infos_count": len(payload.get("liveEventInfos", [])) if isinstance(payload.get("liveEventInfos"), list) else None,
+                        "event_blocks_count": len(payload.get("eventBlocks", [])) if isinstance(payload.get("eventBlocks"), list) else None,
+                        "event_blocks_indexed_events": len(event_blocks_by_id),
                         "event_misc_sample_keys": list((payload.get("eventMiscs") or [{}])[0].keys())[:40] if isinstance(payload.get("eventMiscs"), list) and payload.get("eventMiscs") and isinstance(payload.get("eventMiscs")[0], dict) else [],
                         "live_info_sample_keys": list((payload.get("liveEventInfos") or [{}])[0].keys())[:40] if isinstance(payload.get("liveEventInfos"), list) and payload.get("liveEventInfos") and isinstance(payload.get("liveEventInfos")[0], dict) else [],
                         "basketball_events": len(basketball),
