@@ -142,18 +142,32 @@ function poissonMonteCarlo(current, mu, lines=[], seedText="") {
 }
 function clampForecast(value,min,max){return Math.max(min,Math.min(max,value));}
 function readPeriodScorePair(ev,index){
-  const sources=[ev?.period_scores,ev?.external_live?.period_scores,ev?.raw?.period_scores];
-  for(const scores of sources){
-    const row=Array.isArray(scores)?scores[index]:(scores&&typeof scores==="object"?(scores[String(index+1)]??scores[index]):null);
+  const parsePair=row=>{
     if(Array.isArray(row)&&row.length>=2){
       const a=Number(row[0]),b=Number(row[1]);
       if(Number.isFinite(a)&&Number.isFinite(b)&&a>=0&&b>=0)return [a,b];
     }
     if(row&&typeof row==="object"){
-      const a=Number(row.home??row.homeScore??row.c1??row.team1??row.team1Score);
-      const b=Number(row.away??row.awayScore??row.c2??row.team2??row.team2Score);
+      const a=Number(row.home??row.homeScore??row.home_score??row.c1??row.team1??row.team1Score??row.team1_score);
+      const b=Number(row.away??row.awayScore??row.away_score??row.c2??row.team2??row.team2Score??row.team2_score);
       if(Number.isFinite(a)&&Number.isFinite(b)&&a>=0&&b>=0)return [a,b];
     }
+    return null;
+  };
+  const sources=[ev?.period_scores,ev?.external_live?.period_scores,ev?.live_fields?.period_scores,ev?.raw?.period_scores,ev?.raw?.live_fields?.period_scores];
+  for(const scores of sources){
+    const row=Array.isArray(scores)?scores[index]:(scores&&typeof scores==="object"?(scores[String(index+1)]??scores[index]):null);
+    const pair=parsePair(row);
+    if(pair)return pair;
+  }
+  // PARI's normalized timeline has an explicit period number; missing quarters
+  // must not shift the following quarter into the wrong slot.
+  const timelines=[ev?.match_timeline,ev?.external_live?.match_timeline,ev?.raw?.match_timeline];
+  for(const timeline of timelines){
+    if(!Array.isArray(timeline))continue;
+    const row=timeline.find(item=>Number(item?.period??item?.quarter??item?.periodNumber)===index+1);
+    const pair=parsePair(row);
+    if(pair)return pair;
   }
   return null;
 }
@@ -474,7 +488,7 @@ function showSelectedMatch(ev){
       '<h3>Факторы, вошедшие в расчёт</h3><ul class="calc-factors">'+(estimate.context_factors||[]).map(x=>'<li>'+escapeHtml(x)+'</li>').join("")+'</ul>'
     : '<p class="muted">'+escapeHtml(matchForecast.reason||"Для прогноза пока недостаточно подтверждённых данных.")+'</p>';
   $("quarterForecast").innerHTML=quarter.ready
-    ? '<div class="forecast-main"><p><b>Ожидаемый тотал четверти</b></p><div class="forecast-number">'+quarter.projection+'</div><p>Счёт: '+(quarter.home==null?"не получен":quarter.home+' : '+quarter.away)+' · текущие очки: '+quarter.current+(quarter.elapsed!=null?' · прошло: '+quarter.elapsed+' мин':' · таймер не получен')+' · источник: '+escapeHtml(quarter.score_source||"не указан")+' · диапазон 80% '+quarter.low80+'–'+quarter.high80+' · 95% '+quarter.low95+'–'+quarter.high95+(quarter.preliminary?' · предварительная оценка':'')+'</p></div>'+
+    ? '<div class="forecast-main"><p><b>Ожидаемый тотал четверти</b></p><div class="forecast-number">'+quarter.projection+'</div><p>Счёт: '+(quarter.home==null?"не получен":quarter.home+' : '+quarter.away)+' · текущие очки: '+(quarter.current==null?"не получено":quarter.current)+(quarter.elapsed!=null?' · прошло: '+quarter.elapsed+' мин':' · таймер не получен')+' · источник: '+escapeHtml(quarter.score_source||"не указан")+' · диапазон 80% '+quarter.low80+'–'+quarter.high80+' · 95% '+quarter.low95+'–'+quarter.high95+(quarter.preliminary?' · предварительная оценка':'')+'</p></div>'+
       (quarter.lines.length?'<div class="calc-grid"><div class="calc-card"><span>ТБ вероятность по первой линии</span><b>'+((quarter.lines[0]?.pOver??0)*100).toFixed(1)+'%</b></div><div class="calc-card"><span>ТМ вероятность по первой линии</span><b>'+((quarter.lines[0]?.pUnder??0)*100).toFixed(1)+'%</b></div></div><p>Линии: '+quarter.lines.map(x=>escapeHtml(x.line+' · ТБ '+(x.pOver*100).toFixed(1)+'% / ТМ '+(x.pUnder*100).toFixed(1)+'%')).join(' · ')+'</p>':'<p class="muted">Линия PARI на эту четверть не получена; показан расчётный ориентир без вероятности относительно букмекерской линии.</p>')+
       '<p class="calc-formula">Расчёт по темпу текущей четверти; если таймер или её счёт отсутствуют, используется явно помеченный предварительный ориентир на основе темпа матча/середины периода. Диапазон строится по 10 000 симуляций.</p>'
     : '<p class="muted">'+escapeHtml(quarter.reason||"Нет достаточных данных для прогноза четверти.")+'</p>';
@@ -593,10 +607,20 @@ function inferPeriodLengthForForecast(ev) {
     return {seconds:600,periods:4,method:"BSKT Cup · 4×10 минут"};
   if(/\bnba\b|g league|баскетбол nba/.test(text))
     return {seconds:720,periods:4,method:"формат NBA · 12 минут"};
-  // Apply the 10-minute FIBA format only to clearly identified competitions.
-  // Unknown leagues must not inherit an assumed period length.
-  if(/fiba|euroleague|eurocup|eurobasket|vtb|суперлиг|единая лига|чемпионат европ|world cup|basketball champions league/.test(text))
+  // Apply the 10-minute FIBA format to identified competitions.
+  if(/adriatic|адриат|аба\\s*лига|plk|польша|израил|израиль|super\\s*league|суперлиг|bosnia|босни|герцеговин|greece|греци|italy|итал|cyprus|кипр|morocco|марокко|montenegro|черногор|serbia|серби|croatia|хорват|fiba|euroleague|eurocup|eurobasket|vtb|basketball champions league/.test(text))
     return {seconds:600,periods:4,method:"формат FIBA · 10 минут (по типу турнира)"};
+  // If PARI supplies the countdown but not the period length, use >10:00
+  // as evidence of a 12-minute period. Otherwise provide a clearly marked
+  // provisional 4×10-minute estimate for quarter-based basketball.
+  const clock=findLiveClock(ev);
+  const clockMatch=String(clock||"").match(/^(\\d{1,2}):([0-5]\\d)$/);
+  const remaining=clockMatch?Number(clockMatch[1])*60+Number(clockMatch[2]):null;
+  if(remaining!=null&&remaining>600&&remaining<=720)
+    return {seconds:720,periods:4,method:"предварительно 4×12 минут · таймер больше 10:00"};
+  const currentPeriod=findLivePeriod(ev);
+  if(Number.isInteger(currentPeriod)&&currentPeriod>=1&&currentPeriod<=4)
+    return {seconds:600,periods:4,method:"предварительно 4×10 минут · формат турнира не передан"};
   return null;
 }
 function estimateLiveTotalFromPeriod(ev,score,period,lengthInfo) {
@@ -692,7 +716,7 @@ function automaticQuarterForecast(ev) {
         quarterLines.push({line,odds:factor.v==null?null:String(factor.v),source:"PARI"});
     }
   }
-  let projection=null,source="",elapsedMinutes=null,observed=current??0;
+  let projection=null,source="",elapsedMinutes=null,observed=current;
   if(Number.isFinite(current)&&Number.isFinite(elapsed)&&length&&elapsed>0&&elapsed<=length){
     projection=current/elapsed*length;
     source=currentQuarter.source+" · темп текущей четверти";
@@ -706,19 +730,18 @@ function automaticQuarterForecast(ev) {
   } else if(matchForecast.ready&&matchForecast.kind!=="market_reference"&&info?.periods===4){
     projection=matchForecast.estimate.projection/4;
     source="средний темп матча · ориентир на четверть, счёт четверти не подтверждён";
-    observed=0;
   } else if(matchForecast.ready&&matchForecast.kind==="market_reference"&&periods===4){
     projection=matchForecast.estimate.projection/4;
     source="рыночный ориентир матча ÷ 4 · не игровая оценка";
-    observed=0;
   }
   if(!Number.isFinite(projection)||projection<0){
     return {ready:false,reason:!period?"не определён номер четверти":!length?"не определена длительность четверти":!matchScore?"нет подтверждённого счёта":"нет данных для оценки темпа"};
   }
-  const mu=Math.max(0,projection-observed);
-  const poisson=poissonMonteCarlo(observed,mu,quarterLines,String(ev.id||"")+"|Q"+(period||"?")+"|"+(clock||"no-clock"));
-  const preliminary=!elapsed||elapsed<180||source.includes("ориентир")||source.includes("таймер отсутствует");
-  return {ready:true,period,current:observed,projection:Math.round(projection*10)/10,
+  const simulationCurrent=Number.isFinite(observed)?observed:0;
+  const mu=Math.max(0,projection-simulationCurrent);
+  const poisson=poissonMonteCarlo(simulationCurrent,mu,quarterLines,String(ev.id||"")+"|Q"+(period||"?")+"|"+(clock||"no-clock"));
+  const preliminary=!elapsed||elapsed<180||source.includes("ориентир")||source.includes("таймер отсутствует")||source.includes("предварительно")||String(info?.method||"").includes("предварительно");
+  return {ready:true,period,current:observed??null,projection:Math.round(projection*10)/10,
     home:currentQuarter?.pair?.[0]??null,away:currentQuarter?.pair?.[1]??null,
     score_source:source,elapsed:elapsedMinutes,low80:poisson.low80,high80:poisson.high80,
     low95:poisson.low95,high95:poisson.high95,poisson,lines:poisson.probabilities,
