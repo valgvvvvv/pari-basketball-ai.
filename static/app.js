@@ -683,10 +683,26 @@ function automaticForecast(ev) {
   return {ready:false,reason:"Нельзя достоверно спрогнозировать без: "+missing.join(", "),lines};
 }
 
+function findQuarterClockFromElapsed(ev,period,length){
+  if(!Number.isInteger(Number(period))||!Number.isFinite(Number(length))||Number(length)<300)return null;
+  const candidates=[ev?.match_elapsed_seconds,ev?.external_live?.match_elapsed_seconds,
+    ev?.live_fields?.timerSeconds,ev?.live_fields?.timer_seconds,
+    ev?.raw?.timerSeconds,ev?.raw?.timer_seconds];
+  const raw=candidates.find(value=>value!=null&&value!=="");
+  const elapsedMatch=Number(raw);
+  if(!Number.isFinite(elapsedMatch)||elapsedMatch<0||elapsedMatch>4*Number(length))return null;
+  const elapsedInQuarter=elapsedMatch-(Number(period)-1)*Number(length);
+  if(elapsedInQuarter<0||elapsedInQuarter>Number(length))return null;
+  const remaining=Math.max(0,Math.round(Number(length)-elapsedInQuarter));
+  return String(Math.floor(remaining/60)).padStart(2,"0")+":"+String(remaining%60).padStart(2,"0");
+}
 function automaticQuarterForecast(ev) {
-  const period=findLivePeriod(ev), clock=findLiveClock(ev);
+  const period=findLivePeriod(ev);
   const info=inferPeriodLengthForForecast(ev);
   const length=findPeriodLengthSeconds(ev)||info?.seconds;
+  const directClock=findLiveClock(ev);
+  const clock=directClock||(period&&length?findQuarterClockFromElapsed(ev,period,length):null);
+  const recoveredClock=!directClock&&!!clock;
   const periods=Number(ev.external_live?.period_count||info?.periods||4);
   const matchScore=findLiveScore(ev);
   const matchForecast=automaticForecast(ev);
@@ -719,7 +735,7 @@ function automaticQuarterForecast(ev) {
   let projection=null,source="",elapsedMinutes=null,observed=current;
   if(Number.isFinite(current)&&Number.isFinite(elapsed)&&length&&elapsed>0&&elapsed<=length){
     projection=current/elapsed*length;
-    source=currentQuarter.source+" · темп текущей четверти";
+    source=currentQuarter.source+" · темп текущей четверти"+(recoveredClock?" · время восстановлено из секунд матча":"");
     elapsedMinutes=Math.round(elapsed/60*10)/10;
   } else if(Number.isFinite(current)&&length&&period){
     // Missing countdown: keep the forecast available using a transparent
@@ -740,7 +756,7 @@ function automaticQuarterForecast(ev) {
   const simulationCurrent=Number.isFinite(observed)?observed:0;
   const mu=Math.max(0,projection-simulationCurrent);
   const poisson=poissonMonteCarlo(simulationCurrent,mu,quarterLines,String(ev.id||"")+"|Q"+(period||"?")+"|"+(clock||"no-clock"));
-  const preliminary=!elapsed||elapsed<180||source.includes("ориентир")||source.includes("таймер отсутствует")||source.includes("предварительно")||String(info?.method||"").includes("предварительно");
+  const preliminary=!elapsed||elapsed<180||source.includes("ориентир")||source.includes("таймер отсутствует")||source.includes("предварительно")||String(info?.method||"").includes("предварительно")||recoveredClock;
   return {ready:true,period,current:observed??null,projection:Math.round(projection*10)/10,
     home:currentQuarter?.pair?.[0]??null,away:currentQuarter?.pair?.[1]??null,
     score_source:source,elapsed:elapsedMinutes,low80:poisson.low80,high80:poisson.high80,
