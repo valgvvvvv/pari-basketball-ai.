@@ -436,6 +436,7 @@ function showSelectedMatch(ev){
   const quarter=automaticQuarterForecast(ev);
   const rows=Array.isArray(ev.external_statistics)?ev.external_statistics:[];
   const statsQuality=ev.statistics_quality||null;
+  const statInsights=liveStatisticsAnalysis(ev);
   const possession=estimate?.possession_model||possessionModelContext(ev,estimate||{},period,clock);
   const shooting=liveShootingContext(ev,{elapsed_seconds:estimate?.elapsed_seconds||1});
   const modelBadge=$("possessionModelStatus");
@@ -447,7 +448,7 @@ function showSelectedMatch(ev){
   const stat=(keys)=>{
     const row=rows.find(x=>keys.map(norm).includes(norm(x?.metric_key||x?.name)));
     if(!row)return null;
-    const read=v=>{if(v&&typeof v==="object")v=v.current??v.value??v.total??v.count??v.displayValue??v.display_value;const p=parseStatCount(v);return p?.value??null;};
+    const read=v=>{if(v&&typeof v==="object")v=v.current??v.value??v.total??v.count??v.displayValue??v.display_value;const p=parseStatCount(v);return p?(p.attempts!=null?p.value+"/"+p.attempts:p.value):null;};
     const home=read(row.home),away=read(row.away);
     return home!=null&&away!=null?{home,away,name:row.name||keys[0],source:row.source||""}:null;
   };
@@ -495,6 +496,7 @@ function showSelectedMatch(ev){
   $("matchForecast").insertAdjacentHTML("beforeend",'<div class="compact-analysis"><h3>Статистика матча</h3>'+statHtml+
     (timeline?'<p><b>Счёт по четвертям:</b> '+escapeHtml(timeline)+'</p>':'')+
     (statsQuality?'<p class="muted">Получено показателей: '+statsQuality.available_count+'/'+statsQuality.expected_count+'. Источник: '+escapeHtml(ev.statistics_source||"не указан")+'.</p>':'')+
+    (statInsights.length?'<h3>Что показывает статистика</h3><ul class="calc-factors">'+statInsights.map(x=>'<li>'+escapeHtml(x)+'</li>').join("")+'</ul>':'')+
     '<h3>Все полученные показатели ('+rows.length+')</h3>'+
     (rows.length?rows.map(st=>'<p>'+escapeHtml(st.name||st.metric_key||"Показатель")+': '+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+' <span class="muted">'+escapeHtml(st.source||"")+'</span></p>').join(""):'<p class="muted">Подробные показатели не получены.</p>')+'</div>');
   panel.scrollIntoView({behavior:"smooth",block:"start"});
@@ -785,14 +787,21 @@ function automaticQuarterForecast(ev) {
     return {ready:false,reason:!period?"не определён номер четверти":!length?"не определена длительность четверти":!matchScore?"нет подтверждённого счёта":"нет данных для оценки темпа"};
   }
   const simulationCurrent=Number.isFinite(observed)?observed:0;
-  const mu=Math.max(0,projection-simulationCurrent);
+  const baseMu=Math.max(0,projection-simulationCurrent);
+  // Match-level shooting data is a weak context signal for the current quarter;
+  // damp it because the provider may not split box-score values by period.
+  const shootingContext=liveShootingContext(ev,{elapsed_seconds:1});
+  const quarterStatsAdjustment=shootingContext.efg!=null
+    ?clampForecast(1+(shootingContext.adjustment-1)*0.35,0.985,1.015):1;
+  const mu=baseMu*quarterStatsAdjustment;
   const poisson=poissonMonteCarlo(simulationCurrent,mu,quarterLines,String(ev.id||"")+"|Q"+(period||"?")+"|"+(clock||"no-clock"));
   const preliminary=!elapsed||elapsed<180||source.includes("ориентир")||source.includes("таймер отсутствует")||source.includes("предварительно")||String(info?.method||"").includes("предварительно")||recoveredClock;
   return {ready:true,period,current:observed??null,projection:Math.round(projection*10)/10,
     home:currentQuarter?.pair?.[0]??null,away:currentQuarter?.pair?.[1]??null,
     score_source:source,elapsed:elapsedMinutes,low80:poisson.low80,high80:poisson.high80,
     low95:poisson.low95,high95:poisson.high95,poisson,lines:poisson.probabilities,
-    preliminary,context_factors:[source]};
+    preliminary,context_factors:[source,...(shootingContext.efg!=null?["слабая поправка Q по eFG всего матча "+(shootingContext.efg*100).toFixed(1)+"%"]:[])],
+    statistics_adjustment:quarterStatsAdjustment};
 }
 let liveRefreshInFlight = false;
 let nextLiveRefreshDelay = 30000;
