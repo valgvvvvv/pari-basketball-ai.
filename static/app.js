@@ -363,71 +363,124 @@ function liveStatisticsAnalysis(ev){
 }
 function possessionModelContext(ev,estimate,period,clock){
   const rows=Array.isArray(ev?.external_statistics)?ev.external_statistics:[];
-  const aliases={fga:["field_goals_attempted","field_goal_attempts","field_goals_attempts","field_goal_attempted","fga","fg_attempted","fg_attempts","field_goals"],oreb:["offensive_rebounds","offensive_rebound","offensive_rebound_count","oreb"],tov:["turnovers","turnover","lost_balls","turnover_count"],fta:["free_throws_attempted","free_throw_attempts","free_throw_attempts_total","free_throw_attempted","fta","free_throws"],poss:["possessions","possession","team_possessions","total_possessions","ball_possessions","possession_count","team_possession","possessions_total","total_possession"]};
-  const normalizeKey=value=>String(value||"").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"").replace(/_+/g,"_");
-  const read=(side,keys)=>{
-    const row=rows.find(x=>keys.includes(normalizeKey(x?.metric_key||x?.name)));
-    if(!row)return null;
+  const aliases={
+    fga:["field_goals_attempted","field_goal_attempts","field_goals_attempts","field_goal_attempted","fga","fg_attempted","fg_attempts","field_goals"],
+    fgm:["field_goals_made","fgm","field_goals"],
+    oreb:["offensive_rebounds","offensive_rebound","offensive_rebound_count","oreb"],
+    dreb:["defensive_rebounds","defensive_rebound","dreb"],rebounds:["rebounds","total_rebounds"],
+    tov:["turnovers","turnover","lost_balls","turnover_count"],
+    fta:["free_throws_attempted","free_throw_attempts","free_throw_attempts_total","free_throw_attempted","fta","free_throws"],
+    ftm:["free_throws_made","ftm","free_throws"],
+    poss:["possessions","possession","team_possessions","total_possessions","ball_possessions","possession_count","team_possession","possessions_total","total_possession"],
+    twoMade:["two_pointers_made","2pt_made","two_pointers"],twoAtt:["two_pointers_attempted","2pt_attempted","two_point_attempts"],
+    threeMade:["three_pointers_made","3pt_made","three_pointers"],threeAtt:["three_pointers_attempted","3pt_attempted","three_point_attempts"],
+    assists:["assists","assist"],steals:["steals","steal"],blocks:["blocks","block"],fouls:["personal_fouls","team_fouls","fouls","foul"]
+  };
+  const normalizeKey=value=>String(value||"").toLowerCase().replace(/ё/g,"е").replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"").replace(/_+/g,"_");
+  const rowFor=keys=>{
+    const matches=rows.filter(x=>keys.includes(normalizeKey(x?.metric_key||x?.name)));
+    matches.sort((a,b)=>(String(a?.source||"").toUpperCase()==="PARI"?0:1)-(String(b?.source||"").toUpperCase()==="PARI"?0:1));
+    return matches[0]||null;
+  };
+  const read=(side,keys,part="value")=>{
+    const row=rowFor(keys);if(!row)return null;
     const value=row[side];
-    // parseStatCount understands both scalar and provider-specific value objects.
-    const parsed=parseStatCount(value);
-    if(!parsed)return null;
-    // PARI/SofaScore may encode made-attempted as "M/A". For FGA/FTA
-    // use the attempted component, never the made component.
-    const compositeAttemptMetric=keys.includes("field_goals")||keys.includes("free_throws");
-    const result=compositeAttemptMetric?parsed.attempts:parsed.value;
-    return result!=null&&Number.isFinite(result)?result:null;
+    if(value&&typeof value==="object"){
+      const attempt=value.attempts??value.attempted??value.attemptsCount??value.attempt_count;
+      if(part==="attempts"&&attempt!=null&&Number.isFinite(Number(attempt)))return Number(attempt);
+      const made=value.made??value.scored??value.current??value.value??value.total??value.count??value.displayValue??value.display_value;
+      if(made!=null){const parsed=parseStatCount(made);if(parsed)return parsed.value;const n=Number(made);if(Number.isFinite(n))return n;}
+    }
+    const parsed=parseStatCount(value);if(!parsed)return null;
+    if(part==="attempts")return parsed.attempts!=null&&Number.isFinite(parsed.attempts)?parsed.attempts:null;
+    return Number.isFinite(parsed.value)?parsed.value:null;
   };
   const sides={home:{},away:{}};
-  for(const side of ["home","away"])for(const [key,names] of Object.entries(aliases))sides[side][key]=read(side,names);
-  let home=sides.home.poss,away=sides.away.poss,method="фактические владения источника";
-  if(!(home>0&&away>0)){
-    if(!["home","away"].every(side=>["fga","oreb","tov","fta"].every(k=>sides[side][k]!=null)))
-      return {applied:false,reason:"нет владений или полного набора бросков, подборов в нападении, потерь и штрафных"};
-    home=sides.home.fga-sides.home.oreb+sides.home.tov+0.44*sides.home.fta;
-    away=sides.away.fga-sides.away.oreb+sides.away.tov+0.44*sides.away.fta;
-    method="расчёт по FGA − OREB + потери + 0,44×FTA";
+  for(const side of ["home","away"]){
+    for(const [key,names] of Object.entries(aliases)){
+      const isAttempt=["fga","fta","twoAtt","threeAtt"].includes(key);
+      const composite=["fga","fta","fgm","ftm","twoMade","twoAtt","threeMade","threeAtt"].includes(key);
+      sides[side][key]=read(side,names,composite?(isAttempt?"attempts":"value"):"value");
+    }
+    if(sides[side].fga==null&&sides[side].twoAtt!=null&&sides[side].threeAtt!=null)sides[side].fga=sides[side].twoAtt+sides[side].threeAtt;
+    if(sides[side].fgm==null&&sides[side].twoMade!=null&&sides[side].threeMade!=null)sides[side].fgm=sides[side].twoMade+sides[side].threeMade;
   }
-  if(!(home>0&&away>0))return {applied:false,reason:"некорректные значения владений"};
+  const derivedAvailable=["home","away"].every(side=>["fga","oreb","tov","fta"].every(k=>Number.isFinite(sides[side][k])));
+  const derived=derivedAvailable?{home:sides.home.fga-sides.home.oreb+sides.home.tov+0.44*sides.home.fta,away:sides.away.fga-sides.away.oreb+sides.away.tov+0.44*sides.away.fta}:null;
+  const direct={home:sides.home.poss,away:sides.away.poss};
+  let home=null,away=null,method="",qualityNotes=[];
+  if(direct.home>0&&direct.away>0){
+    home=direct.home;away=direct.away;method="фактические владения PARI/box-score";
+    if(derived){
+      const gap=Math.max(Math.abs(home-derived.home)/Math.max(derived.home,1),Math.abs(away-derived.away)/Math.max(derived.away,1));
+      if(gap>0.30)return {applied:false,reason:"прямые владения расходятся с расчётом по броскам более чем на 30% — данные отправлены на проверку",conflict_percent:Math.round(gap*100)};
+      if(gap>0.15)qualityNotes.push("есть расхождение прямых и расчётных владений "+Math.round(gap*100)+"%");
+    }
+  }else if(derived){
+    home=derived.home;away=derived.away;method="расчёт: FGA − OREB + потери + 0,44×FTA";
+    qualityNotes.push("прямой показатель владений не получен; использована формула по box-score");
+  }else return {applied:false,reason:"не хватает парных данных: владения либо FGA, подборы в нападении, потери и FTA обеих команд"};
+  if(!(Number.isFinite(home)&&Number.isFinite(away)&&home>0&&away>0))return {applied:false,reason:"некорректные значения владений"};
   const imbalance=Math.abs(home-away)/Math.max(home,away);
-  if(imbalance>0.25)return {applied:false,reason:"владения команд расходятся более чем на 25% — проверка качества не пройдена"};
+  if(imbalance>0.30)return {applied:false,reason:"разница владений команд выше 30% — проверка качества не пройдена"};
   const score=findLiveScore(ev);if(!score)return {applied:false,reason:"нет подтверждённого счёта"};
-  const current=Number(score[0])+Number(score[1]),possessions=(home+away)/2;
-  if(possessions<10||possessions>180)return {applied:false,reason:"значение владений вне допустимого диапазона"};
-  const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||inferPeriodLengthForForecast(ev)?.seconds||0);
-  const count=Number(ev?.external_live?.period_count||inferPeriodLengthForForecast(ev)?.periods||4);
+  const homePoints=Number(score[0]),awayPoints=Number(score[1]),current=homePoints+awayPoints,possessions=(home+away)/2;
+  if(possessions<2||possessions>180)return {applied:false,reason:"значение владений вне допустимого диапазона"};
+  const info=inferPeriodLengthForForecast(ev);
+  const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||info?.seconds||0);
+  const count=Number(ev?.external_live?.period_count||info?.periods||4);
   const totalSeconds=length*count,elapsed=Number(estimate?.elapsed_seconds||0);
   if(!length||!elapsed||elapsed>=totalSeconds)return {applied:false,reason:"не хватает подтверждённого времени матча"};
-  const pointsPerPossession=current/possessions,remaining=totalSeconds-elapsed;
-  const possPerMinute=possessions/(elapsed/60);
-  // Team-level possession efficiency is retained separately for diagnostics.
-  // The combined projection uses the average team possession count, avoiding
-  // double-counting the two teams' possessions in a single game total.
+  const elapsedMinutes=elapsed/60,remaining=totalSeconds-elapsed,possPerMinute=possessions/elapsedMinutes,pointsPerPossession=current/possessions;
+  if(possPerMinute<0.15||possPerMinute>2.25)return {applied:false,reason:"темп владений неправдоподобен для прошедшего времени"};
+  if(pointsPerPossession<0.45||pointsPerPossession>2.25)return {applied:false,reason:"эффективность очков на владение не прошла проверку"};
   const projected=current+possPerMinute*(remaining/60)*pointsPerPossession;
-  const baseline=Math.max(1,Number(estimate.projection)-current);
-  return {applied:true,method,home:Math.round(home*10)/10,away:Math.round(away*10)/10,
-    average:Math.round(possessions*10)/10,imbalance_percent:Math.round(imbalance*100),
-    pointsPerPossession:Math.round(pointsPerPossession*1000)/1000,
-    possPerMinute:Math.round(possPerMinute*100)/100,
-    projection:Math.round(projected*10)/10,
-    remaining_minutes:Math.round(remaining/60*100)/100,
-    adjustment:clampForecast((projected-current)/baseline,0.94,1.06)};
+  const teamPppHome=homePoints/home,teamPppAway=awayPoints/away;
+  const efg=side=>{const x=sides[side],fga=x.fga,fgm=x.fgm??((x.twoMade??0)+(x.threeMade??0)),tpm=x.threeMade;return fga>0&&Number.isFinite(fgm)&&Number.isFinite(tpm)?(fgm+0.5*tpm)/fga:null;};
+  const homeEfg=efg("home"),awayEfg=efg("away");
+  const metricCoverage=["fga","fgm","oreb","dreb","rebounds","tov","fta","ftm","poss","twoMade","twoAtt","threeMade","threeAtt","assists","steals","blocks","fouls"].filter(k=>sides.home[k]!=null&&sides.away[k]!=null).length;
+  const metrics={
+    home_ppp:Math.round(teamPppHome*1000)/1000,away_ppp:Math.round(teamPppAway*1000)/1000,
+    home_efg:homeEfg==null?null:Math.round(homeEfg*1000)/1000,away_efg:awayEfg==null?null:Math.round(awayEfg*1000)/1000,
+    turnover_rate_home:sides.home.tov==null?null:Math.round(sides.home.tov/home*1000)/10,turnover_rate_away:sides.away.tov==null?null:Math.round(sides.away.tov/away*1000)/10,
+    offensive_rebounds_home:sides.home.oreb,offensive_rebounds_away:sides.away.oreb,
+    rebounds_home:sides.home.rebounds,rebounds_away:sides.away.rebounds,
+    free_throw_rate_home:sides.home.fga>0&&sides.home.fta!=null?Math.round(sides.home.fta/sides.home.fga*1000)/10:null,
+    free_throw_rate_away:sides.away.fga>0&&sides.away.fta!=null?Math.round(sides.away.fta/sides.away.fga*1000)/10:null,
+    three_point_rate_home:sides.home.fga>0&&sides.home.threeAtt!=null?Math.round(sides.home.threeAtt/sides.home.fga*1000)/10:null,
+    three_point_rate_away:sides.away.fga>0&&sides.away.threeAtt!=null?Math.round(sides.away.threeAtt/sides.away.fga*1000)/10:null,
+    assists_home:sides.home.assists,assists_away:sides.away.assists,fouls_home:sides.home.fouls,fouls_away:sides.away.fouls,
+    steals_home:sides.home.steals,steals_away:sides.away.steals,blocks_home:sides.home.blocks,blocks_away:sides.away.blocks
+  };
+  const baseline=Math.max(1,Number(estimate?.projection)-current),confidence=qualityNotes.length?"средняя":(direct.home>0&&direct.away>0&&metricCoverage>=8?"высокая":metricCoverage>=5?"средняя":"ограниченная");
+  return {applied:true,model:"Possession Engine v2",method,confidence,qualityNotes,metrics,metric_coverage:metricCoverage,
+    home:Math.round(home*10)/10,away:Math.round(away*10)/10,average:Math.round(possessions*10)/10,imbalance_percent:Math.round(imbalance*100),
+    pointsPerPossession:Math.round(pointsPerPossession*1000)/1000,homePointsPerPossession:Math.round(teamPppHome*1000)/1000,awayPointsPerPossession:Math.round(teamPppAway*1000)/1000,
+    possPerMinute:Math.round(possPerMinute*100)/100,expectedRemainingPossessions:Math.round(possPerMinute*(remaining/60)*10)/10,
+    expectedRemainingPoints:Math.round((projected-current)*10)/10,projection:Math.round(projected*10)/10,remaining_minutes:Math.round(remaining/60*100)/100,
+    adjustment:clampForecast((projected-current)/baseline,0.90,1.10)};
 }
 function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=null){
   if(!estimate||!Number.isFinite(estimate.projection)||!Number.isFinite(estimate.current))return estimate;
   const context=estimate.source==="period_range"?{estimate,factors:[],adjustment:1}:applyGameContext(estimate,ev||{},period,clock);
-  const adjusted=context.estimate||estimate,statsContext=liveShootingContext(ev||{},adjusted);
+  const adjusted=context.estimate||estimate;
   const possession=estimate.source==="period_range"?{applied:false,reason:"нет точного таймера"}:possessionModelContext(ev||{},adjusted,period,clock);
+  const statsContext=liveShootingContext(ev||{},adjusted);
+  // Possession pace × points per possession is the lead forecast.
+  // Other signals are secondary and damped to avoid double-counting.
   const baseMu=Math.max(0,adjusted.projection-adjusted.current);
   const possMu=possession.applied?Math.max(0,possession.projection-adjusted.current):baseMu;
-  const mu=possMu*statsContext.adjustment,mc=poissonMonteCarlo(adjusted.current,mu,lines,seedText);
+  const secondaryAdjustment=possession.applied?clampForecast(1+(statsContext.adjustment-1)*0.35,0.985,1.015):statsContext.adjustment;
+  const mu=possMu*secondaryAdjustment,mc=poissonMonteCarlo(adjusted.current,mu,lines,seedText);
   const factors=[...(context.factors||[]),...(statsContext.factors||[])];
-  if(possession.applied)factors.push("владения: "+possession.average+" на команду; "+possession.possPerMinute+" влад./мин; "+possession.pointsPerPossession+" очка/владение");
-  return {...adjusted,context_factors:factors,context_adjustment:context.adjustment,
-    statistics_adjustment:statsContext.adjustment,statistics_quality:statsContext.quality,
-    shooting_efg:statsContext.efg??null,possession_model:possession,
-    poisson:mc,low:mc.low80,high:mc.high80,sigma:Math.sqrt(Math.max(mu,0)),
-    projection:Math.round((adjusted.current+mu)*10)/10};
+  if(possession.applied){
+    factors.unshift("ведущая модель владений: "+possession.average+" владений на команду · "+possession.possPerMinute+" влад./мин · "+possession.pointsPerPossession+" очка/владение");
+    factors.push("ожидаемые владения до конца: "+possession.expectedRemainingPossessions+" · очки до конца по модели владений: "+possession.expectedRemainingPoints);
+    if(possession.qualityNotes?.length)factors.push(...possession.qualityNotes);
+  }
+  return {...adjusted,context_factors:factors,context_adjustment:context.adjustment,statistics_adjustment:secondaryAdjustment,
+    statistics_quality:statsContext.quality,shooting_efg:statsContext.efg??null,possession_model:possession,
+    poisson:mc,low:mc.low80,high:mc.high80,sigma:Math.sqrt(Math.max(mu,0)),projection:Math.round((adjusted.current+mu)*10)/10};
 }
 function normalCdf(z){
   const sign=z<0?-1:1,x=Math.abs(z),t=1/(1+0.2316419*x);
@@ -499,6 +552,7 @@ function showSelectedMatch(ev){
       '<p class="calc-formula">Базовая формула: текущие очки ÷ прошедшие минуты = темп; темп × оставшиеся минуты = ожидаемые очки до конца; затем учитываются подтверждённые игровые факторы и статистика.</p>'+
       '<h3>Вероятности по линии PARI</h3>'+(lineRows?'<table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Ориентир</th><th>Коэфф. PARI</th></tr></thead><tbody>'+lineRows+'</tbody></table>':'<p class="muted">Линия полного тотала не найдена.</p>')+
       '<h3>Модель владений</h3>'+(possession.applied?'<div class="calc-grid"><div class="calc-card"><span>Владения команды 1</span><b>'+possession.home+'</b></div><div class="calc-card"><span>Владения команды 2</span><b>'+possession.away+'</b></div><div class="calc-card"><span>Среднее владений</span><b>'+possession.average+'</b></div><div class="calc-card"><span>Владений в минуту</span><b>'+possession.possPerMinute+'</b></div><div class="calc-card"><span>Очков на владение</span><b>'+possession.pointsPerPossession+'</b></div><div class="calc-card"><span>Разница владений</span><b>'+possession.imbalance_percent+'%</b></div></div><p class="calc-formula">Источник: '+escapeHtml(possession.method)+'. Прогноз: текущие очки + (владения в минуту × оставшиеся минуты × очки на владение).</p>':'<p class="muted">Расчёт не активирован: '+escapeHtml(possession.reason||"нет пригодной статистики владений")+'. Модель не подменяет реальные владения оценкой по одному лишь счёту.</p>')+
+      (possession.applied&&possession.metrics?'<p class="calc-formula"><b>Контроль факторов модели:</b> PPP команды 1/2 '+possession.homePointsPerPossession+' / '+possession.awayPointsPerPossession+' · eFG '+(possession.metrics.home_efg==null?'—':(possession.metrics.home_efg*100).toFixed(1)+'%')+' / '+(possession.metrics.away_efg==null?'—':(possession.metrics.away_efg*100).toFixed(1)+'%')+' · потери/владение '+(possession.metrics.turnover_rate_home==null?'—':possession.metrics.turnover_rate_home+'%')+' / '+(possession.metrics.turnover_rate_away==null?'—':possession.metrics.turnover_rate_away+'%')+' · подборы в нападении '+(possession.metrics.offensive_rebounds_home??'—')+' / '+(possession.metrics.offensive_rebounds_away??'—')+' · штрафные/FGA '+(possession.metrics.free_throw_rate_home==null?'—':possession.metrics.free_throw_rate_home+'%')+' / '+(possession.metrics.free_throw_rate_away==null?'—':possession.metrics.free_throw_rate_away+'%')+' · 3PA/FGA '+(possession.metrics.three_point_rate_home==null?'—':possession.metrics.three_point_rate_home+'%')+' / '+(possession.metrics.three_point_rate_away==null?'—':possession.metrics.three_point_rate_away+'%')+' · покрытие '+possession.metric_coverage+'/17 · уверенность '+escapeHtml(possession.confidence||'—')+'</p>':'')+
       '<h3>Эффективность бросков</h3><p>'+(shooting.efg!=null?'eFG: '+(shooting.efg*100).toFixed(1)+'% · поправка оставшегося ожидания '+((shooting.adjustment-1)*100).toFixed(1)+'%':'Не рассчитана: '+escapeHtml(shooting.quality||"нет статистики бросков"))+'</p>'+
       '<h3>Факторы, вошедшие в расчёт</h3><ul class="calc-factors">'+(estimate.context_factors||[]).map(x=>'<li>'+escapeHtml(x)+'</li>').join("")+'</ul>'
     : '<p class="muted">'+escapeHtml(matchForecast.reason||"Для прогноза пока недостаточно подтверждённых данных.")+'</p>';
@@ -797,6 +851,17 @@ function automaticQuarterForecast(ev) {
     projection=matchForecast.estimate.projection/4;
     source="рыночный ориентир матча ÷ 4 · не игровая оценка";
   }
+  // Possession engine leads the quarter projection when the clock is verified.
+  const possessionModel=matchForecast.ready&&matchForecast.estimate?.possession_model?.applied?matchForecast.estimate.possession_model:null;
+  let possessionQuarterProjection=null;
+  if(possessionModel&&Number.isFinite(remaining)&&remaining>=0&&Number.isFinite(current)){
+    possessionQuarterProjection=current+possessionModel.possPerMinute*(remaining/60)*possessionModel.pointsPerPossession;
+    if(Number.isFinite(possessionQuarterProjection)){
+      const weight=Number.isFinite(elapsed)&&elapsed>=180?0.80:0.90;
+      projection=Number.isFinite(projection)?possessionQuarterProjection*weight+projection*(1-weight):possessionQuarterProjection;
+      source="ведущая модель владений Q"+period+" · "+possessionModel.possPerMinute+" влад./мин × "+(remaining/60).toFixed(1)+" мин × "+possessionModel.pointsPerPossession+" очка/владение";
+    }
+  }
   if(!Number.isFinite(projection)||projection<0){
     return {ready:false,reason:!period?"не определён номер четверти":!length?"не определена длительность четверти":!matchScore?"нет подтверждённого счёта":"нет данных для оценки темпа"};
   }
@@ -814,7 +879,8 @@ function automaticQuarterForecast(ev) {
     home:currentQuarter?.pair?.[0]??null,away:currentQuarter?.pair?.[1]??null,
     score_source:source,elapsed:elapsedMinutes,low80:poisson.low80,high80:poisson.high80,
     low95:poisson.low95,high95:poisson.high95,poisson,lines:poisson.probabilities,
-    preliminary,context_factors:[source,...(shootingContext.efg!=null?["слабая поправка Q по eFG всего матча "+(shootingContext.efg*100).toFixed(1)+"%"]:[])],
+    preliminary,context_factors:[source,...(possessionModel?["модель владений — основной расчёт четверти"]:[]),...(shootingContext.efg!=null?["слабая поправка Q по eFG всего матча "+(shootingContext.efg*100).toFixed(1)+"%"]:[])],
+    possession_model:possessionModel, possession_projection:possessionQuarterProjection,
     statistics_adjustment:quarterStatsAdjustment};
 }
 let liveRefreshInFlight = false;
