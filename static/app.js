@@ -614,7 +614,7 @@ function inferPeriodLengthForForecast(ev) {
   // as evidence of a 12-minute period. Otherwise provide a clearly marked
   // provisional 4×10-minute estimate for quarter-based basketball.
   const clock=findLiveClock(ev);
-  const clockMatch=String(clock||"").match(/^(\\d{1,2}):([0-5]\\d)$/);
+  const clockMatch=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
   const remaining=clockMatch?Number(clockMatch[1])*60+Number(clockMatch[2]):null;
   if(remaining!=null&&remaining>600&&remaining<=720)
     return {seconds:720,periods:4,method:"предварительно 4×12 минут · таймер больше 10:00"};
