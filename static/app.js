@@ -720,25 +720,41 @@ function automaticQuarterForecast(ev) {
   const earlyQuarterBaseline=Number.isFinite(previousQuarterAverage)&&previousQuarterAverage>0
     ?previousQuarterAverage:Number.isFinite(matchQuarterAverage)&&matchQuarterAverage>0?matchQuarterAverage:null;
   const quarterLines=[];
-  const groups=(ev.related_factor_groups||[]);
-  for(const group of groups){
-    const label=String(group.name||group.kindName||"");
-    const explicit=Number(group.period??group.periodNumber??group.quarter??group.quarterNumber);
-    const patterns=[
-      new RegExp("\\bq\\s*"+period+"\\b","i"),
-      new RegExp("\\bquarter\\s*"+period+"\\b","i"),
-      new RegExp("\\bperiod\\s*"+period+"\\b","i"),
-      new RegExp("\\b"+period+"\\s*[-–.]?\\s*(?:я|й|ая|ый)?\\s*четверт\\w*","i"),
-      new RegExp("четверт\\w*\\s*"+period+"\\b","i")
-    ];
-    if(!(Number.isInteger(period)&&period>=1&&period<=4&&(explicit===period||(![1,2,3,4].includes(explicit)&&patterns.some(rx=>rx.test(label))))))continue;
-    for(const factor of (group.factors||[])){
-      if(!factor||!["930","931"].includes(String(factor.f)))continue;
-      const line=factor.pt!=null?Number(factor.pt):(factor.p!=null?Number(factor.p)/100:NaN);
+  // Quarter markets are not always located in related_factor_groups: PARI
+  // responses can nest them under factors, related_factors or related_events.
+  // Walk all known market containers while retaining the parent market label
+  // and explicit period metadata; never mistake the full-game total for Qn.
+  const quarterPatterns=[
+    new RegExp("\\bq\\s*"+period+"\\b","i"),
+    new RegExp("\\bquarter\\s*"+period+"\\b","i"),
+    new RegExp("\\bperiod\\s*"+period+"\\b","i"),
+    new RegExp("\\b"+period+"\\s*[-–.]?\\s*(?:я|й|ая|ый)?\\s*четверт\\w*","i"),
+    new RegExp("четверт\\w*\\s*"+period+"\\b","i")
+  ];
+  const seenMarketObjects=new Set();
+  const walkQuarterMarkets=(node,contextLabel="",contextPeriod=null,depth=0)=>{
+    if(!node||typeof node!=="object"||depth>8||seenMarketObjects.has(node))return;
+    seenMarketObjects.add(node);
+    if(Array.isArray(node)){for(const child of node)walkQuarterMarkets(child,contextLabel,contextPeriod,depth+1);return;}
+    const ownLabel=String(node.name||node.kindName||node.marketName||node.market_name||node.typeName||node.description||"");
+    const label=ownLabel||contextLabel;
+    const rawPeriod=node.period??node.periodNumber??node.period_number??node.quarter??node.quarterNumber??node.quarter_number;
+    const explicit=rawPeriod==null?contextPeriod:Number(rawPeriod);
+    const isTargetPeriod=Number.isInteger(period)&&period>=1&&period<=4&&
+      (explicit===period||(!Number.isInteger(explicit)&&quarterPatterns.some(rx=>rx.test(label))));
+    if(["930","931"].includes(String(node.f))&&isTargetPeriod){
+      const line=node.pt!=null?Number(node.pt):(node.p!=null?Number(node.p)/100:NaN);
       if(Number.isFinite(line)&&line>0&&line<150&&!quarterLines.some(x=>x.line===line))
-        quarterLines.push({line,odds:factor.v==null?null:String(factor.v),source:"PARI"});
+        quarterLines.push({line,odds:node.v==null?null:String(node.v),source:"PARI"});
+      return;
     }
-  }
+    for(const [key,child] of Object.entries(node)){
+      if(child&&typeof child==="object")
+        walkQuarterMarkets(child,label,explicit,depth+1);
+    }
+  };
+  for(const root of [ev.related_factor_groups,ev.related_factors,ev.factors,ev.related_events,ev.match_total_candidates])
+    walkQuarterMarkets(root);
   let projection=null,source="",elapsedMinutes=null,observed=current;
   if(Number.isFinite(current)&&Number.isFinite(elapsed)&&length&&elapsed>0&&elapsed<=length&&!(current===0&&elapsed<180&&earlyQuarterBaseline!=null)){
     projection=current/elapsed*length;
