@@ -712,6 +712,13 @@ function automaticQuarterForecast(ev) {
   const elapsed=m&&length?length-remaining:null;
   const currentQuarter=period?currentQuarterScore(ev,period,matchScore):null;
   const current=currentQuarter?currentQuarter.pair[0]+currentQuarter.pair[1]:null;
+  const previousQuarterTotals=Array.from({length:Math.max(0,Number(period||1)-1)},(_,i)=>readPeriodScore(ev,i)).filter(value=>Number.isFinite(value));
+  const previousQuarterAverage=previousQuarterTotals.length
+    ?previousQuarterTotals.reduce((sum,value)=>sum+value,0)/previousQuarterTotals.length:null;
+  const matchQuarterAverage=matchForecast.ready&&Number.isFinite(Number(matchForecast.estimate?.projection))
+    ?Number(matchForecast.estimate.projection)/4:null;
+  const earlyQuarterBaseline=Number.isFinite(previousQuarterAverage)&&previousQuarterAverage>0
+    ?previousQuarterAverage:Number.isFinite(matchQuarterAverage)&&matchQuarterAverage>0?matchQuarterAverage:null;
   const quarterLines=[];
   const groups=(ev.related_factor_groups||[]);
   for(const group of groups){
@@ -733,10 +740,18 @@ function automaticQuarterForecast(ev) {
     }
   }
   let projection=null,source="",elapsedMinutes=null,observed=current;
-  if(Number.isFinite(current)&&Number.isFinite(elapsed)&&length&&elapsed>0&&elapsed<=length){
+  if(Number.isFinite(current)&&Number.isFinite(elapsed)&&length&&elapsed>0&&elapsed<=length&&!(current===0&&elapsed<180&&earlyQuarterBaseline!=null)){
     projection=current/elapsed*length;
     source=currentQuarter.source+" · темп текущей четверти"+(recoveredClock?" · время восстановлено из секунд матча":"");
     elapsedMinutes=Math.round(elapsed/60*10)/10;
+  } else if(Number.isFinite(current)&&elapsed===0&&length&&period&&earlyQuarterBaseline!=null){
+    projection=earlyQuarterBaseline;
+    source="среднее завершённых четвертей · текущая четверть только началась";
+    elapsedMinutes=0;
+  } else if(Number.isFinite(current)&&current===0&&earlyQuarterBaseline!=null&&(!Number.isFinite(elapsed)||elapsed<180)){
+    projection=earlyQuarterBaseline;
+    source="среднее завершённых четвертей · в текущей четверти пока нет очков";
+    elapsedMinutes=Number.isFinite(elapsed)?Math.round(elapsed/60*10)/10:null;
   } else if(Number.isFinite(current)&&length&&period){
     // Missing countdown: keep the forecast available using a transparent
     // midpoint-of-period assumption; never present this as a live clock reading.
