@@ -3845,8 +3845,8 @@ def archive_status():
     return {"ok":True,"matches":matches,"snapshots":snapshots,"database_bytes":size,
             "storage_path":str(_ARCHIVE_DB),"persistent":str(_ARCHIVE_DB).startswith("/var/data/"),
             "collector":dict(_ARCHIVE_LAST),"interval_seconds":30,
-            "scope":"PARI LIVE matches accepted by server; collection runs while service process is awake",
-            "prediction_capture":"Raw event snapshots are collected server-side; per-model client forecasts are not yet archived automatically."}
+            "scope":"Local SQLite stores raw PARI snapshots while Render is awake; an independent GitHub Actions collector stores live snapshots and the site model forecasts every five minutes, then publishes daily ZIP releases.",
+            "prediction_capture":"Autonomous GitHub archive includes the complete normalized event, available score/clock/market/statistics fields, AI analysis, match and quarter model outputs, consensus groups, and advanced calculations. The local Render SQLite database still stores raw event snapshots only."}
 
 @app.get("/api/archive/export")
 def archive_export():
@@ -3891,5 +3891,8 @@ def archive_clear(confirm: bool = False):
 @app.on_event("startup")
 async def _start_match_archive_collector():
     # Ensure schema exists before the first poll, then run without browser dependency.
-    await asyncio.to_thread(_archive_connect)
+    def initialize_and_close():
+        conn = _archive_connect()
+        conn.close()
+    await asyncio.to_thread(initialize_and_close)
     asyncio.create_task(_archive_collector_loop())
