@@ -383,7 +383,8 @@ function advancedMatchCalculations(ev,estimate,period,clock,possession,quarterFo
   const qMatch=Number(period)>0?currentQuarterScore(ev,Number(period),findLiveScore(ev)):null;
   const qClock=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
   const qElapsed=length>0&&qClock?length-(Number(qClock[1])*60+Number(qClock[2])):null;
-  if(qMatch&&qElapsed>=120&&matchRate>0){
+  const formatUnverified=String(inferPeriodLengthForForecast(ev)?.method||"").includes("предварительно");
+  if(qMatch&&qElapsed>=120&&matchRate>0&&!formatUnverified){
     const qRate=(qMatch.pair[0]+qMatch.pair[1])/(qElapsed/60);
     out.push({name:"Ускорение / замедление",value:(qRate>=matchRate?"+":"")+fmt((qRate/matchRate-1)*100,1)+"%",detail:"Q "+fmt(qRate,2)+" · матч "+fmt(matchRate,2)+" оч./мин"});
   }
@@ -504,7 +505,10 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   if(!estimate||!Number.isFinite(estimate.projection)||!Number.isFinite(estimate.current))return estimate;
   const context=estimate.source==="period_range"?{estimate,factors:[],adjustment:1}:applyGameContext(estimate,ev||{},period,clock);
   const adjusted=context.estimate||estimate;
-  const possession=estimate.source==="period_range"?{applied:false,reason:"нет точного таймера"}:possessionModelContext(ev||{},adjusted,period,clock);
+  const formatInfo=inferPeriodLengthForForecast(ev||{});
+  const formatUnverified=String(formatInfo?.method||"").includes("предварительно");
+  const possession=estimate.source==="period_range"?{applied:false,reason:"нет точного таймера"}:
+    (formatUnverified?{applied:false,reason:"длительность четверти не подтверждена"}:possessionModelContext(ev||{},adjusted,period,clock));
   const statsContext=liveShootingContext(ev||{},adjusted);
   // Possession pace × points per possession is the lead forecast.
   // Other signals are secondary and damped to avoid double-counting.
@@ -822,9 +826,11 @@ function automaticForecast(ev) {
     const estimate=estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength}},score,period,clock);
     if(estimate&&estimate.elapsed_seconds>0){
       const early=estimate.elapsed_seconds<12*60;
+      const formatUnverified=String(lengthInfo?.method||"").includes("предварительно");
+      const preliminary=early||formatUnverified;
       const modeled=applyPoissonModel(estimate,lines,String(ev.id||"")+"|"+score.join(":")+"|"+clock,ev,period,clock);
-      return {ready:true,kind:"live_tempo",estimate:{...modeled,confidence:early?"низкая · ранняя стадия":"рабочая",preliminary:early},lines,
-        message:early?"Предварительный темп с начала матча; обновляется с каждым снимком":"Линейный темп + модель статистики + симуляции Монте-Карло"};
+      return {ready:true,kind:"live_tempo",estimate:{...modeled,confidence:preliminary?"низкая · предварительный формат/ранняя стадия":"рабочая",preliminary},lines,
+        message:preliminary?"Предварительная оценка: формат или стадия матча не подтверждены":"Линейный темп + модель статистики + симуляции Монте-Карло"};
     }
   }
   if(score&&period&&lengthInfo){
