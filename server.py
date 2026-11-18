@@ -2173,9 +2173,9 @@ def _stat_value_for_ui(value):
 def _pari_stat_metric(label):
     text = re.sub(r"[^a-zа-яё0-9]+", "", str(label or "").casefold().replace("ё", "е"))
     patterns = (
-        ("three_pointers_made", r"^(3pm|3ptm|3ptmade|fg3m)$|3.?point.*(made|scored)|three.?point.*(made|scored)|тр[её]х.?очк.*(попад|забит)|заб\\s*/?\\s*3.?х.?очк"),
+        ("three_pointers_made", r"^(3pm|3ptm|3ptmade|fg3m)$|3.?point.*(made|scored)|three.?point.*(made|scored)|тр[её]х.?очк.*(попад|забит)|заб\s*/?\s*3.?х.?очк"),
         ("three_pointers_attempted", r"^(3pa|3pta|3ptattempted|fg3a)$|3.?point.*(attempt|att)|three.?point.*(attempt|att)|тр[её]х.?очк.*(брос|попыт)"),
-        ("two_pointers_made", r"^(2pm|2ptm|2ptmade)$|2.?point.*(made|scored)|two.?point.*(made|scored)|двух.?очк.*(попад|забит)|заб\\s*/?\\s*2.?х.?очк"),
+        ("two_pointers_made", r"^(2pm|2ptm|2ptmade)$|2.?point.*(made|scored)|two.?point.*(made|scored)|двух.?очк.*(попад|забит)|заб\s*/?\s*2.?х.?очк"),
         ("two_pointers_attempted", r"^(2pa|2pta|2ptattempted)$|2.?point.*(attempt|att)|two.?point.*(attempt|att)|двух.?очк.*(брос|попыт)"),
         ("free_throws_made", r"^(ftm|ftmade)$|free.?throw.*(made|scored)|штрафн.*(попад|реализ)"),
         ("free_throws_attempted", r"^(fta|ftattempted)$|free.?throw.*(attempt|att)|штрафн.*(брос|попыт)"),
@@ -2233,6 +2233,16 @@ def _finalize_live_statistics(events):
     for event in events if isinstance(events, list) else []:
         if not isinstance(event, dict):
             continue
+        period_rows = []
+        for raw_period_row in event.get("period_statistics") or []:
+            period_row = _normalize_live_stat_row(raw_period_row)
+            if period_row:
+                try:
+                    period_row["period"] = int(raw_period_row.get("period"))
+                except (TypeError, ValueError, AttributeError):
+                    period_row["period"] = None
+                period_rows.append(period_row)
+        event["period_statistics"] = period_rows
         normalized, seen = [], set()
         for raw in event.get("external_statistics") or []:
             row = _normalize_live_stat_row(raw)
@@ -2254,7 +2264,7 @@ def _finalize_live_statistics(events):
                 continue
             parsed_pair = []
             for side in ("home", "away"):
-                match = re.fullmatch(r"\\s*(\\d+(?:[.,]\\d+)?)\\s*[-/:]\\s*(\\d+(?:[.,]\\d+)?)\\s*", str(row.get(side)))
+                match = re.fullmatch(r"\s*(\d+(?:[.,]\d+)?)\s*[-/:]\s*(\d+(?:[.,]\d+)?)\s*", str(row.get(side)))
                 if not match:
                     parsed_pair = []
                     break
