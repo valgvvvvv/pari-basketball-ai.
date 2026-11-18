@@ -3267,14 +3267,14 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # budget; return the authoritative PARI feed even on timeout.
                     try:
                         live_enrichment = await asyncio.wait_for(
-                            _enrich_with_sofascore_live(basketball), timeout=24.0
+                            _enrich_with_sofascore_live(basketball), timeout=8.0
                         )
                     except asyncio.TimeoutError:
                         live_enrichment = {
                             "source": "sofascore+sportscore",
                             "status": "timeout",
                             "matched": 0,
-                            "errors": ["Внешнее обогащение превысило лимит 12 секунд; матчи PARI возвращены без него."]
+                            "errors": ["Внешнее обогащение превысило лимит 8 секунд; матчи и линии PARI возвращены без ожидания дополнительных источников."]
                         }
                     except Exception as exc:
                         live_enrichment = {
