@@ -1,9 +1,9 @@
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional
-import math, random, os, hashlib, re, asyncio, json
+import math, random, os, hashlib, re, asyncio, json, sqlite3, zlib, io, zipfile, pathlib
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from html import unescape
@@ -3746,3 +3746,150 @@ async def _schedule_pari_stats_discovery():
     # Neither audit blocks readiness. The live audit primes the homepage cache.
     asyncio.create_task(_pari_startup_live_statistics_audit())
     asyncio.create_task(_pari_startup_stats_discovery())
+
+
+# --- Persistent match research archive ---------------------------------------
+# A mounted Render disk at /var/data makes this durable. Without one, use a
+# clearly marked temporary path; never claim that ephemeral storage is durable.
+_ARCHIVE_DIR = pathlib.Path("/var/data") if pathlib.Path("/var/data").is_dir() else pathlib.Path("/tmp")
+_ARCHIVE_DB = _ARCHIVE_DIR / "pari_match_archive.sqlite3"
+_ARCHIVE_LOCK = asyncio.Lock()
+_ARCHIVE_LAST = {"checked_at": None, "events": 0, "saved": 0, "error": None}
+
+def _archive_connect():
+    conn = sqlite3.connect(str(_ARCHIVE_DB), timeout=20)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("""CREATE TABLE IF NOT EXISTS matches (
+        event_id TEXT PRIMARY KEY, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
+        team1 TEXT, team2 TEXT, league TEXT, status TEXT, final_score TEXT,
+        last_hash TEXT, snapshots INTEGER NOT NULL DEFAULT 0
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL,
+        captured_at TEXT NOT NULL, quarter INTEGER, clock TEXT, score TEXT,
+        payload_z BLOB NOT NULL, payload_sha TEXT NOT NULL,
+        UNIQUE(event_id,payload_sha)
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_snap_event_time ON snapshots(event_id,captured_at)")
+    conn.commit()
+    return conn
+
+def _archive_save_events(data):
+    events = data.get("events", []) if isinstance(data, dict) else []
+    now = datetime.now(timezone.utc).isoformat()
+    saved = 0
+    conn = _archive_connect()
+    try:
+        for ev in events:
+            if not isinstance(ev, dict):
+                continue
+            event_id = str(ev.get("id") or "")
+            if not event_id:
+                continue
+            # Keep the normalized event including raw PARI payload, external stats,
+            # market factors, clock provenance and all source diagnostics.
+            packed = json.dumps(ev, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")
+            digest = hashlib.sha256(packed).hexdigest()
+            score = ev.get("score")
+            score_text = json.dumps(score, ensure_ascii=False) if score is not None else None
+            period = ev.get("period")
+            clock = ev.get("clock")
+            status = str(ev.get("status") or ev.get("live_fields", {}).get("status") or "LIVE")
+            conn.execute("""INSERT INTO matches(event_id,first_seen,last_seen,team1,team2,league,status,final_score,last_hash,snapshots)
+                VALUES(?,?,?,?,?,?,?,?,?,0)
+                ON CONFLICT(event_id) DO UPDATE SET last_seen=excluded.last_seen,
+                team1=excluded.team1,team2=excluded.team2,league=excluded.league,status=excluded.status,
+                last_hash=excluded.last_hash""",
+                (event_id,now,now,ev.get("team1"),ev.get("team2"),ev.get("league"),status,None,digest))
+            cur=conn.execute("""INSERT OR IGNORE INTO snapshots(event_id,captured_at,quarter,clock,score,payload_z,payload_sha)
+                VALUES(?,?,?,?,?,?,?)""",
+                (event_id,now,period,clock,score_text,sqlite3.Binary(zlib.compress(packed,6)),digest))
+            if cur.rowcount:
+                saved += 1
+                conn.execute("UPDATE matches SET snapshots=snapshots+1 WHERE event_id=?",(event_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    return len(events), saved
+
+async def _archive_collector_loop():
+    # Independent of the phone/browser. It runs while the Render web process is awake.
+    while True:
+        try:
+            data = await _fetch_pari_live_events(catalog_only=False)
+            if data.get("ok") and data.get("connected"):
+                async with _ARCHIVE_LOCK:
+                    count, saved = await asyncio.to_thread(_archive_save_events, data)
+                _ARCHIVE_LAST.update({"checked_at":datetime.now(timezone.utc).isoformat(),
+                                      "events":count,"saved":saved,"error":None})
+                print("MATCH_ARCHIVE_COLLECTOR " + json.dumps(_ARCHIVE_LAST,ensure_ascii=False),flush=True)
+            else:
+                _ARCHIVE_LAST.update({"checked_at":datetime.now(timezone.utc).isoformat(),
+                                      "events":0,"saved":0,"error":"PARI feed unavailable"})
+        except Exception as exc:
+            _ARCHIVE_LAST.update({"checked_at":datetime.now(timezone.utc).isoformat(),
+                                  "error":type(exc).__name__ + ": " + str(exc)[:180]})
+            print("MATCH_ARCHIVE_ERROR " + str(exc)[:240],flush=True)
+        await asyncio.sleep(30)
+
+@app.get("/api/archive/status")
+def archive_status():
+    conn=_archive_connect()
+    try:
+        matches=conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
+        snapshots=conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0]
+        size=_ARCHIVE_DB.stat().st_size if _ARCHIVE_DB.exists() else 0
+    finally:
+        conn.close()
+    return {"ok":True,"matches":matches,"snapshots":snapshots,"database_bytes":size,
+            "storage_path":str(_ARCHIVE_DB),"persistent":str(_ARCHIVE_DB).startswith("/var/data/"),
+            "collector":dict(_ARCHIVE_LAST),"interval_seconds":30,
+            "scope":"PARI LIVE matches accepted by server; collection runs while service process is awake",
+            "prediction_capture":"Raw event snapshots are collected server-side; per-model client forecasts are not yet archived automatically."}
+
+@app.get("/api/archive/export")
+def archive_export():
+    conn=_archive_connect()
+    try:
+        matches=conn.execute("SELECT event_id,first_seen,last_seen,team1,team2,league,status,final_score,snapshots FROM matches ORDER BY first_seen").fetchall()
+        rows=conn.execute("SELECT event_id,captured_at,quarter,clock,score,payload_z,payload_sha FROM snapshots ORDER BY captured_at,id").fetchall()
+    finally:
+        conn.close()
+    out=io.BytesIO()
+    with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED,compresslevel=9) as zf:
+        manifest={"format":"pari-basketball-archive","version":1,"created_at":datetime.now(timezone.utc).isoformat(),
+                  "matches":len(matches),"snapshots":len(rows),"payload_encoding":"zlib-compressed UTF-8 JSON per row, expanded in snapshots.jsonl"}
+        zf.writestr("manifest.json",json.dumps(manifest,ensure_ascii=False,indent=2))
+        zf.writestr("matches.csv","event_id,first_seen,last_seen,team1,team2,league,status,final_score,snapshots\n"+
+            "".join(",".join('"'+str(v if v is not None else '').replace('"','""')+'"' for v in row)+"\n" for row in matches))
+        lines=[]
+        for event_id,captured_at,quarter,clock,score,payload_z,payload_sha in rows:
+            try: payload=json.loads(zlib.decompress(payload_z).decode("utf-8"))
+            except Exception: payload={"decode_error":True}
+            lines.append(json.dumps({"event_id":event_id,"captured_at":captured_at,"quarter":quarter,
+                "clock":clock,"score":score,"payload_sha256":payload_sha,"event":payload},
+                ensure_ascii=False,separators=(",",":"),default=str))
+        zf.writestr("snapshots.jsonl","\n".join(lines))
+    filename="pari-basketball-archive-"+datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")+".zip"
+    return Response(content=out.getvalue(),media_type="application/zip",
+        headers={"Content-Disposition":f'attachment; filename="{filename}"',"Cache-Control":"no-store"})
+
+@app.post("/api/archive/clear")
+def archive_clear(confirm: bool = False):
+    if not confirm:
+        return {"ok":False,"error":"Подтверди очистку параметром confirm=true после скачивания архива."}
+    conn=_archive_connect()
+    try:
+        conn.execute("DELETE FROM snapshots")
+        conn.execute("DELETE FROM matches")
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok":True,"matches":0,"snapshots":0,"message":"Архивная база очищена."}
+
+@app.on_event("startup")
+async def _start_match_archive_collector():
+    # Ensure schema exists before the first poll, then run without browser dependency.
+    await asyncio.to_thread(_archive_connect)
+    asyncio.create_task(_archive_collector_loop())
