@@ -2338,7 +2338,7 @@ def _extract_pari_live_statistics(objects):
             return
         label_text = str(label or "") + " " + str(group or "")
         period_match = re.search(
-            r"\\bq\\s*([1-4])\\b|([1-4])\\s*(?:-я|я|st|nd|rd|th)?\\s*(?:четверть|quarter)",
+            r"\bq\s*([1-4])\b|([1-4])\s*(?:-я|я|st|nd|rd|th)?\s*(?:четверть|quarter)",
             label_text, re.I
         )
         period = int(period_match.group(1) or period_match.group(2)) if period_match else None
