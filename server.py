@@ -2343,11 +2343,21 @@ def _extract_pari_live_statistics(objects):
     """Normalize only explicit, named PARI box-score fields; never guess opaque S1/S2 codes."""
     found = {}
     period_found = {}
+    unmapped_found = {}
     visited = set()
 
-    def add(label, home, away, group="PARI LIVE", metric_override=None):
+    def add(label, home, away, group="PARI LIVE", metric_override=None, kind_id=None):
         metric = metric_override or _pari_stat_metric(label)
-        if not metric or home is None or away is None:
+        if home is None or away is None:
+            return
+        if not metric:
+            if kind_id is not None or label:
+                marker = (str(kind_id or ""), str(label or ""), str(home), str(away))
+                unmapped_found[marker] = {
+                    "kind_id": str(kind_id) if kind_id is not None else None,
+                    "name": str(label or ""), "group": str(group or "PARI LIVE"),
+                    "home": home, "away": away, "source": "PARI-unmapped",
+                }
             return
         label_text = str(label or "") + " " + str(group or "")
         period_match = re.search(
@@ -2388,7 +2398,7 @@ def _extract_pari_live_statistics(objects):
             kind_id = str(value.get("kindId") or value.get("kind_id") or "")
             kind_metric = {"420300": "two_pointers_made", "420400": "three_pointers_made"}.get(kind_id)
             if kind_metric and home is not None and away is not None:
-                add(label or kind_metric, home, away, value.get("groupName") or value.get("group") or "PARI match-centre", metric_override=kind_metric)
+                add(label or kind_id, home, away, value.get("groupName") or value.get("group") or "PARI match-centre", metric_override=kind_metric, kind_id=kind_id)
             elif label:
                 add(label, home, away, value.get("groupName") or value.get("group") or value.get("category") or "PARI LIVE")
             # PARI may encode paired team values as flat sibling keys.
@@ -2413,7 +2423,8 @@ def _extract_pari_live_statistics(objects):
 
     for obj in objects:
         walk(obj)
-    return {"match": list(found.values()), "periods": list(period_found.values())}
+    return {"match": list(found.values()), "periods": list(period_found.values()),
+            "unmapped": list(unmapped_found.values())[:40]}
 
 
 # PARI public LIVE events feed. The endpoint is read-only; no account or betting actions.
@@ -3145,6 +3156,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     ])
                     pari_stats = pari_stat_result.get("match", [])
                     pari_row["period_statistics"] = pari_stat_result.get("periods", [])
+                    pari_row["unmapped_statistics_debug"] = pari_stat_result.get("unmapped", [])
                     if pari_stats:
                         pari_row["external_statistics"] = pari_stats
                         pari_row["statistics_source"] = "PARI"
@@ -3633,6 +3645,7 @@ async def _pari_startup_live_statistics_audit():
                 "statistics_types": raw.get("statisticsTypes"),
                 "stat_rows": (event.get("external_statistics") or [])[:12],
                 "period_stat_rows": (event.get("period_statistics") or [])[:12],
+                "unmapped_stat_rows": (event.get("unmapped_statistics_debug") or [])[:20],
                 "related_stat_debug": [
                     {key: row.get(key) for key in ("kindId", "kindName", "kind_name", "name", "label",
                                                      "c1", "c2", "comment", "groupName", "group")
