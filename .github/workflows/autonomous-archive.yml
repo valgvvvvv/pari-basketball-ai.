@@ -22,53 +22,24 @@ jobs:
   collect-live-snapshot:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.schedule == '*/5 * * * *'
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 8
     steps:
-      - name: Fetch live PARI matches and save a compressed snapshot
-        env:
-          LIVE_API: https://pari-basketball-ai.onrender.com/api/pari/live
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-chromium-v1
+      - name: Install headless browser for the site's own model calculations
         run: |
-          python - <<'PY'
-          import datetime, gzip, json, os, pathlib, time, urllib.request
-          url = os.environ["LIVE_API"]
-          request = urllib.request.Request(
-              url + "?catalog_only=false",
-              headers={"User-Agent": "PARI-Basketball-AI-Archive/1.0", "Accept": "application/json"}
-          )
-          last_error = None
-          payload = None
-          for attempt in range(3):
-              try:
-                  with urllib.request.urlopen(request, timeout=160) as response:
-                      payload = json.loads(response.read().decode("utf-8-sig"))
-                  if not isinstance(payload, dict) or not payload.get("ok") or not payload.get("connected"):
-                      raise RuntimeError("PARI LIVE feed did not confirm a successful connection")
-                  break
-              except Exception as exc:
-                  last_error = f"{type(exc).__name__}: {exc}"
-                  if attempt < 2:
-                      time.sleep(12)
-          if payload is None or not payload.get("ok") or not payload.get("connected"):
-              raise SystemExit("Live collection failed: " + str(last_error))
-          events = payload.get("events")
-          if not isinstance(events, list):
-              raise SystemExit("Live response has no events array")
-          now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-          record = {
-              "format": "pari-live-snapshot-v1",
-              "captured_at_utc": now,
-              "source": "PARI live feed via the project's verified adapter",
-              "event_count": len(events),
-              "events": events,
-          }
-          pathlib.Path("archive-snapshot").mkdir(exist_ok=True)
-          name = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-          with gzip.open(f"archive-snapshot/live-{name}.json.gz", "wt", encoding="utf-8") as stream:
-              json.dump(record, stream, ensure_ascii=False, separators=(",", ":"), default=str)
-          with open("archive-snapshot/collection.txt", "w", encoding="utf-8") as stream:
-              stream.write(f"captured_at_utc={now}\nevents={len(events)}\n")
-          print(f"ARCHIVE_COLLECTION_OK captured_at={now} events={len(events)}")
-          PY
+          npm install --prefix /tmp/pari-playwright playwright@1.57.0
+          npx --prefix /tmp/pari-playwright playwright install chromium
+      - name: Capture all live matches and run the site's forecast models
+        env:
+          SITE_URL: https://pari-basketball-ai.onrender.com/
+          NODE_PATH: /tmp/pari-playwright/node_modules
+        run: node .github/scripts/collect_live_with_models.cjs
       - name: Store snapshot temporarily until daily consolidation
         uses: actions/upload-artifact@v4
         with:
