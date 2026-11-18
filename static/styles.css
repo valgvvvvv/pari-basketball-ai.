@@ -76,3 +76,10 @@
   .trajectory-track{min-width:24px}
   .calc-score-prediction>b{font-size:22px}
 }
+
+/* AI ensemble analysis */
+.ai-model-panel{margin:10px 0 14px;padding:12px 14px;border:1px solid #315064;border-radius:10px;background:#102031}
+.ai-model-panel>b{display:block;font-size:12px;color:#dce8f6}
+.ai-model-number{font-size:25px;font-weight:800;color:var(--cyan);margin:5px 0}
+.ai-model-panel p{font-size:11px;line-height:1.5;color:var(--text);margin:4px 0}
+.ai-model-panel small{display:block;color:var(--muted);font-size:10px;line-height:1.5}
