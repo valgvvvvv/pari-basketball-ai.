@@ -3,6 +3,7 @@ name: Autonomous basketball archive collector
 on:
   schedule:
     - cron: "*/5 * * * *"
+    - cron: "23 0 * * *"
   workflow_dispatch:
   push:
     branches: [main]
@@ -11,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: pari-live-archive-collector
@@ -18,6 +20,7 @@ concurrency:
 
 jobs:
   collect-live-snapshot:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.schedule == '*/5 * * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
@@ -26,7 +29,7 @@ jobs:
           LIVE_API: https://pari-basketball-ai.onrender.com/api/pari/live
         run: |
           python - <<'PY'
-          import datetime, gzip, json, os, pathlib, time, urllib.request, urllib.error
+          import datetime, gzip, json, os, pathlib, time, urllib.request
           url = os.environ["LIVE_API"]
           request = urllib.request.Request(
               url + "?catalog_only=false",
@@ -37,8 +40,7 @@ jobs:
           for attempt in range(3):
               try:
                   with urllib.request.urlopen(request, timeout=160) as response:
-                      raw = response.read()
-                      payload = json.loads(raw.decode("utf-8-sig"))
+                      payload = json.loads(response.read().decode("utf-8-sig"))
                   if not isinstance(payload, dict) or not payload.get("ok") or not payload.get("connected"):
                       raise RuntimeError("PARI LIVE feed did not confirm a successful connection")
                   break
@@ -67,10 +69,24 @@ jobs:
               stream.write(f"captured_at_utc={now}\nevents={len(events)}\n")
           print(f"ARCHIVE_COLLECTION_OK captured_at={now} events={len(events)}")
           PY
-      - name: Store snapshot
+      - name: Store snapshot temporarily until daily consolidation
         uses: actions/upload-artifact@v4
         with:
           name: pari-live-snapshot-${{ github.run_id }}
           path: archive-snapshot/
           if-no-files-found: error
           retention-days: 90
+
+  publish-daily-archive:
+    if: github.event_name == 'schedule' && github.event.schedule == '23 0 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish the previous 24 hours as a permanent ZIP release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python .github/scripts/publish_daily_archive.py
