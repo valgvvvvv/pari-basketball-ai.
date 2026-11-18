@@ -856,7 +856,7 @@ function aiModelAnalysis(ev,matchForecast,quarterForecast){
   const makeSignal=(projection,current,lines,sigma,confidence,drivers,kind)=>{
     if(!Number.isFinite(projection)||!Number.isFinite(current))return null;
     const probabilities=(Array.isArray(lines)?lines:[]).filter(x=>Number.isFinite(Number(x.line))).map(x=>{
-      const line=Number(x.line),pOver=Math.max(0,Math.min(1,1-normalCdf((line+0.5-projection)/Math.max(sigma,1))));
+      const line=Number(x.line),pOver=Math.max(0,Math.min(1,1-normalCdf((Math.floor(line)+0.5-projection)/Math.max(sigma,1))));
       return {...x,pOver,pUnder:1-pOver,direction:pOver>=0.57?"ТБ":pOver<=0.43?"ТМ":"без преимущества",edge:Math.abs(pOver-0.5)};
     });
     const strongest=probabilities.slice().sort((a,b)=>b.edge-a.edge)[0]||null;
@@ -891,7 +891,7 @@ function aiModelAnalysis(ev,matchForecast,quarterForecast){
     const sigma=Math.max(Number(estimate.sigma||0),Math.sqrt(Math.max(1,projection-current))*1.18,2);
     result.match=makeSignal(projection,current,getMatchTotalLines(ev),sigma,confidence,drivers,"match");
   }
-  if(quarterForecast?.ready){
+  if(quarterForecast?.ready&&quarterForecast.current!=null){
     const q=quarterForecast;
     const sigma=Math.max(2,Math.sqrt(Math.max(1,Number(q.projection)-Number(q.current||0)))*1.25);
     result.quarter=makeSignal(Number(q.projection),Number(q.current||0),q.lines,sigma,
