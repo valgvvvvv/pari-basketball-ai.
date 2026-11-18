@@ -723,41 +723,33 @@ function findPeriodLengthSeconds(ev) {
 }
 
 function getMatchTotalLines(ev) {
-  // Full-game totals must come only from the root match market. Searching
-  // related_events/related_factors mixes quarter, team and prop markets into
-  // the match total (for example, unrelated 5.5 / 6.5 values).
-  const factors = [];
-  const addRoot = value => {
-    if (Array.isArray(value)) { for (const item of value) addRoot(item); return; }
-    if (!value || typeof value !== "object") return;
-    if (["930","931"].includes(String(value.f))) factors.push(value);
-    for (const key of ["factors","markets","customFactors"]) if (value[key]) addRoot(value[key]);
-  };
-  addRoot(ev.match_total_candidates);
-  addRoot(ev.factors);
+  // Only the server-classified root-match candidates are eligible here.
+  // Never infer a full-game line from generic p, related events or child markets.
+  const candidates = Array.isArray(ev?.match_total_candidates) ? ev.match_total_candidates : [];
   const seen = new Set(), lines = [];
-  for (const factor of factors) {
-    const line = factor.pt != null ? Number(factor.pt) : (factor.p != null ? Number(factor.p)/100 : NaN);
+  for (const factor of candidates) {
+    if (!factor || !["930","931"].includes(String(factor.f))) continue;
+    // PARI's pt is the line field. "p" is not a safe substitute: depending
+    // on the factor payload it may be a parameter/price, not the total.
+    if (factor.pt == null || String(factor.pt).trim() === "") continue;
+    const line = Number(factor.pt);
     if (!Number.isFinite(line) || line < 40 || line > 400) continue;
+    // Basketball total lines are normally whole or half-point increments.
+    if (Math.abs(line * 2 - Math.round(line * 2)) > 1e-8) continue;
     const odds = Number(factor.v);
-    if (factor.v != null && (!Number.isFinite(odds) || odds <= 1 || odds > 1000)) continue;
+    if (factor.v == null || !Number.isFinite(odds) || odds <= 1 || odds > 1000) continue;
     const key = line.toFixed(2);
     if (seen.has(key)) continue;
     seen.add(key);
-    lines.push({line, odds: factor.v == null ? null : String(factor.v), factorId:String(factor.f), source:"PARI", market:"full_game_total"});
+    lines.push({line, odds:String(factor.v), factorId:String(factor.f), source:"PARI", market:"full_game_total"});
   }
-  // Versioned key drops old, unclassified lines from local storage.
-  const cacheKey = "pari-total-lines-v2:" + String(ev.id || "");
+  // Do not reuse cached lines: an old market association can survive a
+  // changing live event and display a line that no longer belongs to it.
+  const cacheKey = "pari-total-lines-v3:" + String(ev?.id || "");
   try {
-    if (lines.length) {
-      localStorage.setItem(cacheKey, JSON.stringify({savedAt:Date.now(), lines}));
-      return lines.sort((a,b)=>a.line-b.line);
-    }
-    const cached = JSON.parse(localStorage.getItem(cacheKey) || "null");
-    if (cached && Array.isArray(cached.lines) && Date.now()-Number(cached.savedAt) < 6*60*60*1000)
-      return cached.lines.map(x=>({...x,source:"PARI · последняя полученная линия",stale:true}));
+    if (lines.length) localStorage.setItem(cacheKey, JSON.stringify({savedAt:Date.now(), lines}));
   } catch (_) {}
-  return lines;
+  return lines.sort((a,b)=>a.line-b.line);
 }
 function inferPeriodLengthForForecast(ev) {
   const explicit=findPeriodLengthSeconds(ev);
@@ -913,8 +905,10 @@ function automaticQuarterForecast(ev) {
     const isTargetPeriod=Number.isInteger(period)&&period>=1&&period<=4&&
       (explicit===period||(!Number.isInteger(explicit)&&quarterPatterns.some(rx=>rx.test(label))));
     if(["930","931"].includes(String(node.f))&&isTargetPeriod){
-      const line=node.pt!=null?Number(node.pt):(node.p!=null?Number(node.p)/100:NaN);
-      if(Number.isFinite(line)&&line>=10&&line<150&&!quarterLines.some(x=>x.line===line))
+      const line=node.pt!=null?Number(node.pt):NaN;
+      if(Number.isFinite(line)&&line>=20&&line<100&&
+         Math.abs(line*2-Math.round(line*2))<=1e-8&&
+         !quarterLines.some(x=>x.line===line))
         quarterLines.push({line,odds:node.v==null?null:String(node.v),source:"PARI"});
       return;
     }
