@@ -2869,6 +2869,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                             ("clock", "remaining", "remainingTime",
                                              "seconds", "value")
                                             if clock_value.get(key) is not None), None)
+                    clock_was_explicit = clock_value is not None
 
                     timer_raw = next((row.get("timerSeconds") for row in
                                       (live_info, event_misc, event)
@@ -2954,6 +2955,9 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         clock_match = re.fullmatch(r"(\d{1,2}):([0-5]\d)", clock_text)
                         if clock_match and int(clock_match.group(1)) * 60 + int(clock_match.group(2)) <= 1200:
                             clock_value = clock_match.group(1).zfill(2) + ":" + clock_match.group(2)
+                        elif re.fullmatch(r"\d{1,4}", clock_text) and 0 <= int(clock_text) <= 1200:
+                            seconds = int(clock_text)
+                            clock_value = f"{seconds // 60:02d}:{seconds % 60:02d}"
                         else:
                             clock_value = None
                     elif timer_seconds is not None and period_length_seconds and not overtime_detected:
@@ -3129,7 +3133,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         ) else ("PARI_event" if period_value is not None else None),
                         "clock": clock_value,
                         "clock_source": "PARI_timer_and_period_consistency" if (
-                            timer_seconds is not None and period_length_seconds
+                            not clock_was_explicit and timer_seconds is not None and period_length_seconds
                             and clock_value is not None
                         ) else ("PARI_explicit_countdown" if clock_value is not None else None),
                         "period_length_seconds": period_length_seconds,
