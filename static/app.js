@@ -69,12 +69,35 @@ function findLivePeriod(ev){
   return null;
 }
 function findLiveClock(ev){
-  // Only inspect event-level countdowns. Related market rows can contain
-  // unrelated timers and must never be mistaken for the game clock.
+  // Refresh a PARI count-up timer against its source timestamp. The server
+  // has already verified period format and period/timer consistency.
+  const period=findLivePeriod(ev);
+  const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||
+    findPeriodLengthSeconds(ev)||inferPeriodLengthForForecast(ev)?.seconds||0);
+  const direction=Number(ev?.timer_direction);
+  const elapsedRaw=ev?.match_elapsed_seconds??ev?.external_live?.match_elapsed_seconds;
+  const elapsedBase=Number(elapsedRaw);
+  if(ev?.clock_source==="PARI_timer_and_period_consistency"&&direction===1&&
+     Number.isFinite(elapsedBase)&&length>=300&&length<=1200&&period>=1&&period<=4){
+    let elapsed=elapsedBase;
+    const timestamp=Number(ev?.timer_timestamp_msec||ev?.external_live?.timer_timestamp_msec||0);
+    const stateText=String(ev?.live_fields?.st3||ev?.live_fields?.status||ev?.live_fields?.comment||"").toLowerCase();
+    if(timestamp>0&&!/timeout|break|halftime|перерыв|тайм-аут/.test(stateText)){
+      const age=(Date.now()-timestamp)/1000;
+      if(Number.isFinite(age)&&age>=0&&age<=60)elapsed+=age;
+    }
+    const elapsedPeriod=elapsed-(period-1)*length;
+    if(elapsedPeriod>=0&&elapsedPeriod<=length+2){
+      const remaining=Math.max(0,length-Math.min(length,elapsedPeriod));
+      return String(Math.floor(remaining/60)).padStart(2,"0")+":"+String(Math.floor(remaining%60)).padStart(2,"0");
+    }
+  }
+  // ev.clock and external_live.clock are normalized countdowns. Do not
+  // interpret PARI live_fields.timer as a countdown: it is a match timer.
   const clockBlocked=ev?.clock_integrity?.valid===false;
   const candidates=clockBlocked?[]:[ev.clock,ev.external_live?.clock,ev.live_clock];
   const roots=clockBlocked?[]:[ev.raw||{},ev.live_fields||{}];
-  const allowed=/^(clock|timer|countdown|timeRemaining|remainingTime|periodClock|period_clock|time_remaining|remaining_time|remaining_seconds|clock_seconds|countdown_seconds|currentPeriodTime|periodTime|time_left|timeLeft)$/i;
+  const allowed=/^(clock|countdown|timeRemaining|remainingTime|periodClock|period_clock|time_remaining|remaining_time|remaining_seconds|clock_seconds|countdown_seconds|currentPeriodTime|periodTime|time_left|timeLeft)$/i;
   for(const root of roots){
     for(const obj of collectEventObjects(root)){
       for(const [key,value] of Object.entries(obj))if(allowed.test(key))candidates.push(value);
@@ -84,7 +107,7 @@ function findLiveClock(ev){
     if(value==null)continue;
     let candidate=value;
     if(candidate&&typeof candidate==="object"){
-      candidate=candidate.remaining??candidate.remainingTime??candidate.seconds??candidate.value??candidate.clock??candidate.timer??candidate.time;
+      candidate=candidate.remaining??candidate.remainingTime??candidate.seconds??candidate.value??candidate.clock??candidate.time;
     }
     if(candidate==null)continue;
     const text=String(candidate).trim();
@@ -101,18 +124,12 @@ function findLiveClock(ev){
         return String(Math.floor(seconds/60)).padStart(2,"0")+":"+String(seconds%60).padStart(2,"0");
     }
   }
-  // PARI also supplies timerSeconds as elapsed time from the start of the
-  // match. Convert it only when the period and period length are known.
-  const elapsedRaw=ev?.match_elapsed_seconds??ev?.external_live?.match_elapsed_seconds;
-  const elapsed=Number(elapsedRaw);
-  const period=findLivePeriod(ev);
-  const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||
-    findPeriodLengthSeconds(ev)||inferPeriodLengthForForecast(ev)?.seconds||0);
-  if(Number.isFinite(elapsed)&&elapsed>=0&&length>=300&&length<=1200&&period>=1&&period<=4){
-    const elapsedPeriod=elapsed-(period-1)*length;
+  // Fallback only for server-confirmed cumulative count-up timers.
+  if(direction===1&&Number.isFinite(elapsedBase)&&length>=300&&length<=1200&&period>=1&&period<=4){
+    const elapsedPeriod=elapsedBase-(period-1)*length;
     if(elapsedPeriod>=0&&elapsedPeriod<=length+2){
       const remaining=Math.max(0,length-Math.min(length,elapsedPeriod));
-      return String(Math.floor(remaining/60)).padStart(2,"0")+":"+String(remaining%60).padStart(2,"0");
+      return String(Math.floor(remaining/60)).padStart(2,"0")+":"+String(Math.floor(remaining%60)).padStart(2,"0");
     }
   }
   return null;
