@@ -33,6 +33,19 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
         self.assertEqual(lookup["field_goals_attempted"]["away"], 37.0)
         self.assertEqual(event["statistics_quality"]["expected_count"], 19)
 
+    def test_quarter_shot_counts_are_separated_from_match_totals(self):
+        extracted = server._extract_pari_live_statistics([{
+            "statistics": [
+                {"kindId": "420400", "kindName": "заб/3-х очковые", "c1": "9", "c2": "8"},
+                {"kindId": "420400", "kindName": "2-я четверть заб/3-х очковые", "c1": "3", "c2": "2"},
+            ]
+        }])
+        self.assertEqual(len(extracted["match"]), 1)
+        self.assertEqual(extracted["match"][0]["home"], "9")
+        self.assertEqual(len(extracted["periods"]), 1)
+        self.assertEqual(extracted["periods"][0]["period"], 2)
+        self.assertEqual(extracted["periods"][0]["home"], "3")
+
     def test_missing_values_are_not_fabricated(self):
         event = {"external_statistics":[
             {"name":"Assists","metric_key":"assists","home":"4","away":"7","source":"PARI"}
