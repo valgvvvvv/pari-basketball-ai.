@@ -2132,9 +2132,9 @@ async def _enrich_with_sofascore_live(events):
 def _pari_stat_metric(label):
     text = str(label or "").casefold().replace("ё", "е")
     patterns = (
-        ("three_pointers_made", r"3.?point.*(made|scored)|three.?point.*(made|scored)|трех.?очк.*(попад|забит)|3pm"),
-        ("three_pointers_attempted", r"3.?point.*(attempt|att)|three.?point.*(attempt|att)|трех.?очк.*(брос|попыт)|3pa"),
-        ("two_pointers_made", r"2.?point.*(made|scored)|two.?point.*(made|scored)|двух.?очк.*(попад|забит)|2pm"),
+        ("three_pointers_made", r"3.?point.*(made|scored)|three.?point.*(made|scored)|тр[её]х.?очк.*(попад|забит)|заб\s*/?\s*3.?х.?очк|3pm"),
+        ("three_pointers_attempted", r"3.?point.*(attempt|att)|three.?point.*(attempt|att)|тр[её]х.?очк.*(брос|попыт)|3pa"),
+        ("two_pointers_made", r"2.?point.*(made|scored)|two.?point.*(made|scored)|двух.?очк.*(попад|забит)|заб\s*/?\s*2.?х.?очк|2pm"),
         ("two_pointers_attempted", r"2.?point.*(attempt|att)|two.?point.*(attempt|att)|двух.?очк.*(брос|попыт)|2pa"),
         ("free_throws_made", r"free.?throw.*(made|scored)|штрафн.*(попад|реализ)|ftm"),
         ("free_throws_attempted", r"free.?throw.*(attempt|att)|штрафн.*(брос|попыт)|fta"),
@@ -2183,10 +2183,19 @@ def _extract_pari_live_statistics(objects):
             return
         visited.add(ident)
         if isinstance(value, dict):
-            label = value.get("name") or value.get("label") or value.get("key") or value.get("title")
+            label = (value.get("name") or value.get("label") or value.get("key") or
+                     value.get("title") or value.get("kindName") or value.get("kind_name") or
+                     value.get("statName") or value.get("statisticName"))
             home = next((value.get(k) for k in ("home", "homeValue", "home_value", "team1", "team1Value", "c1") if value.get(k) is not None), None)
             away = next((value.get(k) for k in ("away", "awayValue", "away_value", "team2", "team2Value", "c2") if value.get(k) is not None), None)
-            if label:
+            # PARI match-centre subscores use kindName + c1/c2. These are
+            # actual made-shot totals; comments may contain quarter splits but
+            # are intentionally not interpreted as attempts without a schema.
+            kind_id = str(value.get("kindId") or value.get("kind_id") or "")
+            kind_metric = {"420300": "two_pointers_made", "420400": "three_pointers_made"}.get(kind_id)
+            if kind_metric and home is not None and away is not None:
+                add(kind_metric, home, away, value.get("groupName") or value.get("group") or "PARI match-centre")
+            elif label:
                 add(label, home, away, value.get("groupName") or value.get("group") or value.get("category") or "PARI LIVE")
             # PARI may encode paired team values as flat sibling keys.
             scalar_keys = {str(k): v for k, v in value.items()
@@ -2951,6 +2960,22 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 "rebounds", "offensive_rebounds", "defensive_rebounds",
                                 "assists", "turnovers", "steals", "blocks",
                                 "personal_fouls", "team_fouls", "fouls", "possessions"]
+                    # A complete field-goal-makes count can be derived only
+                    # when both 2PT and 3PT makes are explicitly supplied.
+                    by_key = {row["metric_key"]: row for row in pari_stats}
+                    if "two_pointers_made" in by_key and "three_pointers_made" in by_key:
+                        two, three = by_key["two_pointers_made"], by_key["three_pointers_made"]
+                        try:
+                            pari_stats.append({
+                                "group": "PARI match-centre (2PT + 3PT)",
+                                "name": "field_goals_made", "metric_key": "field_goals_made",
+                                "home": int(float(two["home"])) + int(float(three["home"])),
+                                "away": int(float(two["away"])) + int(float(three["away"])),
+                                "source": "PARI-derived",
+                            })
+                            keys = sorted({x["metric_key"] for x in pari_stats})
+                        except (TypeError, ValueError, OverflowError):
+                            pass
                     pari_row["statistics_quality"] = {
                         "available_metrics": keys,
                         "missing_metrics": [key for key in expected if key not in keys],
@@ -2958,6 +2983,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "expected_count": len(expected),
                         "coverage_percent": round(len(set(keys).intersection(expected)) / len(expected) * 100),
                         "raw_fields_count": len(pari_stats), "complete": all(key in keys for key in expected),
+                        "partial_note": "PARI match-centre supplies only the explicitly named values. Attempts, rebounds, assists, turnovers, fouls and possessions are never inferred from makes.",
                     }
                 attempts.append({
                     "host": host,
