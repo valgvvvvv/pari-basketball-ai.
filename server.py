@@ -1576,8 +1576,10 @@ async def _enrich_with_sofascore_live(events):
                                     if home_value is None or away_value is None:
                                         return
                                     searchable = (str(group) + " " + str(label)).casefold()
-                                    metric = next((key for key, pattern in metric_aliases
-                                                   if re.search(pattern, searchable, re.I)), None)
+                                    metric = _pari_stat_metric(label) or _pari_stat_metric(searchable)
+                                    if metric is None:
+                                        metric = next((key for key, pattern in metric_aliases
+                                                       if re.search(pattern, searchable, re.I)), None)
                                     detail_statistics.append({
                                         "group": str(group), "name": str(label),
                                         "metric_key": metric, "home": home_value,
@@ -2146,31 +2148,142 @@ async def _enrich_with_sofascore_live(events):
 
 
 
+def _stat_value_for_ui(value):
+    """Flatten common provider wrappers without replacing absent values with zero."""
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        made = next((value.get(k) for k in ("made", "scored", "current", "value", "total", "count", "displayValue", "display_value") if value.get(k) is not None), None)
+        attempted = next((value.get(k) for k in ("attempted", "attempts", "attemptsCount", "attempt_count") if value.get(k) is not None), None)
+        if made is not None:
+            return str(made) + "/" + str(attempted) if attempted is not None else made
+        return None
+    if isinstance(value, (int, float)):
+        return value if math.isfinite(float(value)) and float(value) >= 0 else None
+    text = str(value).strip()
+    if not text:
+        return None
+    if re.fullmatch(r"\d+(?:[.,]\d+)?\s*[-/:]\s*\d+(?:[.,]\d+)?", text):
+        return text.replace(",", ".")
+    if re.fullmatch(r"\d+(?:[.,]\d+)?", text):
+        return text.replace(",", ".")
+    return value
+
+
 def _pari_stat_metric(label):
-    text = str(label or "").casefold().replace("ё", "е")
+    text = re.sub(r"[^a-zа-яё0-9]+", "", str(label or "").casefold().replace("ё", "е"))
     patterns = (
-        ("three_pointers_made", r"3.?point.*(made|scored)|three.?point.*(made|scored)|тр[её]х.?очк.*(попад|забит)|заб\s*/?\s*3.?х.?очк|3pm"),
-        ("three_pointers_attempted", r"3.?point.*(attempt|att)|three.?point.*(attempt|att)|тр[её]х.?очк.*(брос|попыт)|3pa"),
-        ("two_pointers_made", r"2.?point.*(made|scored)|two.?point.*(made|scored)|двух.?очк.*(попад|забит)|заб\s*/?\s*2.?х.?очк|2pm"),
-        ("two_pointers_attempted", r"2.?point.*(attempt|att)|two.?point.*(attempt|att)|двух.?очк.*(брос|попыт)|2pa"),
-        ("free_throws_made", r"free.?throw.*(made|scored)|штрафн.*(попад|реализ)|ftm"),
-        ("free_throws_attempted", r"free.?throw.*(attempt|att)|штрафн.*(брос|попыт)|fta"),
-        ("field_goals_made", r"(?:field.?goal|fg).*(?:made|scored)|броск.*с игры.*(?:попад|забит)|fgm"),
-        ("field_goals_attempted", r"(?:field.?goal|fg).*(?:attempt|att)|броск.*с игры.*(?:брос|попыт)|fga"),
-        ("field_goals", r"field.?goal|броск.*с игры"),
-        ("offensive_rebounds", r"offensive.?rebound|подбор.*атак"),
-        ("defensive_rebounds", r"defensive.?rebound|подбор.*защит"),
-        ("rebounds", r"rebound|подбор"),
-        ("assists", r"assist|передач"),
-        ("turnovers", r"turnover|потер"),
-        ("steals", r"steal|перехват"),
-        ("blocks", r"block|блокшот"),
-        ("personal_fouls", r"personal.?foul|фол.*личн|личн.*фол"),
-        ("team_fouls", r"team.?foul|командн.*фол|фол.*команд"),
-        ("fouls", r"foul|фол"),
-        ("possessions", r"possession|владен"),
+        ("three_pointers_made", r"^(3pm|3ptm|3ptmade|fg3m)$|3.?point.*(made|scored)|three.?point.*(made|scored)|тр[её]х.?очк.*(попад|забит)|заб\\s*/?\\s*3.?х.?очк"),
+        ("three_pointers_attempted", r"^(3pa|3pta|3ptattempted|fg3a)$|3.?point.*(attempt|att)|three.?point.*(attempt|att)|тр[её]х.?очк.*(брос|попыт)"),
+        ("two_pointers_made", r"^(2pm|2ptm|2ptmade)$|2.?point.*(made|scored)|two.?point.*(made|scored)|двух.?очк.*(попад|забит)|заб\\s*/?\\s*2.?х.?очк"),
+        ("two_pointers_attempted", r"^(2pa|2pta|2ptattempted)$|2.?point.*(attempt|att)|two.?point.*(attempt|att)|двух.?очк.*(брос|попыт)"),
+        ("free_throws_made", r"^(ftm|ftmade)$|free.?throw.*(made|scored)|штрафн.*(попад|реализ)"),
+        ("free_throws_attempted", r"^(fta|ftattempted)$|free.?throw.*(attempt|att)|штрафн.*(брос|попыт)"),
+        ("field_goals_made", r"^(fgm|fieldgoalsmade)$|(?:field.?goal|fg).*(?:made|scored)|броск.*с игры.*(?:попад|забит)"),
+        ("field_goals_attempted", r"^(fga|fieldgoalsattempted)$|(?:field.?goal|fg).*(?:attempt|att)|броск.*с игры.*(?:брос|попыт)"),
+        ("offensive_rebounds", r"^(oreb|orb|offreb)$|offensive.?rebound|подбор.*атак"),
+        ("defensive_rebounds", r"^(dreb|drb|defreb)$|defensive.?rebound|подбор.*защит"),
+        ("rebounds", r"^(reb|trb)$|total.?rebound|rebound|подбор"),
+        ("assists", r"^(ast|assist|assists)$|assist|передач"),
+        ("turnovers", r"^(tov|to|turnover|turnovers)$|turnover|потер"),
+        ("steals", r"^(stl|steal|steals)$|steal|перехват"),
+        ("blocks", r"^(blk|block|blocks)$|block|блокшот"),
+        ("personal_fouls", r"^(pf|personalfoul|personalfouls)$|personal.?foul|личн.*фол|фол.*личн"),
+        ("team_fouls", r"^(tf|teamfoul|teamfouls)$|team.?foul|командн.*фол|фол.*команд"),
+        ("fouls", r"^(foul|fouls)$|foul|фол"),
+        ("possessions", r"^(poss|possession|possessions)$|possession|владен"),
+        ("three_pointers", r"^(3p|3pt|threepointers?)$|3.?point|three.?point|тр[её]х.?очк"),
+        ("two_pointers", r"^(2p|2pt|twopointers?)$|2.?point|two.?point|двух.?очк"),
+        ("free_throws", r"^(ft|freethrows?)$|free.?throw|штрафн|свободн.*брос"),
+        ("field_goals", r"^(fg|fieldgoals?)$|field.?goal|броск.*с игры"),
     )
-    return next((key for key, pattern in patterns if re.search(pattern, text, re.I)), None)
+    original = str(label or "").casefold().replace("ё", "е")
+    return next((key for key, pattern in patterns if re.search(pattern, original, re.I)), None)
+
+
+def _normalize_live_stat_row(row):
+    if not isinstance(row, dict):
+        return None
+    label = row.get("metric_key") or row.get("name") or row.get("key") or ""
+    group = row.get("group") or row.get("groupName") or ""
+    metric = _pari_stat_metric(label) or _pari_stat_metric(str(group) + " " + str(label))
+    home = _stat_value_for_ui(row.get("home", row.get("homeValue", row.get("home_value"))))
+    away = _stat_value_for_ui(row.get("away", row.get("awayValue", row.get("away_value"))))
+    if home is None or away is None:
+        return None
+    result = dict(row)
+    result.update({"metric_key": metric, "home": home, "away": away})
+    result.setdefault("source", "unknown")
+    return result
+
+
+def _finalize_live_statistics(events):
+    expected = [
+        "field_goals_made", "field_goals_attempted", "two_pointers_made",
+        "two_pointers_attempted", "three_pointers_made", "three_pointers_attempted",
+        "free_throws_made", "free_throws_attempted", "rebounds",
+        "offensive_rebounds", "defensive_rebounds", "assists", "turnovers",
+        "steals", "blocks", "personal_fouls", "team_fouls", "fouls", "possessions",
+    ]
+    for event in events if isinstance(events, list) else []:
+        if not isinstance(event, dict):
+            continue
+        normalized, seen = [], set()
+        for raw in event.get("external_statistics") or []:
+            row = _normalize_live_stat_row(raw)
+            if not row:
+                continue
+            marker = (row.get("metric_key"), str(row.get("home")), str(row.get("away")), str(row.get("source")))
+            if marker not in seen:
+                seen.add(marker)
+                normalized.append(row)
+        by_key = {}
+        for row in normalized:
+            if row.get("metric_key") and row["metric_key"] not in by_key:
+                by_key[row["metric_key"]] = row
+        def derive(target, left, right, label):
+            if target in by_key or left not in by_key or right not in by_key:
+                return
+            try:
+                vals = []
+                for side in ("home", "away"):
+                    a = float(str(by_key[left][side]).replace(",", "."))
+                    b = float(str(by_key[right][side]).replace(",", "."))
+                    if not (math.isfinite(a) and math.isfinite(b)):
+                        return
+                    vals.append(int(a+b) if (a+b).is_integer() else a+b)
+                item = {"group":"Расчёт по компонентам","name":label,"metric_key":target,
+                        "home":vals[0],"away":vals[1],"source":"derived"}
+                normalized.append(item)
+                by_key[target] = item
+            except (TypeError, ValueError, OverflowError):
+                return
+        derive("field_goals_made","two_pointers_made","three_pointers_made","Попадания с игры = 2PT + 3PT")
+        derive("field_goals_attempted","two_pointers_attempted","three_pointers_attempted","Попытки с игры = 2PA + 3PA")
+        derive("rebounds","offensive_rebounds","defensive_rebounds","Подборы = в нападении + в защите")
+        event["external_statistics"] = normalized
+        available = sorted({row["metric_key"] for row in normalized if row.get("metric_key")})
+        missing = [key for key in expected if key not in available]
+        conflicts, grouped = [], {}
+        for row in normalized:
+            metric = row.get("metric_key")
+            if metric and row.get("source") != "derived":
+                grouped.setdefault(metric, []).append(row)
+        for metric, rows in grouped.items():
+            values = {(str(row.get("home")), str(row.get("away"))) for row in rows}
+            if len(values) > 1:
+                conflicts.append({"metric":metric,"sources":list(dict.fromkeys(str(x.get("source")) for x in rows)),
+                                  "values":[{"source":x.get("source"),"home":x.get("home"),"away":x.get("away")} for x in rows]})
+        sources = list(dict.fromkeys(str(row.get("source") or "unknown") for row in normalized))
+        event["statistics_source"] = " + ".join(sources) if sources else None
+        event["statistics_quality"] = {
+            "available_metrics":available,"missing_metrics":missing,
+            "available_count":len(set(available).intersection(expected)),
+            "expected_count":len(expected),
+            "coverage_percent":round(len(set(available).intersection(expected))/len(expected)*100),
+            "raw_fields_count":len(normalized),"complete":not missing,
+            "conflicts":conflicts[:12],"checked_at_utc":datetime.now(timezone.utc).isoformat(),
+        }
 
 
 def _extract_pari_live_statistics(objects):
@@ -3040,6 +3153,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             "matched": 0,
                             "errors": [type(exc).__name__ + ": " + str(exc)[:180]]
                         }
+                    _finalize_live_statistics(basketball)
                     print("PARI_LIVE_DIAG " + json.dumps({
                         "ok": True,
                         "host": host,
