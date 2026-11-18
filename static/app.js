@@ -1312,53 +1312,61 @@ async function refreshLiveMatches() {
     if (liveUpdated) liveUpdated.textContent = "Обновлено: " + new Date(data.checked_at_utc).toLocaleTimeString("ru-RU") + " · " + (data.attempts?.[0]?.host || "PARI");
     if (liveList) {
       liveList.innerHTML = count ? data.events.map(ev => {
-        const teams = escapeHtml(ev.team1 || "Команда 1") + " — " + escapeHtml(ev.team2 || "Команда 2");
-        const score = eventScore(ev);
-        const totalMarkets = (ev.match_total_candidates || []).map(f => f.pt ? ("Тотал " + f.pt + " @ " + f.v) : ("Коэф. " + f.v));
-        const statCount = (ev.external_statistics || []).length;
-        const coverage = ev.statistics_quality ? (" · покрытие " + ev.statistics_quality.available_count + "/" + ev.statistics_quality.expected_count) : "";
-        const statsLabel = statCount ? ("Статистика: " + statCount + " показателей" + coverage + " · " + (ev.statistics_source || "источник не указан")) : "Статистика: нет подтверждённых значений PARI/внешнего источника";
-        const details = [ev.league || ev.sport_name, score, eventPeriod(ev), eventClock(ev), statsLabel, ...totalMarkets].filter(Boolean).map(escapeHtml).join(" · ");
-        const forecast = automaticForecast(ev);
-        const quarterForecast = automaticQuarterForecast(ev);
-        const aiAnalysis = aiModelAnalysis(ev,forecast,quarterForecast);
-        let forecastHtml = "";
-        if (forecast.ready) {
-          const estimate = forecast.estimate;
-          let lineText;
-          if(forecast.kind==="market_reference") {
-            lineText="рыночный ориентир PARI "+estimate.projection+" · игровое направление пока не подтверждено";
+        try {
+          const teams = escapeHtml(ev.team1 || "Команда 1") + " — " + escapeHtml(ev.team2 || "Команда 2");
+          const score = eventScore(ev);
+          const totalMarkets = (ev.match_total_candidates || []).map(f => f.pt ? ("Тотал " + f.pt + " @ " + f.v) : ("Коэф. " + f.v));
+          const statCount = (ev.external_statistics || []).length;
+          const coverage = ev.statistics_quality ? (" · покрытие " + ev.statistics_quality.available_count + "/" + ev.statistics_quality.expected_count) : "";
+          const statsLabel = statCount ? ("Статистика: " + statCount + " показателей" + coverage + " · " + (ev.statistics_source || "источник не указан")) : "Статистика: нет подтверждённых значений PARI/внешнего источника";
+          const details = [ev.league || ev.sport_name, score, eventPeriod(ev), eventClock(ev), statsLabel, ...totalMarkets].filter(Boolean).map(escapeHtml).join(" · ");
+          const forecast = automaticForecast(ev);
+          const quarterForecast = automaticQuarterForecast(ev);
+          const aiAnalysis = aiModelAnalysis(ev,forecast,quarterForecast);
+          let forecastHtml = "";
+          if (forecast.ready) {
+            const estimate = forecast.estimate;
+            let lineText;
+            if(forecast.kind==="market_reference") {
+              lineText="рыночный ориентир PARI "+estimate.projection+" · игровое направление пока не подтверждено";
+            } else {
+              lineText = forecast.lines.length
+                ? forecast.lines.map(x => {
+                    const mc=(estimate.poisson?.probabilities||[]).find(p=>Number(p.line)===Number(x.line));
+                    const direction=mc?mc.direction:(estimate.low>x.line?"ТБ":(estimate.high<x.line?"ТМ":"без преимущества"));
+                    return direction+" "+x.line+(mc?" · ТБ "+(mc.pOver*100).toFixed(0)+"% / ТМ "+(mc.pUnder*100).toFixed(0)+"%":"")+" · диапазон "+estimate.low+"–"+estimate.high;
+                  }).join(" | ")
+                : "ориентир "+estimate.projection+" · диапазон "+estimate.low+"–"+estimate.high;
+              if(forecast.kind==="period_range")lineText+=" · без точного таймера, предварительно";
+              if(estimate.preliminary)lineText+=" · ранняя оценка, низкая уверенность";
+            }
+            forecastHtml = '<span class="live-match-meta forecast-live">Прогноз матча: ' + escapeHtml(lineText) + '</span>';
           } else {
-            lineText = forecast.lines.length
-              ? forecast.lines.map(x => {
-                  const mc=(estimate.poisson?.probabilities||[]).find(p=>Number(p.line)===Number(x.line));
-                  const direction=mc?mc.direction:(estimate.low>x.line?"ТБ":(estimate.high<x.line?"ТМ":"без преимущества"));
-                  return direction+" "+x.line+(mc?" · ТБ "+(mc.pOver*100).toFixed(0)+"% / ТМ "+(mc.pUnder*100).toFixed(0)+"%":"")+" · диапазон "+estimate.low+"–"+estimate.high;
-                }).join(" | ")
-              : "ориентир "+estimate.projection+" · диапазон "+estimate.low+"–"+estimate.high;
-            if(forecast.kind==="period_range")lineText+=" · без точного таймера, предварительно";
-            if(estimate.preliminary)lineText+=" · ранняя оценка, низкая уверенность";
+            forecastHtml = '<span class="live-match-meta forecast-pending">Прогноз матча ожидает данные: ' + escapeHtml(forecast.reason) + '</span>';
           }
-          forecastHtml = '<span class="live-match-meta forecast-live">Прогноз матча: ' + escapeHtml(lineText) + '</span>';
-        } else {
-          forecastHtml = '<span class="live-match-meta forecast-pending">Прогноз матча ожидает данные: ' + escapeHtml(forecast.reason) + '</span>';
+          if (quarterForecast.ready) {
+            const qLines=quarterForecast.lines.length
+              ? quarterForecast.lines.map(x => x.direction+" "+x.line+" · ТБ "+(x.pOver*100).toFixed(0)+"% / ТМ "+(x.pUnder*100).toFixed(0)+"%").join(" | ")
+              : "линия четверти пока не найдена";
+            forecastHtml += '<span class="live-match-meta forecast-live">Прогноз Q'+escapeHtml(quarterForecast.period||findLivePeriod(ev)||"?")+': '+escapeHtml(quarterForecast.projection)+' очков за четверть · '+escapeHtml(qLines)+(quarterForecast.preliminary?' · предварительно':'')+'</span>';
+          } else {
+            forecastHtml += '<span class="live-match-meta forecast-pending">Прогноз четверти: '+escapeHtml(quarterForecast.reason)+'</span>';
+          }
+          const aiBest=aiAnalysis.match?.strongest;
+          if(aiAnalysis.match)forecastHtml+='<span class="live-match-meta forecast-live">ИИ · матч: '+escapeHtml(aiAnalysis.match.projection)+' · направление '+escapeHtml(aiBest?(aiBest.direction==="без преимущества"?"нет перевеса":aiBest.direction+" "+aiBest.line):"нет линии PARI")+' · '+escapeHtml(aiAnalysis.match.confidence)+'</span>';
+          const aiQuarterBest=aiAnalysis.quarter?.strongest;
+          if(aiAnalysis.quarter)forecastHtml+='<span class="live-match-meta forecast-live">ИИ · Q'+escapeHtml(quarterForecast.period||findLivePeriod(ev)||"?")+': '+escapeHtml(aiAnalysis.quarter.projection)+' · направление '+escapeHtml(aiQuarterBest?(aiQuarterBest.direction==="без преимущества"?"нет перевеса":aiQuarterBest.direction+" "+aiQuarterBest.line):"нет линии PARI")+' · '+escapeHtml(aiAnalysis.quarter.confidence)+'</span>';
+          const quarterHighlight=quarterHighlightInfo(ev);
+          const highlightTag=quarterHighlight?'<span class="quarter-highlight-tag">★ ВЫДЕЛЕН: '+quarterHighlight.minute+'–8 мин Q'+quarterHighlight.period+'</span>':"";
+          return '<button type="button" class="live-match'+(quarterHighlight?' live-match-quarter-window':'')+'" data-event-id="' + escapeHtml(ev.id) + '">' +
+            highlightTag + '<span class="live-match-title">' + teams + '</span><span class="live-match-meta">' + (details || "Событие получено из LIVE API PARI") + '</span>' + forecastHtml + '</button>';
+  
+        } catch (renderError) {
+          console.error("LIVE_MATCH_RENDER_ERROR", ev?.id, renderError);
+          const safe = value => escapeHtml(String(value ?? ""));
+          const title = [ev?.team1 || "Команда 1", ev?.team2 || "Команда 2"].map(safe).join(" — ");
+          return '<button type="button" class="live-match" data-event-id="' + safe(ev?.id) + '><span class="live-match-title">' + title + '</span><span class="live-match-meta">Матч получен от PARI · подробный анализ временно недоступен</span></button>';
         }
-        if (quarterForecast.ready) {
-          const qLines=quarterForecast.lines.length
-            ? quarterForecast.lines.map(x => x.direction+" "+x.line+" · ТБ "+(x.pOver*100).toFixed(0)+"% / ТМ "+(x.pUnder*100).toFixed(0)+"%").join(" | ")
-            : "линия четверти пока не найдена";
-          forecastHtml += '<span class="live-match-meta forecast-live">Прогноз Q'+escapeHtml(quarterForecast.period||findLivePeriod(ev)||"?")+': '+escapeHtml(quarterForecast.projection)+' очков за четверть · '+escapeHtml(qLines)+(quarterForecast.preliminary?' · предварительно':'')+'</span>';
-        } else {
-          forecastHtml += '<span class="live-match-meta forecast-pending">Прогноз четверти: '+escapeHtml(quarterForecast.reason)+'</span>';
-        }
-        const aiBest=aiAnalysis.match?.strongest;
-        if(aiAnalysis.match)forecastHtml+='<span class="live-match-meta forecast-live">ИИ · матч: '+escapeHtml(aiAnalysis.match.projection)+' · направление '+escapeHtml(aiBest?(aiBest.direction==="без преимущества"?"нет перевеса":aiBest.direction+" "+aiBest.line):"нет линии PARI")+' · '+escapeHtml(aiAnalysis.match.confidence)+'</span>';
-        const aiQuarterBest=aiAnalysis.quarter?.strongest;
-        if(aiAnalysis.quarter)forecastHtml+='<span class="live-match-meta forecast-live">ИИ · Q'+escapeHtml(quarterForecast.period||findLivePeriod(ev)||"?")+': '+escapeHtml(aiAnalysis.quarter.projection)+' · направление '+escapeHtml(aiQuarterBest?(aiQuarterBest.direction==="без преимущества"?"нет перевеса":aiQuarterBest.direction+" "+aiQuarterBest.line):"нет линии PARI")+' · '+escapeHtml(aiAnalysis.quarter.confidence)+'</span>';
-        const quarterHighlight=quarterHighlightInfo(ev);
-        const highlightTag=quarterHighlight?'<span class="quarter-highlight-tag">★ ВЫДЕЛЕН: '+quarterHighlight.minute+'–8 мин Q'+quarterHighlight.period+'</span>':"";
-        return '<button type="button" class="live-match'+(quarterHighlight?' live-match-quarter-window':'')+'" data-event-id="' + escapeHtml(ev.id) + '">' +
-          highlightTag + '<span class="live-match-title">' + teams + '</span><span class="live-match-meta">' + (details || "Событие получено из LIVE API PARI") + '</span>' + forecastHtml + '</button>';
       }).join("") : '<p class="muted">В текущем ответе нет подтверждённых баскетбольных LIVE-матчей.</p>';
       liveList.querySelectorAll(".live-match").forEach(el => el.addEventListener("click", () => {
         const ev = (window.pariLiveEvents || []).find(x => String(x.id) === el.dataset.eventId);
