@@ -74,10 +74,9 @@ function findLiveClock(ev){
   const period=findLivePeriod(ev);
   const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||
     findPeriodLengthSeconds(ev)||inferPeriodLengthForForecast(ev)?.seconds||0);
-  const direction=Number(ev?.timer_direction);
   const elapsedRaw=ev?.match_elapsed_seconds??ev?.external_live?.match_elapsed_seconds;
   const elapsedBase=Number(elapsedRaw);
-  if(ev?.clock_source==="PARI_timer_and_period_consistency"&&direction===1&&
+  if(ev?.clock_source==="PARI_timer_and_period_consistency"&&
      Number.isFinite(elapsedBase)&&length>=300&&length<=1200&&period>=1&&period<=4){
     let elapsed=elapsedBase;
     const timestamp=Number(ev?.timer_timestamp_msec||ev?.external_live?.timer_timestamp_msec||0);
@@ -124,8 +123,8 @@ function findLiveClock(ev){
         return String(Math.floor(seconds/60)).padStart(2,"0")+":"+String(seconds%60).padStart(2,"0");
     }
   }
-  // Fallback only for server-confirmed cumulative count-up timers.
-  if(direction===1&&Number.isFinite(elapsedBase)&&length>=300&&length<=1200&&period>=1&&period<=4){
+  // Fallback only for server-confirmed cumulative PARI timers.
+  if(Number.isFinite(elapsedBase)&&length>=300&&length<=1200&&period>=1&&period<=4){
     const elapsedPeriod=elapsedBase-(period-1)*length;
     if(elapsedPeriod>=0&&elapsedPeriod<=length+2){
       const remaining=Math.max(0,length-Math.min(length,elapsedPeriod));
