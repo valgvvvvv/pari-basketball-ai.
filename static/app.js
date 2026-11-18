@@ -69,12 +69,12 @@ function findLivePeriod(ev){
   return null;
 }
 function findLiveClock(ev){
-  // A clock is usable only when it is explicitly a period countdown. Do not
-  // recursively scan related market events: they may contain unrelated timers.
-  if(ev?.clock_integrity?.valid===false)return null;
-  const candidates=[ev.clock,ev.external_live?.clock,ev.live_clock];
-  const roots=[ev.raw||{},ev.live_fields||{}];
-  const allowed=/^(clock|timer|countdown|timeRemaining|remainingTime|periodClock|period_clock|time_remaining|remaining_time|remaining_seconds|clock_seconds|countdown_seconds)$/i;
+  // Only inspect event-level countdowns. Related market rows can contain
+  // unrelated timers and must never be mistaken for the game clock.
+  const clockBlocked=ev?.clock_integrity?.valid===false;
+  const candidates=clockBlocked?[]:[ev.clock,ev.external_live?.clock,ev.live_clock];
+  const roots=clockBlocked?[]:[ev.raw||{},ev.live_fields||{}];
+  const allowed=/^(clock|timer|countdown|timeRemaining|remainingTime|periodClock|period_clock|time_remaining|remaining_time|remaining_seconds|clock_seconds|countdown_seconds|currentPeriodTime|periodTime|time_left|timeLeft)$/i;
   for(const root of roots){
     for(const obj of collectEventObjects(root)){
       for(const [key,value] of Object.entries(obj))if(allowed.test(key))candidates.push(value);
@@ -84,7 +84,7 @@ function findLiveClock(ev){
     if(value==null)continue;
     let candidate=value;
     if(candidate&&typeof candidate==="object"){
-      candidate=candidate.remaining??candidate.remainingTime??candidate.seconds??candidate.value??candidate.clock??candidate.timer;
+      candidate=candidate.remaining??candidate.remainingTime??candidate.seconds??candidate.value??candidate.clock??candidate.timer??candidate.time;
     }
     if(candidate==null)continue;
     const text=String(candidate).trim();
@@ -99,6 +99,20 @@ function findLiveClock(ev){
       const seconds=Number(candidate);
       if(Number.isInteger(seconds)&&seconds>=0&&seconds<=1200)
         return String(Math.floor(seconds/60)).padStart(2,"0")+":"+String(seconds%60).padStart(2,"0");
+    }
+  }
+  // PARI also supplies timerSeconds as elapsed time from the start of the
+  // match. Convert it only when the period and period length are known.
+  const elapsedRaw=ev?.match_elapsed_seconds??ev?.external_live?.match_elapsed_seconds;
+  const elapsed=Number(elapsedRaw);
+  const period=findLivePeriod(ev);
+  const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||
+    findPeriodLengthSeconds(ev)||inferPeriodLengthForForecast(ev)?.seconds||0);
+  if(Number.isFinite(elapsed)&&elapsed>=0&&length>=300&&length<=1200&&period>=1&&period<=4){
+    const elapsedPeriod=elapsed-(period-1)*length;
+    if(elapsedPeriod>=0&&elapsedPeriod<=length+2){
+      const remaining=Math.max(0,length-Math.min(length,elapsedPeriod));
+      return String(Math.floor(remaining/60)).padStart(2,"0")+":"+String(remaining%60).padStart(2,"0");
     }
   }
   return null;
