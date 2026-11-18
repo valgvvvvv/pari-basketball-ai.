@@ -136,11 +136,19 @@ def main():
     with urllib.request.urlopen(req, timeout=240) as response:
         uploaded = json.loads(response.read().decode("utf-8"))
 
+    # Once the permanent release asset is confirmed, remove the temporary
+    # workflow artifacts so the Actions storage quota does not grow forever.
+    deleted = 0
+    for artifact in artifacts:
+        api_json(f"/repos/{REPO}/actions/artifacts/{artifact['id']}", method="DELETE")
+        deleted += 1
+
     print(json.dumps({
         "published": True,
         "tag": tag,
         "asset": uploaded.get("browser_download_url"),
         "snapshots": len(artifacts),
+        "temporary_artifacts_deleted": deleted,
         "archive_bytes": len(zip_bytes),
     }, ensure_ascii=False))
 
