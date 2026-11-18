@@ -1,0 +1,76 @@
+name: Autonomous basketball archive collector
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/autonomous-archive.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pari-live-archive-collector
+  cancel-in-progress: false
+
+jobs:
+  collect-live-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Fetch live PARI matches and save a compressed snapshot
+        env:
+          LIVE_API: https://pari-basketball-ai.onrender.com/api/pari/live
+        run: |
+          python - <<'PY'
+          import datetime, gzip, json, os, pathlib, time, urllib.request, urllib.error
+          url = os.environ["LIVE_API"]
+          request = urllib.request.Request(
+              url + "?catalog_only=false",
+              headers={"User-Agent": "PARI-Basketball-AI-Archive/1.0", "Accept": "application/json"}
+          )
+          last_error = None
+          payload = None
+          for attempt in range(3):
+              try:
+                  with urllib.request.urlopen(request, timeout=160) as response:
+                      raw = response.read()
+                      payload = json.loads(raw.decode("utf-8-sig"))
+                  if not isinstance(payload, dict) or not payload.get("ok") or not payload.get("connected"):
+                      raise RuntimeError("PARI LIVE feed did not confirm a successful connection")
+                  break
+              except Exception as exc:
+                  last_error = f"{type(exc).__name__}: {exc}"
+                  if attempt < 2:
+                      time.sleep(12)
+          if payload is None or not payload.get("ok") or not payload.get("connected"):
+              raise SystemExit("Live collection failed: " + str(last_error))
+          events = payload.get("events")
+          if not isinstance(events, list):
+              raise SystemExit("Live response has no events array")
+          now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+          record = {
+              "format": "pari-live-snapshot-v1",
+              "captured_at_utc": now,
+              "source": "PARI live feed via the project's verified adapter",
+              "event_count": len(events),
+              "events": events,
+          }
+          pathlib.Path("archive-snapshot").mkdir(exist_ok=True)
+          name = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+          with gzip.open(f"archive-snapshot/live-{name}.json.gz", "wt", encoding="utf-8") as stream:
+              json.dump(record, stream, ensure_ascii=False, separators=(",", ":"), default=str)
+          with open("archive-snapshot/collection.txt", "w", encoding="utf-8") as stream:
+              stream.write(f"captured_at_utc={now}\nevents={len(events)}\n")
+          print(f"ARCHIVE_COLLECTION_OK captured_at={now} events={len(events)}")
+          PY
+      - name: Store snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: pari-live-snapshot-${{ github.run_id }}
+          path: archive-snapshot/
+          if-no-files-found: error
+          retention-days: 90
