@@ -24,7 +24,7 @@
     <header class="topbar"><div><span class="eyebrow">PARI BASKETBALL AI</span><h1>Центр анализа</h1></div><div class="top-actions"><span class="avatar">AI</span></div></header>
     <section class="metrics" id="dashboard">
       <div class="metric"><small>LIVE-ИСТОЧНИК</small><b id="liveSourceStatus" class="amber">Проверка…</b><span id="liveSourceDetail">Автоматическое обновление каждые 30 секунд</span></div>
-      <div class="metric"><small>МОДЕЛЕЙ В ЯДРЕ</small><b>6</b><span>Базовые независимые методы</span></div>
+      <div class="metric"><small>МОДЕЛЕЙ В ЯДРЕ</small><b>7</b><span>Базовые методы + ИИ-ансамбль</span></div>
       <div class="metric"><small>СИМУЛЯЦИИ</small><b>20 000</b><span>Настраивается до 100 000</span></div>
       <div class="metric"><small>ИСТОРИЯ</small><b id="historyCount">0</b><span>Локально сохранённых анализов</span></div>
     </section>
@@ -44,7 +44,7 @@
       </div>
     </section>
     <section>
-      <div class="panel" id="models"><span class="eyebrow">MODEL STACK</span><h2>Модельное ядро</h2><div class="model-list"><div><b>01</b><span>Линейный темп</span><i>Активна</i></div><div><b>02</b><span>Пуассон</span><i>Активна</i></div><div><b>03</b><span>Монте-Карло</span><i>Активна</i></div><div><b>04</b><span>Динамика концовки</span><i>Базовая</i></div><div><b>05</b><span>Модель владений</span><i class="muted" id="possessionModelStatus">Проверка подключения…</i></div><div><b>06</b><span>Ансамбль / калибровка</span><i class="muted">Нужна история</i></div></div></div>
+      <div class="panel" id="models"><span class="eyebrow">MODEL STACK</span><h2>Модельное ядро</h2><div class="model-list"><div><b>01</b><span>Линейный темп</span><i>Активна</i></div><div><b>02</b><span>Пуассон</span><i>Активна</i></div><div><b>03</b><span>Монте-Карло</span><i>Активна</i></div><div><b>04</b><span>Динамика концовки</span><i>Базовая</i></div><div><b>05</b><span>Модель владений</span><i class="muted" id="possessionModelStatus">Проверка подключения…</i></div><div><b>06</b><span>Ансамбль / калибровка</span><i class="muted">Нужна история</i></div><div><b>07</b><span>ИИ-анализ и согласование моделей</span><i>Активна · эвристическая</i></div></div></div>
     </section>
     <section class="panel" id="history"><div class="section-head"><div><span class="eyebrow">TRACK RECORD</span><h2>История анализов</h2></div><button class="btn-ghost" id="clearHistory">Очистить</button></div><div id="historyList" class="history-list"><p class="muted">Пока нет сохранённых расчётов.</p></div></section>
     <footer><span>PARI Basketball AI · MVP 0.1</span><span>Аналитический инструмент. Вероятности не гарантируют результат.</span><span>Данные live-счёта: <a href="https://sportscore.com/" target="_blank" rel="dofollow noopener">Powered by SportScore</a></span></footer>
