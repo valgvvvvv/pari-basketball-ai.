@@ -723,48 +723,42 @@ function findPeriodLengthSeconds(ev) {
 }
 
 function getMatchTotalLines(ev) {
+  // Full-game totals must come only from the root match market. Searching
+  // related_events/related_factors mixes quarter, team and prop markets into
+  // the match total (for example, unrelated 5.5 / 6.5 values).
   const factors = [];
-  const add = value => {
-    if (Array.isArray(value)) { for (const item of value) add(item); return; }
+  const addRoot = value => {
+    if (Array.isArray(value)) { for (const item of value) addRoot(item); return; }
     if (!value || typeof value !== "object") return;
-    const groupLabel=String(value.name||value.kindName||"");
-    const isQuarterGroup=/(?:\bq\s*[1-4]\b|\bquarter\s*[1-4]\b|\bperiod\s*[1-4]\b|[1-4]\s*[-–.]?\s*(?:я|й|ая|ый)?\s*четверт\w*|четверт\w*\s*[1-4])/i.test(groupLabel);
-    if(isQuarterGroup && (Array.isArray(value.factors)||Array.isArray(value.markets)))return;
     if (["930","931"].includes(String(value.f))) factors.push(value);
-    for (const [key, child] of Object.entries(value)) {
-      if (["factors","markets","customFactors","match_total_candidates","related_factors"].includes(key)) add(child);
-    }
+    for (const key of ["factors","markets","customFactors"]) if (value[key]) addRoot(value[key]);
   };
-  add(ev.match_total_candidates);
-  add(ev.factors);
-  add(ev.related_factors);
-  add(ev.related_factor_groups);
-  add(ev.related_events);
+  addRoot(ev.match_total_candidates);
+  addRoot(ev.factors);
   const seen = new Set(), lines = [];
   for (const factor of factors) {
     const line = factor.pt != null ? Number(factor.pt) : (factor.p != null ? Number(factor.p)/100 : NaN);
-    if (!Number.isFinite(line) || line <= 0 || line > 400) continue;
+    if (!Number.isFinite(line) || line < 40 || line > 400) continue;
+    const odds = Number(factor.v);
+    if (factor.v != null && (!Number.isFinite(odds) || odds <= 1 || odds > 1000)) continue;
     const key = line.toFixed(2);
     if (seen.has(key)) continue;
     seen.add(key);
-    lines.push({line, odds: factor.v == null ? null : String(factor.v), factorId:String(factor.f), source:"PARI"});
+    lines.push({line, odds: factor.v == null ? null : String(factor.v), factorId:String(factor.f), source:"PARI", market:"full_game_total"});
   }
-  // PARI can temporarily omit suspended markets late in a quarter. Keep the
-  // last verified line for this exact event in this browser, visibly marked stale.
-  const cacheKey = "pari-total-lines-v1:" + String(ev.id || "");
+  // Versioned key drops old, unclassified lines from local storage.
+  const cacheKey = "pari-total-lines-v2:" + String(ev.id || "");
   try {
     if (lines.length) {
       localStorage.setItem(cacheKey, JSON.stringify({savedAt:Date.now(), lines}));
       return lines.sort((a,b)=>a.line-b.line);
     }
     const cached = JSON.parse(localStorage.getItem(cacheKey) || "null");
-    if (cached && Array.isArray(cached.lines) && Date.now()-Number(cached.savedAt) < 6*60*60*1000) {
+    if (cached && Array.isArray(cached.lines) && Date.now()-Number(cached.savedAt) < 6*60*60*1000)
       return cached.lines.map(x=>({...x,source:"PARI · последняя полученная линия",stale:true}));
-    }
   } catch (_) {}
   return lines;
 }
-
 function inferPeriodLengthForForecast(ev) {
   const explicit=findPeriodLengthSeconds(ev);
   const text=[ev.league,ev.sport_name,ev.team1,ev.team2].filter(Boolean).join(" ").toLowerCase();
@@ -920,7 +914,7 @@ function automaticQuarterForecast(ev) {
       (explicit===period||(!Number.isInteger(explicit)&&quarterPatterns.some(rx=>rx.test(label))));
     if(["930","931"].includes(String(node.f))&&isTargetPeriod){
       const line=node.pt!=null?Number(node.pt):(node.p!=null?Number(node.p)/100:NaN);
-      if(Number.isFinite(line)&&line>0&&line<150&&!quarterLines.some(x=>x.line===line))
+      if(Number.isFinite(line)&&line>=10&&line<150&&!quarterLines.some(x=>x.line===line))
         quarterLines.push({line,odds:node.v==null?null:String(node.v),source:"PARI"});
       return;
     }
