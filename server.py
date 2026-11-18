@@ -2914,7 +2914,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             return None
                         if isinstance(value, (int, float)) and int(value) == value and 1 <= int(value) <= 4:
                             return int(value)
-                        match = re.search(r"(?:q|quarter|period|период|четверт\w*)\s*([1-4])|([1-4])\s*(?:st|nd|rd|th)?\s*(?:quarter|period)", str(value), re.I)
+                        match = re.search(r"(?:q|quarter|period|период|четверт\w*)\s*([1-4])|([1-4])\s*(?:(?:st|nd|rd|th)|(?:-?я|-?ая))?\s*(?:quarter|period|четверт\w*)", str(value), re.I)
                         if match:
                             return int(match.group(1) or match.group(2))
                         if str(value).strip() in ("1", "2", "3", "4"):
@@ -2932,11 +2932,10 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             if quarter_rows and len(quarter_rows) <= 4:
                                 explicit_period = len(quarter_rows)
 
-                    # PARI's timerSeconds is an elapsed match clock when the source
-                    # marks it as count-up (timerDirection=1). Do not reinterpret a
-                    # count-down/unknown timer as cumulative elapsed time.
-                    # If the period duration is missing, infer it only when exactly
-                    # one standard format (4x10 or 4x12) agrees with the explicit period.
+                    # PARI's timerSeconds is the cumulative match timer in the live
+                    # feed. timerDirection is retained for diagnostics, not used to
+                    # reverse the value: observed snapshots increase across both flag values.
+                    # Infer 4x10/4x12 only when one format uniquely agrees with the period.
                     timer_state_text = " ".join(str(row.get(key) or "") for row in
                                                 (event, event_misc, live_info)
                                                 for key in ("comment", "scoreComment", "scoreCommentTail", "st3")).casefold()
@@ -2945,7 +2944,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     if period_length_seconds is None and timer_seconds is not None and explicit_period and not overtime_detected:
                         compatible = [length for length in (600, 720)
                                       if timer_seconds < 4 * length
-                                      and timer_seconds // length + 1 == explicit_period]
+                                      and (timer_seconds // length + 1 == explicit_period
+                                           or (timer_seconds + 2) // length + 1 == explicit_period)]
                         if len(compatible) == 1:
                             period_length_seconds = compatible[0]
 
@@ -2960,10 +2960,14 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         # PARI timerSeconds advances as elapsed match time in the live
                         # feed. Validate its derived quarter against the explicit period.
                         derived_period = timer_seconds // period_length_seconds + 1
+                        target_period = explicit_period or derived_period
+                        near_period_start = ((timer_seconds + 2) // period_length_seconds + 1 == target_period)
                         if timer_seconds < 4 * period_length_seconds and derived_period <= 4:
-                            if explicit_period is None or explicit_period == derived_period:
-                                period_value = derived_period
-                                remaining = period_length_seconds - (timer_seconds % period_length_seconds)
+                            if explicit_period is None or explicit_period == derived_period or near_period_start:
+                                period_value = target_period
+                                elapsed_in_period = timer_seconds - (target_period - 1) * period_length_seconds
+                                elapsed_in_period = max(0, min(period_length_seconds, elapsed_in_period))
+                                remaining = period_length_seconds - elapsed_in_period
                                 clock_value = f"{remaining // 60:02d}:{remaining % 60:02d}"
                             else:
                                 # Period and timer disagree: suppress the clock rather
