@@ -2319,21 +2319,32 @@ def _finalize_live_statistics(events):
 def _extract_pari_live_statistics(objects):
     """Normalize only explicit, named PARI box-score fields; never guess opaque S1/S2 codes."""
     found = {}
+    period_found = {}
     visited = set()
 
     def add(label, home, away, group="PARI LIVE"):
         metric = _pari_stat_metric(label)
         if not metric or home is None or away is None:
             return
-        # Preserve source representation (including made/attempted strings).
-        marker = (metric, str(home), str(away))
-        if marker in found:
+        label_text = str(label or "") + " " + str(group or "")
+        period_match = re.search(
+            r"\\bq\\s*([1-4])\\b|([1-4])\\s*(?:-я|я|st|nd|rd|th)?\\s*(?:четверть|quarter)",
+            label_text, re.I
+        )
+        period = int(period_match.group(1) or period_match.group(2)) if period_match else None
+        # Keep quarter splits separate from full-game box-score totals.
+        target = period_found if period else found
+        marker = ((period,) if period else ()) + (metric, str(home), str(away))
+        if marker in target:
             return
-        found[marker] = {
+        row = {
             "group": str(group or "PARI LIVE"), "name": str(label),
             "metric_key": metric, "home": home, "away": away,
             "source": "PARI",
         }
+        if period:
+            row["period"] = period
+        target[marker] = row
 
     def walk(value, depth=0):
         if depth > 7 or not isinstance(value, (dict, list)):
@@ -2379,7 +2390,7 @@ def _extract_pari_live_statistics(objects):
 
     for obj in objects:
         walk(obj)
-    return list(found.values())
+    return {"match": list(found.values()), "periods": list(period_found.values())}
 
 
 # PARI public LIVE events feed. The endpoint is read-only; no account or betting actions.
@@ -3101,7 +3112,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                 # statisticsTypes/S1 codes are retained for diagnostics, not guessed.
                 for pari_row in basketball:
                     pari_id = str(pari_row.get("id") or "")
-                    pari_stats = _extract_pari_live_statistics([
+                    pari_stat_result = _extract_pari_live_statistics([
                         pari_row.get("raw", {}),
                         pari_row.get("live_fields", {}),
                         event_misc_by_id.get(pari_id, {}),
@@ -3109,6 +3120,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         event_blocks_by_id.get(pari_id, []),
                         pari_row.get("related_events", []),
                     ])
+                    pari_stats = pari_stat_result.get("match", [])
+                    pari_row["period_statistics"] = pari_stat_result.get("periods", [])
                     if pari_stats:
                         pari_row["external_statistics"] = pari_stats
                         pari_row["statistics_source"] = "PARI"
@@ -3596,6 +3609,7 @@ async def _pari_startup_live_statistics_audit():
                 "missing_metrics": quality.get("missing_metrics", []),
                 "statistics_types": raw.get("statisticsTypes"),
                 "stat_rows": (event.get("external_statistics") or [])[:12],
+                "period_stat_rows": (event.get("period_statistics") or [])[:12],
                 "related_rows": len(event.get("related_events") or []),
             })
         print("PARI_STATISTICS_AUDIT " + json.dumps({
