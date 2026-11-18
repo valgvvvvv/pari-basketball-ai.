@@ -131,6 +131,43 @@ function estimateLiveTotal(ev, score, period, clock){
     elapsed_seconds:elapsed,remaining_seconds:remainingSeconds,
     period_elapsed_seconds:length-remaining};
 }
+
+function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,period=null,clock=null,kind="match"){
+  const n=20000;let seed=2166136261;
+  for(const ch of String(seedText))seed=Math.imul(seed^ch.charCodeAt(0),16777619)>>>0;
+  const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return (seed+1)/4294967297;};
+  const poisson=lambda=>{
+    if(lambda<=0)return 0;
+    if(lambda>35){const u=Math.max(random(),1e-12),v=random(),z=Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);return Math.max(0,Math.round(lambda+Math.sqrt(lambda)*z));}
+    const limit=Math.exp(-lambda);let product=1,k=0;do{k++;product*=random();}while(product>limit&&k<1000);return k-1;
+  };
+  const info=inferPeriodLengthForForecast(ev||{}),length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||info?.seconds||0);
+  const completed=[];
+  if(kind==="match"&&length>0)for(let i=0;i<Math.max(0,Number(period||1)-1);i++){const q=readPeriodScore(ev,i);if(Number.isFinite(q)&&q>0)completed.push(q);}
+  const score=findLiveScore(ev),pair=period?currentQuarterScore(ev,Number(period),score):null,qCurrent=pair?pair.pair[0]+pair.pair[1]:null;
+  const cm=String(clock||"").match(/^([0-9]{1,2}):([0-5][0-9])$/),qElapsed=cm&&length?length-(Number(cm[1])*60+Number(cm[2])):0;
+  const rates=[];
+  if(completed.length&&length>0){
+    const avg=completed.reduce((a,b)=>a+b,0)/completed.length,last=completed[completed.length-1];
+    rates.push({value:clampForecast(last/Math.max(avg,1)-1,-0.35,0.35),weight:0.55});
+    if(completed.length>=2){const prior=completed.slice(0,-1).reduce((a,b)=>a+b,0)/(completed.length-1);rates.push({value:clampForecast(last/Math.max(prior,1)-1,-0.35,0.35),weight:0.25});}
+  }
+  if(qCurrent!=null&&qElapsed>=180&&length>0){
+    const baseline=completed.length?completed.reduce((a,b)=>a+b,0)/completed.length:(score&&period>1?((score[0]+score[1])/Math.max((Number(period)-1)*length/60,1))*(length/60):null);
+    if(baseline>0)rates.push({value:clampForecast((qCurrent/(qElapsed/60))/ (baseline/(length/60))-1,-0.35,0.35),weight:0.20});
+  }
+  const trend=rates.length?rates.reduce((a,x)=>a+x.value*x.weight,0)/rates.reduce((a,x)=>a+x.weight,0):0;
+  const momentum=clampForecast(trend,-0.25,0.25);
+  const pFast=clampForecast(0.25+momentum*0.55,0.12,0.40),pSlow=clampForecast(0.25-momentum*0.25,0.16,0.34),pBase=Math.max(0.20,1-pFast-pSlow);
+  const norm=pSlow*0.78+pBase+pFast*1.22;
+  const scenarios=[{name:"Замедление",factor:0.78,probability:pSlow},{name:"Базовый темп",factor:1,probability:pBase},{name:"Ускорение",factor:1.22,probability:pFast}];
+  const outcomes=new Array(n);
+  for(let i=0;i<n;i++){const u=random(),sc=u<pSlow?scenarios[0]:(u<pSlow+pBase?scenarios[1]:scenarios[2]);outcomes[i]=Math.max(current,current+poisson(Math.max(0,mu*sc.factor/norm)));}
+  outcomes.sort((a,b)=>a-b);
+  const quantile=q=>outcomes[Math.min(n-1,Math.max(0,Math.ceil(q*n)-1))];
+  const probabilities=(lines||[]).filter(x=>Number.isFinite(Number(x.line))).map(x=>{const line=Number(x.line),over=outcomes.reduce((sum,total)=>sum+(total>line?1:0),0)/n;return {...x,pOver:over,pUnder:1-over,direction:over>=0.57?"ТБ":over<=0.43?"ТМ":"без выраженного преимущества",edge:Math.max(over,1-over)-0.5};});
+  return {simulations:n,mu:Math.round(mu*100)/100,low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),momentum:Math.round(momentum*1000)/10,method:"Динамическая смесь сценариев · темп четвертей · ускорение/замедление"};
+}
 function poissonMonteCarlo(current, mu, lines=[], seedText="") {
   const n=10000;
   let seed=2166136261;
@@ -515,8 +552,10 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   const baseMu=Math.max(0,adjusted.projection-adjusted.current);
   const possMu=possession.applied?Math.max(0,possession.projection-adjusted.current):baseMu;
   const secondaryAdjustment=possession.applied?clampForecast(1+(statsContext.adjustment-1)*0.35,0.985,1.015):statsContext.adjustment;
-  const mu=possMu*secondaryAdjustment,mc=poissonMonteCarlo(adjusted.current,mu,lines,seedText);
+  const mu=possMu*secondaryAdjustment,mc=dynamicScenarioMonteCarlo(adjusted.current,mu,lines,seedText,ev,period,clock,"match");
   const factors=[...(context.factors||[]),...(statsContext.factors||[])];
+  const scenarioText=(mc?.scenarios||[]).map(x=>x.name+" "+x.probability+"%").join(" · ");
+  if(scenarioText)factors.push("20 000 динамических сценариев: "+scenarioText+" · импульс "+Number(mc.momentum||0).toFixed(1)+"%");
   if(possession.applied){
     factors.unshift("ведущая модель владений: "+possession.average+" владений на команду · "+possession.possPerMinute+" влад./мин · "+possession.pointsPerPossession+" очка/владение");
     factors.push("ожидаемые владения до конца: "+possession.expectedRemainingPossessions+" · очки до конца по модели владений: "+possession.expectedRemainingPoints);
@@ -1177,7 +1216,7 @@ function automaticQuarterForecast(ev) {
   const quarterStatsAdjustment=shootingContext.efg!=null
     ?clampForecast(1+(shootingContext.adjustment-1)*0.35,0.985,1.015):1;
   const mu=baseMu*quarterStatsAdjustment;
-  const poisson=poissonMonteCarlo(simulationCurrent,mu,quarterLines,String(ev.id||"")+"|Q"+(period||"?")+"|"+(clock||"no-clock"));
+  const poisson=dynamicScenarioMonteCarlo(simulationCurrent,mu,quarterLines,String(ev.id||"")+"|Q"+(period||"?")+"|"+(clock||"no-clock"),ev,period,clock,"quarter");
   const preliminary=!elapsed||elapsed<180||source.includes("ориентир")||source.includes("таймер отсутствует")||source.includes("предварительно")||String(info?.method||"").includes("предварительно")||recoveredClock;
   return {ready:true,period,current:observed??null,projection:Math.round(projection*10)/10,
     home:currentQuarter?.pair?.[0]??null,away:currentQuarter?.pair?.[1]??null,
