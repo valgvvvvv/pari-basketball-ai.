@@ -1424,7 +1424,7 @@ async function refreshServerArchiveStatus(){
     set("archiveStatusText",(persistent?"Данные записываются на постоянный диск Render.":"ВНИМАНИЕ: сейчас база на временном диске и может исчезнуть при перезапуске Render.")+
       " Сборщик работает каждые "+data.interval_seconds+" сек., пока сервер активен. Последняя проверка: "+
       (data.collector?.checked_at||"ещё не было")+". Сохранено новых снимков в последнем цикле: "+(data.collector?.saved??0)+errors+
-      ". "+data.prediction_capture);
+      ". "+data.prediction_capture+" Публичные ZIP-архивы GitHub доступны по ссылке выше; очистка этой кнопкой затрагивает только локальную базу Render и не удаляет опубликованные ZIP.");
   }catch(error){set("archiveStatusText","Не удалось получить статус архива: "+error.message);}
 }
 if($("clearServerArchive"))$("clearServerArchive").addEventListener("click",async()=>{
