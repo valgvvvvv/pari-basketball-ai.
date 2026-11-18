@@ -2937,7 +2937,12 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # count-down/unknown timer as cumulative elapsed time.
                     # If the period duration is missing, infer it only when exactly
                     # one standard format (4x10 or 4x12) agrees with the explicit period.
-                    if period_length_seconds is None and timer_seconds is not None and timer_direction == 1 and explicit_period:
+                    timer_state_text = " ".join(str(row.get(key) or "") for row in
+                                                (event, event_misc, live_info)
+                                                for key in ("comment", "scoreComment", "scoreCommentTail", "st3")).casefold()
+                    overtime_detected = bool(re.search(r"\bot\b|overtime|овертайм|от\s*[:(]|дополнительн\w*\s+врем", timer_state_text))
+
+                    if period_length_seconds is None and timer_seconds is not None and explicit_period and not overtime_detected:
                         compatible = [length for length in (600, 720)
                                       if timer_seconds < 4 * length
                                       and timer_seconds // length + 1 == explicit_period]
@@ -2951,12 +2956,9 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             clock_value = clock_match.group(1).zfill(2) + ":" + clock_match.group(2)
                         else:
                             clock_value = None
-                    elif timer_seconds is not None and timer_direction == 0 and period_length_seconds and explicit_period:
-                        # A count-down timer is accepted as a period clock only if it
-                        # fits inside the verified period duration.
-                        if 0 < timer_seconds <= period_length_seconds:
-                            clock_value = f"{timer_seconds // 60:02d}:{timer_seconds % 60:02d}"
-                    elif timer_seconds is not None and timer_direction == 1 and period_length_seconds:
+                    elif timer_seconds is not None and period_length_seconds and not overtime_detected:
+                        # PARI timerSeconds advances as elapsed match time in the live
+                        # feed. Validate its derived quarter against the explicit period.
                         derived_period = timer_seconds // period_length_seconds + 1
                         if timer_seconds < 4 * period_length_seconds and derived_period <= 4:
                             if explicit_period is None or explicit_period == derived_period:
@@ -2967,6 +2969,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 # Period and timer disagree: suppress the clock rather
                                 # than show a plausible-looking but incorrect value.
                                 clock_value = None
+                        else:
+                            clock_value = None
                     elif timer_seconds is not None:
                         clock_value = None
 
@@ -3116,17 +3120,17 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         ) else None,
                         "period": period_value,
                         "period_source": "PARI_timer_and_period_consistency" if (
-                            timer_seconds is not None and timer_direction == 1 and period_length_seconds
+                            timer_seconds is not None and period_length_seconds
                             and clock_value is not None
                         ) else ("PARI_event" if period_value is not None else None),
                         "clock": clock_value,
                         "clock_source": "PARI_timer_and_period_consistency" if (
-                            timer_seconds is not None and timer_direction == 1 and period_length_seconds
+                            timer_seconds is not None and period_length_seconds
                             and clock_value is not None
                         ) else ("PARI_explicit_countdown" if clock_value is not None else None),
                         "period_length_seconds": period_length_seconds,
                         "period_count": 4 if period_length_seconds else None,
-                        "match_elapsed_seconds": timer_seconds if timer_direction == 1 else None,
+                        "match_elapsed_seconds": timer_seconds,
                         "timer_direction": timer_direction,
                         "timer_timestamp_msec": timer_timestamp_msec,
                         "period_scores": period_scores,
