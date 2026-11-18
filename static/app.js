@@ -662,8 +662,11 @@ function showSelectedMatch(ev,options={}){
       (quarter.lines.length?'<h3>Вероятности · Q'+escapeHtml(quarter.period||period||"?")+'</h3><table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Направление</th><th>Коэфф.</th></tr></thead><tbody>'+quarter.lines.map(x=>'<tr><td>'+x.line+'</td><td>'+(x.pOver*100).toFixed(1)+'%</td><td>'+(x.pUnder*100).toFixed(1)+'%</td><td>'+escapeHtml(x.direction)+'</td><td>'+(x.odds?escapeHtml(x.odds):'—')+'</td></tr>').join('')+'</tbody></table>':'<p class="muted">Линия четверти не получена</p>')+
       calculationStepsHtml({kind:"quarter",period:quarter.period,ev,projection:Number(quarter.projection),current:Number(quarter.current),elapsedMinutes:quarter.elapsed,remainingMinutes:clock&&findPeriodLengthSeconds(ev)?Math.max(0,(Number(clock.split(":")[0])*60+Number(clock.split(":")[1]))/60):null,homeScore:quarter.home,awayScore:quarter.away,poss:quarter.possession_model,lines:quarter.lines||[],preliminary:!!quarter.preliminary,clock})
     :'<p class="muted">'+escapeHtml(quarter.reason||"Недостаточно данных")+'</p>';
-  $("matchForecast").insertAdjacentHTML("beforeend",'<div class="compact-analysis"><h3>Статистика · '+rows.length+'/'+(statsQuality?.expected_count??"—")+'</h3>'+statHtml+(timeline?'<p><b>Четверти:</b> '+escapeHtml(timeline)+'</p>':'')+
-    (rows.length?'<h4>Все показатели</h4>'+rows.map(st=>'<p>'+escapeHtml(st.name||st.metric_key||"Показатель")+': <b>'+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+'</b></p>').join(""):'')+'</div>');
+  const statsMeta=statsQuality?'<p>Покрытие: <b>'+Number(statsQuality.coverage_percent||0)+'%</b> · источники: '+escapeHtml(ev.statistics_source||"нет")+'</p>':'';
+  const missingStats=statsQuality?.missing_metrics?.length?'<p class="muted">Нет данных: '+escapeHtml(statsQuality.missing_metrics.join(", "))+'</p>':'';
+  const statsConflicts=statsQuality?.conflicts?.length?'<p class="warn">Расхождения источников: '+statsQuality.conflicts.length+' · значения не скрыты</p>':'';
+  $("matchForecast").insertAdjacentHTML("beforeend",'<div class="compact-analysis"><h3>Статистика · '+rows.length+'/'+(statsQuality?.expected_count??"—")+'</h3>'+statsMeta+missingStats+statsConflicts+statHtml+(timeline?'<p><b>Четверти:</b> '+escapeHtml(timeline)+'</p>':'')+
+    (rows.length?'<h4>Все показатели</h4>'+rows.map(st=>'<p>'+escapeHtml(st.name||st.metric_key||"Показатель")+': <b>'+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+'</b> · '+escapeHtml(st.source||"источник не указан")+'</p>').join(""):'')+'</div>');
   saveAnalysisHistory(ev,score,period,clock,estimate,quarter);
   if(!options.silent)panel.scrollIntoView({behavior:"smooth",block:"start"});
 }
