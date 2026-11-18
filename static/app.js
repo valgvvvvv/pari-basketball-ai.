@@ -549,7 +549,7 @@ function calculationStepsHtml(options){
   const projectedTotal=Math.round(final);
   const finalHome=home==null?null:Math.round(home+rest*hw);
   const finalAway=away==null?null:Math.max(0,projectedTotal-finalHome);
-  const strongest=(lines||[]).filter(x=>x&&x.pOver!=null).slice().sort((a,b)=>Math.abs(b.pOver-.5)-Math.abs(a.pOver-.5))[0];
+  const strongest=(lines||[]).filter(x=>x&&Number.isFinite(Number(x.pOver))&&Number.isFinite(Number(x.line))).slice().sort((a,b)=>Math.abs(b.pOver-.5)-Math.abs(a.pOver-.5))[0];
   const scoreLabel=kind==="quarter"?"Счёт текущей четверти":"Текущий счёт матча";
   const stages=[{name:scoreLabel,value:home!=null&&away!=null?f(home,0)+" : "+f(away,0):f(now,0),detail:(kind==="quarter"?"Очки только в Q"+(period||"—")+" · ":"")+f(elapsed)+" мин прошло · "+f(remaining)+" мин осталось"+(clock?" · таймер "+clock:"")}];
   if(active){
@@ -567,7 +567,7 @@ function calculationStepsHtml(options){
     '<div class="calc-stage-list">'+stages.map((x,i)=>'<div class="calc-stage"><span class="calc-stage-index">'+(i+1)+'</span><div><b>'+x.name+'</b><strong>'+escapeHtml(x.value)+'</strong><small>'+escapeHtml(x.detail)+'</small></div></div>').join("")+'</div>'+
     (home!=null&&away!=null?'<div class="calc-score-prediction"><span>'+(kind==="quarter"?"Ориентир очков в Q"+(period||"—"):"Ориентир итогового счёта матча")+'</span><b>'+finalHome+' : '+finalAway+'</b><small>Распределение общего прогноза по текущей доле очков команд; это не отдельная модель индивидуальных тоталов.</small></div>':'')+
     '<h4>Как меняется общий тотал</h4><table class="calc-table trajectory-table"><thead><tr><th>Остаток</th><th>Прогноз тотала</th><th>Ориентир по командам</th></tr></thead><tbody>'+rows+'</tbody></table>'+
-    '<div class="calc-direction"><span>Направление</span><b>'+escapeHtml(strongest?.direction||"нет линии")+'</b>'+(strongest?'<small>'+f(strongest.line,1)+' · ТБ '+(strongest.pOver*100).toFixed(1)+'% · ТМ '+(strongest.pUnder*100).toFixed(1)+'%</small>':'')+'</div></section>';
+    '<div class="calc-direction"><span>Направление '+(kind==="quarter"?"четверти Q"+(period||"—"):"матча")+'</span><b>'+escapeHtml(strongest?(strongest.direction==="без преимущества"?"Нет перевеса":strongest.direction):"Линия PARI не получена")+'</b>'+(strongest?'<small>Линия '+f(strongest.line,1)+' · вероятность ТБ '+(strongest.pOver*100).toFixed(1)+'% · ТМ '+(strongest.pUnder*100).toFixed(1)+'%</small>':'<small>Без подтверждённой линии нельзя корректно выбрать ТБ или ТМ</small>')+'</div></section>';
 }
 
 const ANALYSIS_HISTORY_KEY = "pari-analysis-history-v1";
@@ -905,9 +905,12 @@ function aiModelAnalysis(ev,matchForecast,quarterForecast){
 function aiSignalHtml(signal,title){
   if(!signal)return '<p class="muted">ИИ-анализ: недостаточно подтверждённых данных</p>';
   const best=signal.strongest;
-  const direction=best&&best.direction!=="без преимущества"?best.direction+" "+best.line:"нет сильного сигнала";
+  const direction=best
+    ?(best.direction==="без преимущества"?"Нет перевеса":best.direction)+" относительно линии "+best.line
+    :"Линия PARI не получена — направление не определяется";
   return '<div class="ai-model-panel"><b>'+escapeHtml(title)+'</b><div class="ai-model-number">'+signal.projection+'</div>'+
-    '<p>'+escapeHtml(direction)+' · уверенность: '+escapeHtml(signal.confidence)+(best?' · вероятность '+(Math.max(best.pOver,best.pUnder)*100).toFixed(1)+'%':'')+'</p>'+
+    '<p><b>Направление: '+escapeHtml(direction)+'</b>'+(best?' · ТБ '+(best.pOver*100).toFixed(1)+'% / ТМ '+(best.pUnder*100).toFixed(1)+'%':'')+
+    ' · уверенность: '+escapeHtml(signal.confidence)+'</p>'+
     '<small>'+escapeHtml(signal.drivers.join(" · "))+'</small></div>';
 }
 function findQuarterClockFromElapsed(ev,period,length){
@@ -1138,7 +1141,9 @@ async function refreshLiveMatches() {
           forecastHtml += '<span class="live-match-meta forecast-pending">Прогноз четверти: '+escapeHtml(quarterForecast.reason)+'</span>';
         }
         const aiBest=aiAnalysis.match?.strongest;
-        if(aiAnalysis.match)forecastHtml+='<span class="live-match-meta forecast-live">ИИ: '+escapeHtml(aiAnalysis.match.projection)+' · '+escapeHtml(aiBest&&aiBest.direction!=="без преимущества"?aiBest.direction+" "+aiBest.line:"без сильного сигнала")+' · '+escapeHtml(aiAnalysis.match.confidence)+'</span>';
+        if(aiAnalysis.match)forecastHtml+='<span class="live-match-meta forecast-live">ИИ · матч: '+escapeHtml(aiAnalysis.match.projection)+' · направление '+escapeHtml(aiBest?(aiBest.direction==="без преимущества"?"нет перевеса":aiBest.direction+" "+aiBest.line):"нет линии PARI")+' · '+escapeHtml(aiAnalysis.match.confidence)+'</span>';
+        const aiQuarterBest=aiAnalysis.quarter?.strongest;
+        if(aiAnalysis.quarter)forecastHtml+='<span class="live-match-meta forecast-live">ИИ · Q'+escapeHtml(quarterForecast.period||findLivePeriod(ev)||"?")+': '+escapeHtml(aiAnalysis.quarter.projection)+' · направление '+escapeHtml(aiQuarterBest?(aiQuarterBest.direction==="без преимущества"?"нет перевеса":aiQuarterBest.direction+" "+aiQuarterBest.line):"нет линии PARI")+' · '+escapeHtml(aiAnalysis.quarter.confidence)+'</span>';
         return '<button type="button" class="live-match" data-event-id="' + escapeHtml(ev.id) + '">' +
           '<span class="live-match-title">' + teams + '</span><span class="live-match-meta">' + (details || "Событие получено из LIVE API PARI") + '</span>' + forecastHtml + '</button>';
       }).join("") : '<p class="muted">В текущем ответе нет подтверждённых баскетбольных LIVE-матчей.</p>';
