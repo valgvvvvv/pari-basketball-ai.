@@ -3429,7 +3429,46 @@ async def _pari_startup_stats_discovery():
         print("PARI_STATS_DISCOVERY_ERROR " + type(exc).__name__ + ": " + str(exc)[:240], flush=True)
 
 
+async def _pari_startup_live_statistics_audit():
+    """Fetch one real PARI LIVE snapshot after startup and log actual stat coverage."""
+    try:
+        data = await _fetch_pari_live_events(catalog_only=False)
+        if data.get("ok") and data.get("connected"):
+            globals()["_PARI_LIVE_CACHE"] = {
+                "saved_at": datetime.now(timezone.utc).timestamp(),
+                "data": data,
+            }
+        events = data.get("events", []) if isinstance(data, dict) else []
+        samples = []
+        for event in events[:25]:
+            quality = event.get("statistics_quality") or {}
+            raw = event.get("raw") or {}
+            samples.append({
+                "id": event.get("id"),
+                "teams": str(event.get("team1") or "") + " — " + str(event.get("team2") or ""),
+                "statistics_source": event.get("statistics_source"),
+                "statistics_fields": len(event.get("external_statistics") or []),
+                "available_metrics": quality.get("available_metrics", []),
+                "missing_metrics": quality.get("missing_metrics", []),
+                "statistics_types": raw.get("statisticsTypes"),
+                "stat_rows": (event.get("external_statistics") or [])[:12],
+                "related_rows": len(event.get("related_events") or []),
+            })
+        print("PARI_STATISTICS_AUDIT " + json.dumps({
+            "ok": bool(data.get("ok")),
+            "connected": bool(data.get("connected")),
+            "total_events": data.get("total_events"),
+            "basketball_events": data.get("basketball_events"),
+            "live_score_source": data.get("live_score_source"),
+            "events": samples,
+            "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+        }, ensure_ascii=False, default=str), flush=True)
+    except Exception as exc:
+        print("PARI_STATISTICS_AUDIT_ERROR " + type(exc).__name__ + ": " + str(exc)[:300], flush=True)
+
+
 @app.on_event("startup")
 async def _schedule_pari_stats_discovery():
-    # Do not delay app readiness; one diagnostic runs in the background after startup.
+    # Neither audit blocks readiness. The live audit primes the homepage cache.
+    asyncio.create_task(_pari_startup_live_statistics_audit())
     asyncio.create_task(_pari_startup_stats_discovery())
