@@ -3633,6 +3633,14 @@ async def _pari_startup_live_statistics_audit():
                 "statistics_types": raw.get("statisticsTypes"),
                 "stat_rows": (event.get("external_statistics") or [])[:12],
                 "period_stat_rows": (event.get("period_statistics") or [])[:12],
+                "related_stat_debug": [
+                    {key: row.get(key) for key in ("kindId", "kindName", "kind_name", "name", "label",
+                                                     "c1", "c2", "comment", "groupName", "group")
+                     if row.get(key) is not None}
+                    for row in (event.get("related_events") or [])
+                    if isinstance(row, dict) and any(key in row for key in
+                       ("kindId", "kindName", "kind_name", "c1", "c2", "statistics", "statistic"))
+                ][:20],
                 "related_rows": len(event.get("related_events") or []),
             })
         print("PARI_STATISTICS_AUDIT " + json.dumps({
