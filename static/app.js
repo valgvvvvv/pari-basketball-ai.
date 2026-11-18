@@ -81,7 +81,7 @@ function findLiveClock(ev){
     let elapsed=elapsedBase;
     const timestamp=Number(ev?.timer_timestamp_msec||ev?.external_live?.timer_timestamp_msec||0);
     const stateText=String(ev?.live_fields?.st3||ev?.live_fields?.status||ev?.live_fields?.comment||"").toLowerCase();
-    if(timestamp>0&&!/timeout|break|halftime|перерыв|тайм-аут/.test(stateText)){
+    if(timestamp>0&&!ev?.timer_paused&&!/timeout|break|halftime|перерыв|тайм-аут|таймаут/.test(stateText)){
       const age=(Date.now()-timestamp)/1000;
       if(Number.isFinite(age)&&age>=0&&age<=60)elapsed+=age;
     }
