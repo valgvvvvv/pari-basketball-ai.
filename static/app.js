@@ -361,6 +361,46 @@ function liveStatisticsAnalysis(ev){
   else if(shot.quality)result.push("Броски: "+shot.quality+".");
   return result;
 }
+
+function advancedMatchCalculations(ev,estimate,period,clock,possession,quarterForecast){
+  const out=[],fmt=(x,d=1)=>Number.isFinite(Number(x))?Number(x).toFixed(d):"—";
+  const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||inferPeriodLengthForForecast(ev)?.seconds||0);
+  const completed=[];
+  for(let i=0;i<Math.max(0,Number(period||1)-1);i++){
+    const total=readPeriodScore(ev,i);
+    if(Number.isFinite(total))completed.push(total);
+  }
+  if(completed.length>=2){
+    const avg=completed.reduce((a,b)=>a+b,0)/completed.length;
+    const variance=completed.reduce((a,b)=>a+(b-avg)**2,0)/completed.length;
+    const sd=Math.sqrt(variance),cv=avg>0?sd/avg*100:null;
+    out.push({name:"Средний тотал Q",value:fmt(avg),detail:"σ "+fmt(sd)+" · разброс "+fmt(cv,1)+"%"});
+    const prior=completed.slice(0,-1),priorAvg=prior.reduce((a,b)=>a+b,0)/prior.length,last=completed[completed.length-1];
+    if(priorAvg>0)out.push({name:"Динамика последней Q",value:(last>=priorAvg?"+":"")+fmt((last/priorAvg-1)*100,1)+"%",detail:fmt(last)+" оч. · до этого "+fmt(priorAvg)+" оч./Q"});
+  }
+  const matchElapsed=Number(estimate?.elapsed_seconds||0),matchCurrent=Number(estimate?.current||0);
+  const matchRate=matchElapsed>0?matchCurrent/(matchElapsed/60):null;
+  const qMatch=Number(period)>0?currentQuarterScore(ev,Number(period),findLiveScore(ev)):null;
+  const qClock=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
+  const qElapsed=length>0&&qClock?length-(Number(qClock[1])*60+Number(qClock[2])):null;
+  if(qMatch&&qElapsed>=120&&matchRate>0){
+    const qRate=(qMatch.pair[0]+qMatch.pair[1])/(qElapsed/60);
+    out.push({name:"Ускорение / замедление",value:(qRate>=matchRate?"+":"")+fmt((qRate/matchRate-1)*100,1)+"%",detail:"Q "+fmt(qRate,2)+" · матч "+fmt(matchRate,2)+" оч./мин"});
+  }
+  if(possession?.applied&&Number.isFinite(Number(possession.projection))&&Number.isFinite(Number(estimate?.projection))){
+    const delta=Number(possession.projection)-Number(estimate.projection);
+    out.push({name:"Владения vs темп",value:(delta>=0?"+":"")+fmt(delta)+" оч.",detail:"Владения "+fmt(possession.projection)+" · темп "+fmt(estimate.projection)});
+  }
+  const hp=Number(possession?.homePointsPerPossession),ap=Number(possession?.awayPointsPerPossession);
+  if(possession?.applied&&Number.isFinite(hp)&&Number.isFinite(ap))
+    out.push({name:"Разница PPP",value:(hp>=ap?"+":"")+fmt(hp-ap,3),detail:"Команда 1 "+fmt(hp,3)+" · команда 2 "+fmt(ap,3)});
+  if(quarterForecast?.ready&&Number.isFinite(Number(quarterForecast.projection))&&Number.isFinite(Number(quarterForecast.current)))
+    out.push({name:"Прогноз текущей Q",value:fmt(quarterForecast.projection)+" оч.",detail:"Сейчас "+fmt(quarterForecast.current,0)+" · диапазон 80% "+fmt(quarterForecast.low80,0)+"–"+fmt(quarterForecast.high80,0)});
+  const score=findLiveScore(ev);
+  if(score)out.push({name:"Разница счёта",value:(score[0]>=score[1]?"+":"")+fmt(score[0]-score[1],0),detail:"Команда 1 "+fmt(score[0],0)+" · команда 2 "+fmt(score[1],0)});
+  return out;
+}
+
 function possessionModelContext(ev,estimate,period,clock){
   const rows=Array.isArray(ev?.external_statistics)?ev.external_statistics:[];
   const aliases={
@@ -569,6 +609,7 @@ function showSelectedMatch(ev){
       '<h3>Вероятности · PARI</h3>'+(lineRows?'<table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Направление</th><th>Коэфф.</th></tr></thead><tbody>'+lineRows+'</tbody></table>':'<p class="muted">Линия не получена</p>')+
       '<h3>Владения</h3>'+(possession.applied?'<div class="calc-grid"><div class="calc-card"><span>Команда 1</span><b>'+possession.home+'</b></div><div class="calc-card"><span>Команда 2</span><b>'+possession.away+'</b></div><div class="calc-card"><span>Среднее</span><b>'+possession.average+'</b></div><div class="calc-card"><span>Влад./мин</span><b>'+possession.possPerMinute+'</b></div><div class="calc-card"><span>PPP</span><b>'+possession.pointsPerPossession+'</b></div><div class="calc-card"><span>Разница</span><b>'+possession.imbalance_percent+'%</b></div><div class="calc-card"><span>Покрытие</span><b>'+possession.metric_coverage+'/17</b></div></div>':'<p class="muted">Нет данных владений</p>')+
       '<p>eFG '+(shooting.efg!=null?(shooting.efg*100).toFixed(1)+'%':'—')+' · поправка '+((shooting.adjustment-1)*100).toFixed(1)+'%</p>'+
+      (advancedMatchCalculations(ev,estimate,period,clock,possession,quarter).length?'<h3>Дополнительные расчёты</h3><div class="calc-grid">'+advancedMatchCalculations(ev,estimate,period,clock,possession,quarter).map(x=>'<div class="calc-card"><span>'+escapeHtml(x.name)+'</span><b>'+escapeHtml(x.value)+'</b><small>'+escapeHtml(x.detail)+'</small></div>').join("")+'</div>':'')+
       calculationStepsHtml({kind:"match",ev,projection:Number(estimate.projection),current:Number(estimate.current),elapsedMinutes:Number(estimate.elapsed_minutes),remainingMinutes:Number(estimate.remaining_minutes),homeScore:score?.[0],awayScore:score?.[1],poss:estimate.possession_model||possession,lines:estimate.poisson?.probabilities||[],preliminary:!!estimate.preliminary,clock})
     :'<p class="muted">'+escapeHtml(matchForecast.reason||"Недостаточно данных")+'</p>';
   $("quarterForecast").innerHTML=quarter.ready
