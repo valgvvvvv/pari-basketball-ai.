@@ -1405,3 +1405,37 @@ if ($("refreshLiveMatches")) $("refreshLiveMatches").addEventListener("click", r
 refreshLiveMatches();
 renderAnalysisHistory();
 if ($("clearHistory")) $("clearHistory").addEventListener("click", clearAnalysisHistory);
+
+
+async function refreshServerArchiveStatus(){
+  const set=(id,value)=>{const el=$(id);if(el)el.textContent=value;};
+  try{
+    const response=await fetch("/api/archive/status",{cache:"no-store"});
+    if(!response.ok)throw new Error("HTTP "+response.status);
+    const data=await response.json();
+    set("archiveMatches",String(data.matches??"—"));
+    set("archiveSnapshots",String(data.snapshots??"—"));
+    set("archiveSize",((Number(data.database_bytes||0)/1024/1024).toFixed(2))+" МБ");
+    set("archiveLastRun",data.collector?.checked_at?new Date(data.collector.checked_at).toLocaleTimeString("ru-RU"):"ожидание");
+    const persistent=!!data.persistent;
+    const badge=$("archiveStorageMode");
+    if(badge){badge.textContent=persistent?"ПОСТОЯННЫЙ ДИСК":"ВРЕМЕННОЕ ХРАНИЛИЩЕ";badge.className=persistent?"pill success":"pill warn";}
+    const errors=data.collector?.error?(" · ошибка: "+data.collector.error):"";
+    set("archiveStatusText",(persistent?"Данные записываются на постоянный диск Render.":"ВНИМАНИЕ: сейчас база на временном диске и может исчезнуть при перезапуске Render.")+
+      " Сборщик работает каждые "+data.interval_seconds+" сек., пока сервер активен. Последняя проверка: "+
+      (data.collector?.checked_at||"ещё не было")+". Сохранено новых снимков в последнем цикле: "+(data.collector?.saved??0)+errors+
+      ". "+data.prediction_capture);
+  }catch(error){set("archiveStatusText","Не удалось получить статус архива: "+error.message);}
+}
+if($("clearServerArchive"))$("clearServerArchive").addEventListener("click",async()=>{
+  if(!window.confirm("Сначала скачай ZIP и сохрани его. Очистить серверную базу матчей?"))return;
+  try{
+    const response=await fetch("/api/archive/clear?confirm=true",{method:"POST"});
+    const data=await response.json();
+    if(!response.ok||!data.ok)throw new Error(data.error||"Ошибка очистки");
+    await refreshServerArchiveStatus();
+    window.alert("База очищена. Скачанный ZIP-архив не затронут.");
+  }catch(error){window.alert("Не удалось очистить базу: "+error.message);}
+});
+
+refreshServerArchiveStatus();
