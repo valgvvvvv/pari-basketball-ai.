@@ -616,6 +616,7 @@ function showSelectedMatch(ev,options={}){
   const estimate=matchForecast.ready&&matchForecast.kind!=="market_reference"?matchForecast.estimate:null;
   const lines=getMatchTotalLines(ev).filter(x=>!x.stale);
   const quarter=automaticQuarterForecast(ev);
+  const aiAnalysis=aiModelAnalysis(ev,matchForecast,quarter);
   const rows=Array.isArray(ev.external_statistics)?ev.external_statistics:[];
   const statsQuality=ev.statistics_quality||null;
   const possession=estimate?.possession_model||possessionModelContext(ev,estimate||{},period,clock);
@@ -659,11 +660,13 @@ function showSelectedMatch(ev,options={}){
       (advancedMatchCalculations(ev,estimate,period,clock,possession,quarter).length?'<h3>Дополнительные расчёты</h3><div class="calc-grid">'+advancedMatchCalculations(ev,estimate,period,clock,possession,quarter).map(x=>'<div class="calc-card"><span>'+escapeHtml(x.name)+'</span><b>'+escapeHtml(x.value)+'</b><small>'+escapeHtml(x.detail)+'</small></div>').join("")+'</div>':'')+
       calculationStepsHtml({kind:"match",ev,projection:Number(estimate.projection),current:Number(estimate.current),elapsedMinutes:Number(estimate.elapsed_minutes),remainingMinutes:Number(estimate.remaining_minutes),homeScore:score?.[0],awayScore:score?.[1],poss:estimate.possession_model||possession,lines:estimate.poisson?.probabilities||[],preliminary:!!estimate.preliminary,clock})
     :'<p class="muted">'+escapeHtml(matchForecast.reason||"Недостаточно данных")+'</p>';
+  $("matchForecast").insertAdjacentHTML("afterbegin",aiSignalHtml(aiAnalysis.match,"ИИ-модельный анализ"));
   $("quarterForecast").innerHTML=quarter.ready
     ? '<div class="forecast-main"><b>Тотал Q'+escapeHtml(quarter.period||period||"?")+'</b><div class="forecast-number">'+quarter.projection+'</div><p>Счёт '+(quarter.home==null?"—":quarter.home+" : "+quarter.away)+' · очков '+(quarter.current??"—")+' · прошло '+(quarter.elapsed!=null?quarter.elapsed+" мин":"—")+' · таймер '+(clock||"—")+'</p><p>80%: '+quarter.low80+'–'+quarter.high80+' · 95%: '+quarter.low95+'–'+quarter.high95+(quarter.preliminary?' · предварительно':'')+'</p></div>'+
       (quarter.lines.length?'<h3>Вероятности · Q'+escapeHtml(quarter.period||period||"?")+'</h3><table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Направление</th><th>Коэфф.</th></tr></thead><tbody>'+quarter.lines.map(x=>'<tr><td>'+x.line+'</td><td>'+(x.pOver*100).toFixed(1)+'%</td><td>'+(x.pUnder*100).toFixed(1)+'%</td><td>'+escapeHtml(x.direction)+'</td><td>'+(x.odds?escapeHtml(x.odds):'—')+'</td></tr>').join('')+'</tbody></table>':'<p class="muted">Линия четверти не получена</p>')+
       calculationStepsHtml({kind:"quarter",period:quarter.period,ev,projection:Number(quarter.projection),current:Number(quarter.current),elapsedMinutes:quarter.elapsed,remainingMinutes:clock&&findPeriodLengthSeconds(ev)?Math.max(0,(Number(clock.split(":")[0])*60+Number(clock.split(":")[1]))/60):null,homeScore:quarter.home,awayScore:quarter.away,poss:quarter.possession_model,lines:quarter.lines||[],preliminary:!!quarter.preliminary,clock})
     :'<p class="muted">'+escapeHtml(quarter.reason||"Недостаточно данных")+'</p>';
+  $("quarterForecast").insertAdjacentHTML("afterbegin",aiSignalHtml(aiAnalysis.quarter,"ИИ-анализ четверти"));
   const statsMeta=statsQuality?'<p>Покрытие: <b>'+Number(statsQuality.coverage_percent||0)+'%</b> · источники: '+escapeHtml(ev.statistics_source||"нет")+'</p>':'';
   const missingStats=statsQuality?.missing_metrics?.length?'<p class="muted">Нет данных: '+escapeHtml(statsQuality.missing_metrics.join(", "))+'</p>':'';
   const statsConflicts=statsQuality?.conflicts?.length?'<p class="warn">Расхождения источников: '+statsQuality.conflicts.length+' · значения не скрыты</p>':'';
@@ -845,6 +848,65 @@ function automaticForecast(ev) {
   return {ready:false,reason:"Нельзя достоверно спрогнозировать без: "+missing.join(", "),lines};
 }
 
+function aiModelAnalysis(ev,matchForecast,quarterForecast){
+  const result={match:null,quarter:null};
+  const estimate=matchForecast?.ready&&matchForecast.kind!=="market_reference"?matchForecast.estimate:null;
+  const period=findLivePeriod(ev),clock=findLiveClock(ev),info=inferPeriodLengthForForecast(ev);
+  const length=Number(ev?.period_length_seconds||info?.seconds||0);
+  const makeSignal=(projection,current,lines,sigma,confidence,drivers,kind)=>{
+    if(!Number.isFinite(projection)||!Number.isFinite(current))return null;
+    const probabilities=(Array.isArray(lines)?lines:[]).filter(x=>Number.isFinite(Number(x.line))).map(x=>{
+      const line=Number(x.line),pOver=Math.max(0,Math.min(1,1-normalCdf((line+0.5-projection)/Math.max(sigma,1))));
+      return {...x,pOver,pUnder:1-pOver,direction:pOver>=0.57?"ТБ":pOver<=0.43?"ТМ":"без преимущества",edge:Math.abs(pOver-0.5)};
+    });
+    const strongest=probabilities.slice().sort((a,b)=>b.edge-a.edge)[0]||null;
+    return {kind,projection:Math.round(projection*10)/10,current,probabilities,strongest,confidence,drivers:drivers.slice(0,5)};
+  };
+  if(estimate){
+    const current=Number(estimate.current),remaining=Number(estimate.remaining_minutes);
+    const candidates=[{value:current+Number(estimate.pace_per_min||0)*remaining,weight:0.58}];
+    const drivers=["темп "+Number(estimate.pace_per_min||0).toFixed(2)+" оч./мин"];
+    const possession=estimate.possession_model;
+    if(possession?.applied&&Number.isFinite(Number(possession.projection))){
+      candidates.push({value:Number(possession.projection),weight:0.32});
+      drivers.push("владения "+Number(possession.average).toFixed(1)+" · PPP "+Number(possession.pointsPerPossession).toFixed(3));
+    }
+    if(Number(period)>1&&length>0&&remaining>0){
+      const previous=readPeriodScore(ev,Number(period)-2);
+      if(Number.isFinite(previous)&&previous>0){
+        const rate=previous/(length/60);
+        candidates.push({value:current+rate*remaining,weight:possession?.applied?0.10:0.18});
+        drivers.push("прошлая четверть "+rate.toFixed(2)+" оч./мин");
+      }
+    }
+    const totalWeight=candidates.reduce((a,x)=>a+x.weight,0);
+    const projection=candidates.reduce((a,x)=>a+x.value*x.weight,0)/totalWeight;
+    const stats=liveShootingContext(ev,estimate);
+    if(stats.efg!=null)drivers.push("eFG "+(stats.efg*100).toFixed(1)+"%");
+    const coverage=Number(ev?.statistics_quality?.available_count||0);
+    const verifiedClock=!!clock&&!!length&&!String(info?.method||"").includes("предварительно");
+    let confidence=verifiedClock?"средняя":"низкая";
+    if(verifiedClock&&possession?.applied&&coverage>=8)confidence="выше средней";
+    if(estimate.preliminary||!verifiedClock)confidence="низкая";
+    const sigma=Math.max(Number(estimate.sigma||0),Math.sqrt(Math.max(1,projection-current))*1.18,2);
+    result.match=makeSignal(projection,current,getMatchTotalLines(ev),sigma,confidence,drivers,"match");
+  }
+  if(quarterForecast?.ready){
+    const q=quarterForecast;
+    const sigma=Math.max(2,Math.sqrt(Math.max(1,Number(q.projection)-Number(q.current||0)))*1.25);
+    result.quarter=makeSignal(Number(q.projection),Number(q.current||0),q.lines,sigma,
+      q.preliminary?"низкая":"средняя",[q.score_source||"темп четверти",...(q.possession_model?.applied?["модель владений"]:[])],"quarter");
+  }
+  return result;
+}
+function aiSignalHtml(signal,title){
+  if(!signal)return '<p class="muted">ИИ-анализ: недостаточно подтверждённых данных</p>';
+  const best=signal.strongest;
+  const direction=best&&best.direction!=="без преимущества"?best.direction+" "+best.line:"нет сильного сигнала";
+  return '<div class="ai-model-panel"><b>'+escapeHtml(title)+'</b><div class="ai-model-number">'+signal.projection+'</div>'+
+    '<p>'+escapeHtml(direction)+' · уверенность: '+escapeHtml(signal.confidence)+(best?' · вероятность '+(Math.max(best.pOver,best.pUnder)*100).toFixed(1)+'%':'')+'</p>'+
+    '<small>'+escapeHtml(signal.drivers.join(" · "))+'</small></div>';
+}
 function findQuarterClockFromElapsed(ev,period,length){
   if(!Number.isInteger(Number(period))||!Number.isFinite(Number(length))||Number(length)<300)return null;
   const candidates=[ev?.match_elapsed_seconds,ev?.external_live?.match_elapsed_seconds,
@@ -1042,6 +1104,7 @@ async function refreshLiveMatches() {
         const details = [ev.league || ev.sport_name, score, eventPeriod(ev), eventClock(ev), statsLabel, ...totalMarkets].filter(Boolean).map(escapeHtml).join(" · ");
         const forecast = automaticForecast(ev);
         const quarterForecast = automaticQuarterForecast(ev);
+        const aiAnalysis = aiModelAnalysis(ev,forecast,quarterForecast);
         let forecastHtml = "";
         if (forecast.ready) {
           const estimate = forecast.estimate;
@@ -1071,6 +1134,8 @@ async function refreshLiveMatches() {
         } else {
           forecastHtml += '<span class="live-match-meta forecast-pending">Прогноз четверти: '+escapeHtml(quarterForecast.reason)+'</span>';
         }
+        const aiBest=aiAnalysis.match?.strongest;
+        if(aiAnalysis.match)forecastHtml+='<span class="live-match-meta forecast-live">ИИ: '+escapeHtml(aiAnalysis.match.projection)+' · '+escapeHtml(aiBest&&aiBest.direction!=="без преимущества"?aiBest.direction+" "+aiBest.line:"без сильного сигнала")+' · '+escapeHtml(aiAnalysis.match.confidence)+'</span>';
         return '<button type="button" class="live-match" data-event-id="' + escapeHtml(ev.id) + '">' +
           '<span class="live-match-title">' + teams + '</span><span class="live-match-meta">' + (details || "Событие получено из LIVE API PARI") + '</span>' + forecastHtml + '</button>';
       }).join("") : '<p class="muted">В текущем ответе нет подтверждённых баскетбольных LIVE-матчей.</p>';
