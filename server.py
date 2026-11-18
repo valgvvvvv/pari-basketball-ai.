@@ -2237,6 +2237,31 @@ def _finalize_live_statistics(events):
             if marker not in seen:
                 seen.add(marker)
                 normalized.append(row)
+        # Split provider values such as 8/17 into explicit makes and attempts.
+        # Keep the original aggregate row too for the compact match display.
+        expanded = []
+        for row in normalized:
+            expanded.append(row)
+            metric = row.get("metric_key")
+            suffix = {"field_goals":"field_goals", "two_pointers":"two_pointers",
+                      "three_pointers":"three_pointers", "free_throws":"free_throws"}.get(metric)
+            if not suffix:
+                continue
+            parsed_pair = []
+            for side in ("home", "away"):
+                match = re.fullmatch(r"\\s*(\\d+(?:[.,]\\d+)?)\\s*[-/:]\\s*(\\d+(?:[.,]\\d+)?)\\s*", str(row.get(side)))
+                if not match:
+                    parsed_pair = []
+                    break
+                parsed_pair.append((float(match.group(1).replace(",", ".")),
+                                    float(match.group(2).replace(",", "."))))
+            if parsed_pair:
+                for part, index in (("made", 0), ("attempted", 1)):
+                    expanded.append({"group":row.get("group"),"name":str(row.get("name") or metric)+" · "+part,
+                                     "metric_key":suffix+"_"+part,
+                                     "home":parsed_pair[0][index],"away":parsed_pair[1][index],
+                                     "source":row.get("source","unknown")})
+        normalized = expanded
         by_key = {}
         for row in normalized:
             if row.get("metric_key") and row["metric_key"] not in by_key:
