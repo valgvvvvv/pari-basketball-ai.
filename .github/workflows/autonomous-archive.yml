@@ -54,7 +54,7 @@ jobs:
     timeout-minutes: 25
     permissions:
       contents: write
-      actions: read
+      actions: write
     steps:
       - uses: actions/checkout@v4
       - name: Publish the previous 24 hours as a permanent ZIP release
