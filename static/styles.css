@@ -83,3 +83,15 @@
 .ai-model-number{font-size:25px;font-weight:800;color:var(--cyan);margin:5px 0}
 .ai-model-panel p{font-size:11px;line-height:1.5;color:var(--text);margin:4px 0}
 .ai-model-panel small{display:block;color:var(--muted);font-size:10px;line-height:1.5}
+
+/* Classic model ensemble migrated from the first basketball totals project */
+.classic-model-panel{margin:18px 0;padding:16px;border:1px solid var(--line,#2b3545);border-radius:14px;background:var(--panel,#111a27)}
+.classic-model-panel h3{margin:4px 0 0;font-size:17px}
+.classic-consensus{display:grid;grid-template-columns:auto auto 1fr;gap:12px;align-items:center;padding:12px;margin:12px 0;border-radius:10px;background:rgba(74,144,226,.09)}
+.classic-consensus strong{font-size:25px}
+.classic-consensus span{font-size:13px}
+.model-consensus-groups,.model-anomaly,.model-training-note{font-size:12px;line-height:1.45;margin:10px 0 0}
+.model-training-note{opacity:.8}
+.table-scroll{max-width:100%;overflow-x:auto}
+.classic-model-panel .calc-table{min-width:440px}
+@media(max-width:520px){.classic-model-panel{padding:12px}.classic-consensus{grid-template-columns:auto auto;gap:8px}.classic-consensus span{grid-column:1/-1}}
