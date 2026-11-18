@@ -41,6 +41,8 @@ const { chromium } = require("playwright");
           ai: null,
           classic_match: null,
           classic_quarter: null,
+          statistics_analysis: null,
+          advanced_calculations: null,
           errors: []
         };
         try {
@@ -52,6 +54,15 @@ const { chromium } = require("playwright");
           row.ai = window.aiModelAnalysis(ev, match, quarter);
           row.classic_match = window.classicBasketballModelAnalysis(ev, match, quarter, "match");
           row.classic_quarter = window.classicBasketballModelAnalysis(ev, match, quarter, "quarter");
+          row.statistics_analysis = window.liveStatisticsAnalysis(ev);
+          row.advanced_calculations = window.advancedMatchCalculations(
+            ev,
+            match.ready && match.kind !== "market_reference" ? match.estimate : null,
+            window.findLivePeriod(ev),
+            window.findLiveClock(ev),
+            match.ready && match.kind !== "market_reference" ? match.estimate.possession_model : null,
+            quarter
+          );
         } catch (error) {
           row.errors.push(String(error && (error.stack || error.message) || error).slice(0, 1200));
         }
