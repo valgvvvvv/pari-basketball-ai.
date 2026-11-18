@@ -1268,12 +1268,12 @@ async function refreshLiveMatches() {
   let pariFeedFailure = null;
   try {
     const controller = new AbortController();
-    const requestTimeout = setTimeout(() => controller.abort(), 28000);
+    const requestTimeout = setTimeout(() => controller.abort(), 50000);
     let response;
     try {
       response = await fetch("/api/pari/live", {cache:"no-store", signal:controller.signal});
     } catch (error) {
-      if (controller.signal.aborted) throw new Error("PARI API не ответил за 22 секунды");
+      if (controller.signal.aborted) throw new Error("PARI API не ответил за 50 секунд");
       throw error;
     } finally {
       clearTimeout(requestTimeout);
