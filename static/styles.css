@@ -95,3 +95,8 @@
 .table-scroll{max-width:100%;overflow-x:auto}
 .classic-model-panel .calc-table{min-width:440px}
 @media(max-width:520px){.classic-model-panel{padding:12px}.classic-consensus{grid-template-columns:auto auto;gap:8px}.classic-consensus span{grid-column:1/-1}}
+
+/* Highlight matches during minutes 5–8 of the active quarter */
+.live-match-quarter-window{border:2px solid #e5b94f!important;background:linear-gradient(135deg,rgba(229,185,79,.16),rgba(229,185,79,.055))!important;box-shadow:0 0 0 1px rgba(229,185,79,.12),0 5px 20px rgba(229,185,79,.08)}
+.live-match-quarter-window .live-match-title{color:#ffe3a0}
+.quarter-highlight-tag{display:inline-flex;align-self:flex-start;padding:5px 9px;border-radius:6px;background:#e5b94f;color:#211807;font-size:10px;font-weight:900;letter-spacing:.35px}
