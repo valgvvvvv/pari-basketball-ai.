@@ -855,6 +855,18 @@ function automaticForecast(ev) {
   return {ready:false,reason:"Нельзя достоверно спрогнозировать без: "+missing.join(", "),lines};
 }
 
+function quarterHighlightInfo(ev){
+  const period=findLivePeriod(ev),clock=findLiveClock(ev);
+  const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||inferPeriodLengthForForecast(ev)?.seconds||0);
+  const match=String(clock||"").match(/^(\\d{1,2}):([0-5]\\d)$/);
+  if(!period||!match||!Number.isFinite(length)||length<300||length>1200)return null;
+  const remaining=Number(match[1])*60+Number(match[2]);
+  if(remaining>length)return null;
+  const elapsed=length-remaining;
+  if(elapsed<300||elapsed>480)return null;
+  return {period,elapsed,minute:Math.floor(elapsed/60),second:elapsed%60};
+}
+
 function aiModelAnalysis(ev,matchForecast,quarterForecast){
   const result={match:null,quarter:null};
   const estimate=matchForecast?.ready&&matchForecast.kind!=="market_reference"?matchForecast.estimate:null;
@@ -1274,8 +1286,10 @@ async function refreshLiveMatches() {
         if(aiAnalysis.match)forecastHtml+='<span class="live-match-meta forecast-live">ИИ · матч: '+escapeHtml(aiAnalysis.match.projection)+' · направление '+escapeHtml(aiBest?(aiBest.direction==="без преимущества"?"нет перевеса":aiBest.direction+" "+aiBest.line):"нет линии PARI")+' · '+escapeHtml(aiAnalysis.match.confidence)+'</span>';
         const aiQuarterBest=aiAnalysis.quarter?.strongest;
         if(aiAnalysis.quarter)forecastHtml+='<span class="live-match-meta forecast-live">ИИ · Q'+escapeHtml(quarterForecast.period||findLivePeriod(ev)||"?")+': '+escapeHtml(aiAnalysis.quarter.projection)+' · направление '+escapeHtml(aiQuarterBest?(aiQuarterBest.direction==="без преимущества"?"нет перевеса":aiQuarterBest.direction+" "+aiQuarterBest.line):"нет линии PARI")+' · '+escapeHtml(aiAnalysis.quarter.confidence)+'</span>';
-        return '<button type="button" class="live-match" data-event-id="' + escapeHtml(ev.id) + '">' +
-          '<span class="live-match-title">' + teams + '</span><span class="live-match-meta">' + (details || "Событие получено из LIVE API PARI") + '</span>' + forecastHtml + '</button>';
+        const quarterHighlight=quarterHighlightInfo(ev);
+        const highlightTag=quarterHighlight?'<span class="quarter-highlight-tag">★ ВЫДЕЛЕН: '+quarterHighlight.minute+'–8 мин Q'+quarterHighlight.period+'</span>':"";
+        return '<button type="button" class="live-match'+(quarterHighlight?' live-match-quarter-window':'')+'" data-event-id="' + escapeHtml(ev.id) + '">' +
+          highlightTag + '<span class="live-match-title">' + teams + '</span><span class="live-match-meta">' + (details || "Событие получено из LIVE API PARI") + '</span>' + forecastHtml + '</button>';
       }).join("") : '<p class="muted">В текущем ответе нет подтверждённых баскетбольных LIVE-матчей.</p>';
       liveList.querySelectorAll(".live-match").forEach(el => el.addEventListener("click", () => {
         const ev = (window.pariLiveEvents || []).find(x => String(x.id) === el.dataset.eventId);
