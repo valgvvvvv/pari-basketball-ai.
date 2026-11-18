@@ -3384,6 +3384,26 @@ async def _pari_startup_stats_discovery():
                                         "stat_terms": item.get("data_model_keyword_counts"),
                                         "runtime_windows": (item.get("runtime_windows") or [])[:6]}
                                        for item in result.get("chunk_scans", []) if isinstance(item, dict)],
+                   "basketball_chunk_details": [
+                       {
+                           "url": chunk.get("url"),
+                           "status": chunk.get("status"),
+                           "api_path_hints": (chunk.get("api_path_hints") or [])[:80],
+                           "request_context": [
+                               {"token": window.get("token"),
+                                "snippet": str(window.get("snippet") or "")[:1500]}
+                               for window in (chunk.get("targeted_context_windows") or [])
+                               if str(window.get("token") or "").lower() in
+                                  ("statistics", "statistic", "possession", "fouls",
+                                   "matchactions", "matchcenter", "eventview", "freethrows",
+                                   "fieldgoals", "threepointers", "rebounds", "assists", "turnovers")
+                           ][:24],
+                       }
+                       for chunk in result.get("chunk_scans", [])
+                       if isinstance(chunk, dict) and
+                          ("matchCenter.entity.basketball.js" in str(chunk.get("url") or "") or
+                           "mobile.ctrl.eventView.js" in str(chunk.get("url") or ""))
+                   ],
                    "candidate_count": len(unique),
                    "candidates": [{**item, "snippet": str(item.get("snippet") or "")[:260]}
                                   for item in unique[:18]]}
