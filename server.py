@@ -1420,11 +1420,11 @@ async def _enrich_with_sofascore_live(events):
             detail_diagnostics = []
             if detail_targets:
                 async with httpx.AsyncClient(
-                    timeout=httpx.Timeout(5.0, connect=3.0),
+                    timeout=httpx.Timeout(4.0, connect=2.5),
                     follow_redirects=True,
                     headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
                 ) as detail_client:
-                    semaphore = asyncio.Semaphore(8)
+                    semaphore = asyncio.Semaphore(16)
 
                     async def enrich_sportscore_detail(row):
                         async with semaphore:
@@ -2003,7 +2003,7 @@ async def _enrich_with_sofascore_live(events):
     stats_checked = 0
     if matched_rows:
         stats_cache = globals().setdefault("_SOFASCORE_STATS_CACHE", {})
-        stats_semaphore = asyncio.Semaphore(8)
+        stats_semaphore = asyncio.Semaphore(20)
 
         async def fetch_event_statistics(pari, row):
             event_id = row.get("id")
@@ -2110,7 +2110,7 @@ async def _enrich_with_sofascore_live(events):
             return False, "statistics_empty"
 
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(5.5, connect=2.0),
+            async with httpx.AsyncClient(timeout=httpx.Timeout(4.5, connect=2.0),
                                           follow_redirects=True, headers=headers) as stats_client:
                 results = await asyncio.gather(
                     *(fetch_event_statistics(pari, row) for pari, row in matched_rows),
@@ -3190,7 +3190,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # budget; return the authoritative PARI feed even on timeout.
                     try:
                         live_enrichment = await asyncio.wait_for(
-                            _enrich_with_sofascore_live(basketball), timeout=12.0
+                            _enrich_with_sofascore_live(basketball), timeout=24.0
                         )
                     except asyncio.TimeoutError:
                         live_enrichment = {
