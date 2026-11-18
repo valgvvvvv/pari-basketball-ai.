@@ -546,9 +546,12 @@ function calculationStepsHtml(options){
   let hw=.5,aw=.5;
   if(active&&n(poss.homePointsPerPossession)!=null&&n(poss.awayPointsPerPossession)!=null&&poss.homePointsPerPossession+poss.awayPointsPerPossession>0){hw=poss.homePointsPerPossession/(poss.homePointsPerPossession+poss.awayPointsPerPossession);aw=1-hw;}
   else if(home!=null&&away!=null&&home+away>0){hw=home/(home+away);aw=1-hw;}
-  const finalHome=home==null?null:home+rest*hw,finalAway=away==null?null:away+rest*aw;
+  const projectedTotal=Math.round(final);
+  const finalHome=home==null?null:Math.round(home+rest*hw);
+  const finalAway=away==null?null:Math.max(0,projectedTotal-finalHome);
   const strongest=(lines||[]).filter(x=>x&&x.pOver!=null).slice().sort((a,b)=>Math.abs(b.pOver-.5)-Math.abs(a.pOver-.5))[0];
-  const stages=[{name:"Счёт",value:home!=null&&away!=null?f(home,0)+" : "+f(away,0):f(now,0),detail:f(elapsed)+" мин · "+f(remaining)+" мин осталось"+(clock?" · "+clock:"")}];
+  const scoreLabel=kind==="quarter"?"Счёт текущей четверти":"Текущий счёт матча";
+  const stages=[{name:scoreLabel,value:home!=null&&away!=null?f(home,0)+" : "+f(away,0):f(now,0),detail:(kind==="quarter"?"Очки только в Q"+(period||"—")+" · ":"")+f(elapsed)+" мин прошло · "+f(remaining)+" мин осталось"+(clock?" · таймер "+clock:"")}];
   if(active){
     stages.push({name:"Владения",value:f(poss.possPerMinute,2)+" / мин",detail:"Среднее "+f(poss.average,1)+" · PPP "+f(poss.pointsPerPossession,3)});
     stages.push({name:"Остаток",value:f(poss.expectedRemainingPossessions,1)+" влад.",detail:f(poss.expectedRemainingPossessions,1)+" × "+f(poss.pointsPerPossession,3)+" = "+f(poss.expectedRemainingPoints,1)+" оч."});
@@ -558,12 +561,12 @@ function calculationStepsHtml(options){
     stages.push({name:"Остаток",value:f(rest,1)+" оч.",detail:f(rate,2)+" × "+f(remaining,1)+" мин"});
   }
   stages.push({name:"Итог",value:f(final,1)+" оч.",detail:f(now,0)+" + "+f(rest,1)+(preliminary?" · предварительно":"")});
-  const trajectory=[25,50,75,100].map(percent=>{const part=rest*percent/100;return {percent,total:now+part,h:home==null?null:home+part*hw,a:away==null?null:away+part*aw};});
-  const rows=trajectory.map(x=>'<tr><td>'+x.percent+'%</td><td>'+f(x.total)+'</td><td>'+(x.h==null?"—":f(x.h)+' : '+f(x.a))+'</td></tr>').join("");
+  const trajectory=[25,50,75,100].map(percent=>{const part=rest*percent/100,total=now+part,h=home==null?null:Math.round(home+part*hw),a=away==null?null:Math.max(0,Math.round(total)-h);return {percent,total,h,a};});
+  const rows=trajectory.map(x=>'<tr><td>'+x.percent+'% остатка</td><td>'+f(x.total,0)+' оч.</td><td>'+(x.h==null?"—":x.h+' : '+x.a)+'</td></tr>').join("");
   return '<section class="calculation-steps"><div class="calc-section-head"><div><span class="eyebrow">'+(kind==="quarter"?"Q"+(period||""):"FULL GAME")+'</span><h3>Этапы расчёта</h3></div><span class="calc-live-tag">'+(preliminary?"ПРЕДВАРИТЕЛЬНО":"LIVE")+'</span></div>'+
     '<div class="calc-stage-list">'+stages.map((x,i)=>'<div class="calc-stage"><span class="calc-stage-index">'+(i+1)+'</span><div><b>'+x.name+'</b><strong>'+escapeHtml(x.value)+'</strong><small>'+escapeHtml(x.detail)+'</small></div></div>').join("")+'</div>'+
-    (home!=null&&away!=null?'<div class="calc-score-prediction"><span>Примерный счёт</span><b>'+f(finalHome)+' : '+f(finalAway)+'</b></div>':'')+
-    '<h4>Траектория тотала</h4><table class="calc-table trajectory-table"><thead><tr><th>Этап</th><th>Тотал</th><th>Счёт</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    (home!=null&&away!=null?'<div class="calc-score-prediction"><span>'+(kind==="quarter"?"Ориентир очков в Q"+(period||"—"):"Ориентир итогового счёта матча")+'</span><b>'+finalHome+' : '+finalAway+'</b><small>Распределение общего прогноза по текущей доле очков команд; это не отдельная модель индивидуальных тоталов.</small></div>':'')+
+    '<h4>Как меняется общий тотал</h4><table class="calc-table trajectory-table"><thead><tr><th>Остаток</th><th>Прогноз тотала</th><th>Ориентир по командам</th></tr></thead><tbody>'+rows+'</tbody></table>'+
     '<div class="calc-direction"><span>Направление</span><b>'+escapeHtml(strongest?.direction||"нет линии")+'</b>'+(strongest?'<small>'+f(strongest.line,1)+' · ТБ '+(strongest.pOver*100).toFixed(1)+'% · ТМ '+(strongest.pUnder*100).toFixed(1)+'%</small>':'')+'</div></section>';
 }
 
