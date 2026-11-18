@@ -531,8 +531,10 @@ function calculationStepsHtml(options){
       detail:"Среднее владений на команду: "+fmt(poss.average)+" · источник: "+String(poss.method||"подтверждённые данные")});
     stages.push({name:"3. Эффективность владений",value:fmt(ppp,3)+" очка/владение",
       detail:"Команда 1: "+fmt(homePpp,3)+" · команда 2: "+fmt(awayPpp,3)});
-    stages.push({name:"4. Остаток игры",value:fmt(poss.expectedRemainingPossessions)+" владений",
-      detail:fmt(poss.expectedRemainingPossessions)+" ожидаемых владений на команду × "+fmt(ppp,3)+" очка = "+fmt(poss.expectedRemainingPoints)+" ожидаемых очков"});
+    const expectedPoss=kind==="quarter"&&remaining!=null?possRate*remaining:n(poss.expectedRemainingPossessions);
+    const possExpectedPoints=expectedPoss!=null&&ppp!=null?expectedPoss*ppp:n(poss.expectedRemainingPoints);
+    stages.push({name:"4. Остаток игры",value:fmt(expectedPoss)+" владений",
+      detail:fmt(expectedPoss)+" ожидаемых владений на команду × "+fmt(ppp,3)+" очка = "+fmt(possExpectedPoints)+" ожидаемых очков"+(kind==="quarter"?" в оставшееся время четверти":" до конца матча")});
   }else{
     const ppm=elapsed>0?totalCurrent/elapsed:null;
     stages.push({name:"2. Набранный темп",value:fmt(ppm,2)+" очка/мин",
@@ -637,7 +639,7 @@ function showSelectedMatch(ev){
   }));
     if(quarter.ready){
     const qLength=Number(findPeriodLengthSeconds(ev)||inferPeriodLengthForForecast(ev)?.seconds||0);
-    const qRemaining=clock&&qLength?Math.max(0,(Number(String(clock).split(":")[0])*60+Number(String(clock).split(":")[1]))/60):null;
+    const qRemaining=clock&&qLength?Math.max(0,(Number(String(clock).split(":")[0])*60+Number(String(clock).split(":")[1]))/60):(qLength&&quarter.elapsed!=null?Math.max(0,qLength/60-Number(quarter.elapsed)):null);
     $("quarterForecast").insertAdjacentHTML("beforeend",calculationStepsHtml({
       kind:"quarter",ev,projection:Number(quarter.projection),current:Number(quarter.current),
       elapsedMinutes:quarter.elapsed,remainingMinutes:qRemaining,
