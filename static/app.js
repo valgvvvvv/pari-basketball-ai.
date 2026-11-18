@@ -620,6 +620,8 @@ function showSelectedMatch(ev,options={}){
   const lines=getMatchTotalLines(ev).filter(x=>!x.stale);
   const quarter=automaticQuarterForecast(ev);
   const aiAnalysis=aiModelAnalysis(ev,matchForecast,quarter);
+  const classicMatchModels=classicBasketballModelAnalysis(ev,matchForecast,quarter,"match");
+  const classicQuarterModels=classicBasketballModelAnalysis(ev,matchForecast,quarter,"quarter");
   const rows=Array.isArray(ev.external_statistics)?ev.external_statistics:[];
   const statsQuality=ev.statistics_quality||null;
   const possession=estimate?.possession_model||possessionModelContext(ev,estimate||{},period,clock);
@@ -664,12 +666,14 @@ function showSelectedMatch(ev,options={}){
       calculationStepsHtml({kind:"match",ev,projection:Number(estimate.projection),current:Number(estimate.current),elapsedMinutes:Number(estimate.elapsed_minutes),remainingMinutes:Number(estimate.remaining_minutes),homeScore:score?.[0],awayScore:score?.[1],poss:estimate.possession_model||possession,lines:estimate.poisson?.probabilities||[],preliminary:!!estimate.preliminary,clock})
     :'<p class="muted">'+escapeHtml(matchForecast.reason||"Недостаточно данных")+'</p>';
   $("matchForecast").insertAdjacentHTML("afterbegin",aiSignalHtml(aiAnalysis.match,"ИИ-модельный анализ"));
+  $("matchForecast").insertAdjacentHTML("beforeend",classicModelPanelHtml(classicMatchModels,"FULL GAME · МОДЕЛИ ПЕРВОГО САЙТА"));
   $("quarterForecast").innerHTML=quarter.ready
     ? '<div class="forecast-main"><b>Тотал Q'+escapeHtml(quarter.period||period||"?")+'</b><div class="forecast-number">'+quarter.projection+'</div><p>Счёт '+(quarter.home==null?"—":quarter.home+" : "+quarter.away)+' · очков '+(quarter.current??"—")+' · прошло '+(quarter.elapsed!=null?quarter.elapsed+" мин":"—")+' · таймер '+(clock||"—")+'</p><p>80%: '+quarter.low80+'–'+quarter.high80+' · 95%: '+quarter.low95+'–'+quarter.high95+(quarter.preliminary?' · предварительно':'')+'</p></div>'+
       (quarter.lines.length?'<h3>Вероятности · Q'+escapeHtml(quarter.period||period||"?")+'</h3><table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Направление</th><th>Коэфф.</th></tr></thead><tbody>'+quarter.lines.map(x=>'<tr><td>'+x.line+'</td><td>'+(x.pOver*100).toFixed(1)+'%</td><td>'+(x.pUnder*100).toFixed(1)+'%</td><td>'+escapeHtml(x.direction)+'</td><td>'+(x.odds?escapeHtml(x.odds):'—')+'</td></tr>').join('')+'</tbody></table>':'<p class="muted">Линия четверти не получена</p>')+
       calculationStepsHtml({kind:"quarter",period:quarter.period,ev,projection:Number(quarter.projection),current:Number(quarter.current),elapsedMinutes:quarter.elapsed,remainingMinutes:clock&&findPeriodLengthSeconds(ev)?Math.max(0,(Number(clock.split(":")[0])*60+Number(clock.split(":")[1]))/60):null,homeScore:quarter.home,awayScore:quarter.away,poss:quarter.possession_model,lines:quarter.lines||[],preliminary:!!quarter.preliminary,clock})
     :'<p class="muted">'+escapeHtml(quarter.reason||"Недостаточно данных")+'</p>';
   $("quarterForecast").insertAdjacentHTML("afterbegin",aiSignalHtml(aiAnalysis.quarter,"ИИ-анализ четверти"));
+  $("quarterForecast").insertAdjacentHTML("beforeend",classicModelPanelHtml(classicQuarterModels,"Q"+(quarter.period||period||"?")+" · МОДЕЛИ ПЕРВОГО САЙТА"));
   const statsMeta=statsQuality?'<p>Покрытие: <b>'+Number(statsQuality.coverage_percent||0)+'%</b> · источники: '+escapeHtml(ev.statistics_source||"нет")+'</p>':'';
   const missingStats=statsQuality?.missing_metrics?.length?'<p class="muted">Нет данных: '+escapeHtml(statsQuality.missing_metrics.join(", "))+'</p>':'';
   const statsConflicts=statsQuality?.conflicts?.length?'<p class="warn">Расхождения источников: '+statsQuality.conflicts.length+' · значения не скрыты</p>':'';
@@ -902,6 +906,132 @@ function aiModelAnalysis(ev,matchForecast,quarterForecast){
   }
   return result;
 }
+
+function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="match"){
+  const isQuarter=kind==="quarter";
+  const forecast=isQuarter?quarterForecast:matchForecast;
+  if(!forecast?.ready||(!isQuarter&&forecast.kind==="market_reference"))return {models:[],consensus:null,groups:[],anomaly:null,mlStatus:"ожидают подтверждённой игровой выборки"};
+  const estimate=isQuarter?forecast:forecast.estimate;
+  const current=Number(estimate?.current);
+  const projection=Number(estimate?.projection);
+  if(!Number.isFinite(current)||!Number.isFinite(projection))return {models:[],consensus:null,groups:[],anomaly:null,mlStatus:"ожидают подтверждённой игровой выборки"};
+  const lines=(Array.isArray(forecast.lines)?forecast.lines:[]).filter(x=>Number.isFinite(Number(x.line)));
+  const period=findLivePeriod(ev),clock=findLiveClock(ev);
+  const info=inferPeriodLengthForForecast(ev);
+  const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||info?.seconds||0);
+  const elapsed=isQuarter?Number(forecast.elapsed)*60:Number(estimate.elapsed_seconds||0);
+  const remaining=isQuarter
+    ?(clock&&length?Math.max(0,(Number(clock.split(":")[0])*60+Number(clock.split(":")[1]))):null)
+    :Number(estimate.remaining_seconds??(Number(estimate.remaining_minutes)*60));
+  const safeSigma=Math.max(2,Number(isQuarter?Math.sqrt(Math.max(1,projection-current))*1.2:estimate.sigma||0),Math.sqrt(Math.max(1,projection-current))*1.15);
+  const models=[];
+  const add=(name,pred,sigma,detail,weight=1)=>{
+    if(!Number.isFinite(pred)||pred<current-0.01||pred>400)return;
+    models.push({name,projection:Math.round(pred*10)/10,sigma:Math.max(1,Number(sigma)||safeSigma),detail,weight});
+  };
+  const linear=elapsed>0&&length>0
+    ?current/elapsed*(isQuarter?length:length*Number(ev?.external_live?.period_count||info?.periods||4))
+    :projection;
+  add("Линейный темп",linear,Math.max(2,Math.sqrt(Math.max(1,linear-current))*1.3),"Текущие очки ÷ прошедшее время × полная длительность",1);
+  add("Пуассон",projection,safeSigma,"Распределение оставшихся очков; σ "+safeSigma.toFixed(1),1.05);
+  const mc=estimate.poisson||forecast.poisson;
+  const mcCenter=mc&&Number.isFinite(Number(mc.low80))&&Number.isFinite(Number(mc.high80))
+    ?(Number(mc.low80)+Number(mc.high80))/2:projection;
+  add("Монте‑Карло · 10 000",mcCenter,safeSigma,"Симуляция пуассоновского числа очков; диапазон 80% "+(mc?.low80??"—")+"–"+(mc?.high80??"—"),1.15);
+  const completed=[];
+  if(!isQuarter){
+    for(let i=0;i<Math.max(0,Number(period||1)-1);i++){
+      const v=readPeriodScore(ev,i);if(Number.isFinite(v)&&v>0)completed.push(v);
+    }
+  }
+  const recent=completed.length?completed[completed.length-1]:null;
+  let dynamic=linear;
+  if(recent!=null&&length>0&&elapsed>0){
+    const rate=recent/(length/60),global=current/(elapsed/60);
+    dynamic=linear*0.72+(current+rate*(remaining/60))*0.28;
+    add("Динамический темп",dynamic,safeSigma*1.05,"72% общий темп + 28% темп последней четверти",1.05);
+  } else if(isQuarter&&Number.isFinite(Number(forecast.projection))){
+    dynamic=projection;
+    add("Динамика четверти",dynamic,safeSigma,"Текущий темп четверти с поправкой на доступный таймер",1);
+  }
+  const possession=isQuarter?forecast.possession_model:estimate.possession_model;
+  if(possession?.applied&&Number.isFinite(Number(isQuarter?forecast.possession_projection:possession.projection))){
+    add("Модель владений",Number(isQuarter?forecast.possession_projection:possession.projection),safeSigma*0.95,
+      "Владения × очки за владение (PPP)",1.2);
+  }
+  if(completed.length>=1&&length>0){
+    const prior=completed.reduce((x,y)=>x+y,0)/completed.length;
+    const bayes=linear*0.68+prior*(isQuarter?0.32:0.32);
+    add("Байесовская",bayes,safeSigma*1.1,"68% live-темп + 32% средний тотал завершённых четвертей",0.95);
+  }
+  const regressionInputs=[linear,dynamic,projection];
+  if(possession?.applied&&Number.isFinite(Number(possession.projection)))regressionInputs.push(Number(possession.projection));
+  const regression=regressionInputs.reduce((x,y)=>x+y,0)/regressionInputs.length;
+  add("Динамическая регрессия",regression,safeSigma*0.95,"Сглаженное объединение независимых доступных оценок",1.1);
+  if(!isQuarter&&Number(period)===4&&Number.isFinite(remaining)){
+    const score=findLiveScore(ev),margin=score?Math.abs(score[0]-score[1]):null;
+    let endgame=projection,detail="Базовый прогноз без неподтверждённых поправок";
+    if(margin!=null&&remaining<=360){
+      if(margin<=8){endgame=projection+(360-remaining)/360*2.5;detail="Близкая концовка: возможные тактические фолы";}
+      else if(margin>=16){endgame=projection-(360-remaining)/360*1.5;detail="Большая разница: риск замедления концовки";}
+    }
+    add("Модель концовки",endgame,safeSigma*1.1,detail,0.9);
+  }
+  const smoothValues=isQuarter?[]:completed;
+  let anomaly=null;
+  if(smoothValues.length>=2){
+    const avg=smoothValues.reduce((x,y)=>x+y,0)/smoothValues.length;
+    const sd=Math.sqrt(smoothValues.reduce((x,y)=>x+(y-avg)**2,0)/smoothValues.length);
+    const cv=avg>0?sd/avg:1;
+    const isSmooth=cv<=0.18;
+    const adjusted=isSmooth?projection*0.98+avg*(Number(ev?.external_live?.period_count||4)-Number(period||1))*0.02:projection;
+    add("Smooth Game",adjusted,safeSigma*(isSmooth?0.9:1.25),
+      (isSmooth?"ровная траектория":"нестабильная траектория")+" · CV "+(cv*100).toFixed(1)+"%",isSmooth?1.1:0.7);
+    anomaly={smooth:isSmooth,cv:Math.round(cv*1000)/10,average:Math.round(avg*10)/10,sd:Math.round(sd*10)/10};
+  } else if(isQuarter){
+    add("Smooth Game Q",projection,safeSigma*1.1,"Для проверки плавности нужны данные нескольких четвертей",0.7);
+  }
+  if(!models.length)return {models:[],consensus:null,groups:[],anomaly,mlStatus:"недостаточно данных для расчёта"};
+  const totalWeight=models.reduce((s,m)=>s+m.weight,0);
+  const consensus=models.reduce((s,m)=>s+m.projection*m.weight,0)/totalWeight;
+  const consensusSigma=Math.sqrt(models.reduce((s,m)=>s+(m.sigma*m.sigma*m.weight/totalWeight),0));
+  const lineResults=lines.map(x=>{
+    const line=Number(x.line),pOver=Math.max(0,Math.min(1,1-normalCdf((Math.floor(line)+0.5-consensus)/consensusSigma)));
+    return {...x,pOver,pUnder:1-pOver,direction:pOver>=0.57?"ТБ":pOver<=0.43?"ТМ":"без преимущества"};
+  });
+  const strongest=lineResults.slice().sort((a,b)=>Math.abs(a.pOver-0.5)-Math.abs(b.pOver-0.5)).pop()||null;
+  for(const model of models){
+    const modelLine=lines.map(x=>{
+      const p=1-normalCdf((Math.floor(Number(x.line))+0.5-model.projection)/model.sigma);
+      return {...x,pOver:Math.max(0,Math.min(1,p)),pUnder:Math.max(0,Math.min(1,1-p))};
+    }).sort((a,b)=>Math.abs(b.pOver-0.5)-Math.abs(a.pOver-0.5))[0];
+    model.direction=modelLine?(modelLine.pOver>=0.57?"ТБ":modelLine.pOver<=0.43?"ТМ":"нет перевеса"):"нет линии";
+    model.line=modelLine?.line??null;
+    model.probability=modelLine?Math.round(Math.max(modelLine.pOver,modelLine.pUnder)*100):null;
+  }
+  const groups=[2,3,4,5,6,8,10].map(size=>{
+    const matching=models.filter(m=>m.direction!=="нет линии"&&m.direction!=="нет перевеса"&&m.direction!=="нет линии");
+    const over=matching.filter(m=>m.direction==="ТБ"),under=matching.filter(m=>m.direction==="ТМ");
+    const side=over.length>=size?"ТБ":under.length>=size?"ТМ":null;
+    return {size,side,count:side?(side==="ТБ"?over.length:under.length):0,available:models.length};
+  });
+  return {models,consensus:{projection:Math.round(consensus*10)/10,sigma:Math.round(consensusSigma*10)/10,
+      strongest,probabilities:lineResults,confidence:models.length>=6?"средняя":models.length>=4?"ограниченная":"низкая"},
+    groups,anomaly,mlStatus:"XGBoost / LightGBM / CatBoost / Random Forest: не обучены на размеченной истории, поэтому не выдают фиктивные прогнозы"};
+}
+function classicModelPanelHtml(data,title){
+  if(!data)return "";
+  const rows=(data.models||[]).map(m=>'<tr><td>'+escapeHtml(m.name)+'</td><td>'+m.projection+'</td><td>'+(m.line!=null?escapeHtml(m.direction+" "+m.line):"нет линии")+'</td><td>'+(m.probability!=null?m.probability+"%":"—")+'</td></tr>').join("");
+  const best=data.consensus?.strongest;
+  const direction=best?(best.direction==="без преимущества"?"нет перевеса":best.direction+" "+best.line):"линия PARI не получена";
+  const groups=(data.groups||[]).map(g=>g.side?g.size+" моделей: "+g.side+" ("+g.count+")":g.size+" моделей: нет совпадения").join(" · ");
+  const anomaly=data.anomaly?(data.anomaly.smooth?"Smooth Game: ровная траектория":"Аномалия/неровная траектория")+" · CV "+data.anomaly.cv+"%":"Проверка Smooth Game: мало завершённых четвертей";
+  return '<section class="classic-model-panel"><div class="calc-section-head"><div><span class="eyebrow">'+escapeHtml(title)+'</span><h3>Модели расчёта матча</h3></div><span class="calc-live-tag">'+(data.models.length||0)+' активны</span></div>'+
+    (data.consensus?'<div class="classic-consensus"><b>AI Consensus</b><strong>'+data.consensus.projection+'</strong><span>Направление: '+escapeHtml(direction)+(best?' · ТБ '+(best.pOver*100).toFixed(1)+'% / ТМ '+(best.pUnder*100).toFixed(1)+'%':'')+' · уверенность '+escapeHtml(data.consensus.confidence)+'</span></div>':'')+
+    '<div class="table-scroll"><table class="calc-table"><thead><tr><th>Модель</th><th>Тотал</th><th>Направление</th><th>Вероятность</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<p class="model-consensus-groups">'+escapeHtml(groups)+'</p><p class="model-anomaly">'+escapeHtml(anomaly)+'</p><p class="muted model-training-note">'+escapeHtml(data.mlStatus)+'</p></section>';
+}
+
 function aiSignalHtml(signal,title){
   if(!signal)return '<p class="muted">ИИ-анализ: недостаточно подтверждённых данных</p>';
   const best=signal.strongest;
