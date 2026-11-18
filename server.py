@@ -1627,10 +1627,27 @@ async def _enrich_with_sofascore_live(events):
                                 }
                                 if row.get("clock") or row.get("period_length_seconds"):
                                     row["detail_source"] = "SportScore match detail"
+                                stats_node = payload.get("stats") if isinstance(payload, dict) else None
+                                if stats_node is None and isinstance(payload, dict):
+                                    stats_node = payload.get("statistics") or payload.get("boxScore") or payload.get("box_score")
+                                def stats_shape(value, depth=0):
+                                    if depth > 3:
+                                        return {"type": type(value).__name__}
+                                    if isinstance(value, dict):
+                                        return {"type": "object", "keys": list(value.keys())[:45],
+                                                "children": {str(k): stats_shape(v, depth + 1)
+                                                             for k, v in list(value.items())[:8]
+                                                             if isinstance(v, (dict, list))}}
+                                    if isinstance(value, list):
+                                        return {"type": "array", "length": len(value),
+                                                "first": [stats_shape(v, depth + 1) for v in value[:4]]}
+                                    return {"type": type(value).__name__, "sample": str(value)[:80]}
                                 detail_diagnostics.append({
                                     "id": str(row.get("id")), "http_status": response.status_code,
                                     "clock_found": bool(row.get("clock")),
                                     "period_length_found": bool(row.get("period_length_seconds")),
+                                    "statistics_count": len(detail_statistics),
+                                    "stats_shape": stats_shape(stats_node),
                                     "keys": detail_keys[:30],
                                 })
                             except (httpx.HTTPError, ValueError, TypeError) as exc:
