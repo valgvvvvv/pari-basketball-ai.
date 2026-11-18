@@ -2207,8 +2207,10 @@ def _normalize_live_stat_row(row):
     label = row.get("metric_key") or row.get("name") or row.get("key") or ""
     group = row.get("group") or row.get("groupName") or ""
     metric = _pari_stat_metric(label) or _pari_stat_metric(str(group) + " " + str(label))
-    home = _stat_value_for_ui(row.get("home", row.get("homeValue", row.get("home_value"))))
-    away = _stat_value_for_ui(row.get("away", row.get("awayValue", row.get("away_value"))))
+    home_raw = next((row.get(k) for k in ("home", "homeValue", "home_value", "team1") if row.get(k) is not None), None)
+    away_raw = next((row.get(k) for k in ("away", "awayValue", "away_value", "team2") if row.get(k) is not None), None)
+    home = _stat_value_for_ui(home_raw)
+    away = _stat_value_for_ui(away_raw)
     if home is None or away is None:
         return None
     result = dict(row)
