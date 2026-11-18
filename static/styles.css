@@ -42,3 +42,37 @@
 .calc-factors{padding-left:19px;color:#b7c7d9;font-size:11px;line-height:1.8}
 .compact-analysis h3,#matchForecast h3{font-size:14px;margin:18px 0 8px}
 @media(max-width:520px){.calc-table{font-size:10px}.calc-table th,.calc-table td{padding:7px 4px}}
+
+
+/* Step-by-step numerical forecast and projected score trajectory */
+.calculation-steps{margin:18px 0;padding:17px;border:1px solid #2b4257;border-radius:13px;background:linear-gradient(145deg,#102031,#0c1725)}
+.calc-section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.calc-section-head h3{margin:5px 0 0!important;font-size:17px!important}
+.calc-live-tag{font-size:9px;letter-spacing:1px;color:var(--cyan);border:1px solid #3a6870;border-radius:30px;padding:6px 9px;white-space:nowrap}
+.calc-stage-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.calc-stage{display:grid;grid-template-columns:28px minmax(0,1fr);gap:10px;align-items:start;padding:12px;background:#0b1421;border:1px solid #26394d;border-radius:9px;min-width:0}
+.calc-stage-index{width:25px;height:25px;display:grid;place-items:center;border-radius:50%;background:#1c3948;color:var(--cyan);font-size:11px;font-weight:800}
+.calc-stage>div{display:grid;gap:5px;min-width:0}
+.calc-stage b{font-size:10px;color:#a9b9cc}
+.calc-stage strong{font-size:17px;color:var(--cyan);overflow-wrap:anywhere}
+.calc-stage small{font-size:10px;line-height:1.55;color:var(--muted)}
+.calc-score-prediction{display:grid;gap:5px;padding:13px 15px;border:1px solid #315064;border-radius:9px;background:#0b1421}
+.calc-score-prediction span,.calc-direction span{font-size:10px;color:var(--muted)}
+.calc-score-prediction>b{font-size:25px;color:var(--cyan);font-variant-numeric:tabular-nums}
+.calc-score-prediction small,.calc-direction small{font-size:10px;line-height:1.55;color:var(--muted)}
+.calculation-steps h4{font-size:12px;margin:16px 0 8px;color:#dce8f6}
+.trajectory-table{margin-bottom:12px}
+.trajectory-track{height:6px;min-width:38px;background:#25364a;border-radius:10px;overflow:hidden}
+.trajectory-track i{display:block;height:100%;background:linear-gradient(90deg,#70e0d0,#7aa8ff);border-radius:10px}
+.calc-direction{display:grid;gap:5px;padding:12px 14px;border-radius:9px;background:#14283a;border-left:3px solid var(--cyan)}
+.calc-direction>b{font-size:16px;color:var(--cyan)}
+@media(max-width:600px){
+  .calculation-steps{padding:12px;margin:14px 0}
+  .calc-stage-list{grid-template-columns:1fr}
+  .calc-stage{padding:10px}
+  .trajectory-table{font-size:9px}
+  .trajectory-table th,.trajectory-table td{padding:7px 3px}
+  .trajectory-table th:first-child{width:28%}
+  .trajectory-track{min-width:24px}
+  .calc-score-prediction>b{font-size:22px}
+}
