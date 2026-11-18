@@ -2856,9 +2856,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 unique.append(factor)
                         return unique
 
-                    # Only countdown-style fields are eligible as a quarter clock.
-                    # Generic "time" may be elapsed match time or a timestamp and must
-                    # never be treated as remaining period time.
+                    # Only explicit countdown fields are direct quarter clocks.
+                    # PARI's generic "timer" is a match timer; its direction matters.
                     clock_value = next((row.get(key) for row in
                                         (live_info, event_misc, event)
                                         for key in ("clock", "countdown", "timeRemaining",
@@ -2867,32 +2866,36 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                         if row.get(key) is not None), None)
                     if isinstance(clock_value, dict):
                         clock_value = next((clock_value.get(key) for key in
-                                            ("clock", "timer", "time", "remaining",
-                                             "remainingTime", "seconds", "value")
+                                            ("clock", "remaining", "remainingTime",
+                                             "seconds", "value")
                                             if clock_value.get(key) is not None), None)
-                    # PARI timerSeconds/timer may represent elapsed match time, not
-                    # the countdown of the current quarter. Convert only when the
-                    # competition format is known; never feed a 31:14/38:26 match
-                    # timer into a quarter-clock field.
+
                     timer_raw = next((row.get("timerSeconds") for row in
                                       (live_info, event_misc, event)
-                                      if row.get("timerSeconds") is not None), None)
-                    timer_from_explicit_clock = timer_raw is None and clock_value is not None
-                    if timer_raw is None and clock_value is not None:
-                        timer_text = str(clock_value).strip()
-                        timer_match = re.fullmatch(r"(\d{1,3}):(\d{2})", timer_text)
-                        if timer_match:
-                            timer_raw = int(timer_match.group(1)) * 60 + int(timer_match.group(2))
-                        elif re.fullmatch(r"\d{1,5}", timer_text):
-                            timer_raw = int(timer_text)
+                                      if row.get("timerSeconds") not in (None, 0, "0")), None)
+                    if timer_raw is None:
+                        timer_raw = next((row.get("timerSeconds") for row in
+                                          (live_info, event_misc, event)
+                                          if row.get("timerSeconds") is not None), None)
                     try:
                         timer_seconds = int(float(timer_raw)) if timer_raw is not None else None
                     except (TypeError, ValueError, OverflowError):
                         timer_seconds = None
+                    timer_direction_raw = next((row.get("timerDirection") for row in
+                                                 (live_info, event_misc, event)
+                                                 if row.get("timerDirection") is not None), None)
+                    try:
+                        timer_direction = int(timer_direction_raw) if timer_direction_raw is not None else None
+                    except (TypeError, ValueError, OverflowError):
+                        timer_direction = None
+                    timer_timestamp_raw = next((row.get("timerTimestampMsec") for row in
+                                                 (live_info, event_misc, event)
+                                                 if row.get("timerTimestampMsec") is not None), None)
+                    try:
+                        timer_timestamp_msec = int(float(timer_timestamp_raw)) if timer_timestamp_raw is not None else None
+                    except (TypeError, ValueError, OverflowError):
+                        timer_timestamp_msec = None
 
-                    # Use PARI's resolved sport catalogue name, not only the often-empty
-                    # event.name/competitionName fields. Some catalogue labels reverse
-                    # the order ("Кубок BSKT"), so match both forms explicitly.
                     competition_text = repair_team_encoding(" ".join(str(x or "") for x in (
                         event.get("name"), event.get("competitionName"),
                         sport_names.get(str(event.get("sportId")), "")
@@ -2901,39 +2904,71 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     if re.search(r"\bcdb[l1]\b|chinese basketball development league|nba|g[- ]?лига|g[- ]?league", competition_text):
                         period_length_seconds = 720
                     elif re.search(r"bskt\s*cup|cup\s*bskt|кубок\s*bskt|philippines.*ncaa|ncaa.*philippines|филиппин.*ncaa", competition_text):
-                        # BSKT Cup and Philippine NCAA use four 10-minute periods.
                         period_length_seconds = 600
                     elif (not re.search(r"\bncaa\b|college|university|студент|колледж", competition_text)
-                          and re.search(r"adriatic|адриат|аба\s*лига|plk|польша|израил|израиль|super\s*league|суперлиг|bosnia|босни|герцеговин|greece|греци|italy|итал|cyprus|кипр|morocco|марокко|montenegro|черногор|serbia|серби|croatia|хорват|fiba|euroleague|eurocup|eurobasket|vtb|basketball champions league", competition_text)):
-                        # Named national and FIBA competitions use four 10-minute periods.
+                          and re.search(r"adriatic|адриат|аба\s*лига|plk|польша|израил|израиль|super\s*league|суперлиг|bosnia|босни|герцеговин|greece|греци|italy|итал|cyprus|кипр|morocco|марокко|montenegro|черногор|serbia|серби|croatia|хорват|fiba|euroleague|eurocup|eurobasket|vtb|basketball champions league|enbl|european northern league|европейск\w*\s+северн\w*\s+лиг", competition_text)):
                         period_length_seconds = 600
 
-                    # PARI's observed timerSeconds are cumulative match elapsed
-                    # seconds (e.g. 38:26 in CDBL, 31:14 in BSKT Cup).
-                    # Derive the quarter and its remaining clock from that value.
-                    if timer_from_explicit_clock and timer_seconds is not None and 0 <= timer_seconds <= 1200:
-                        # An explicit clock field is already the remaining time in this period.
-                        # Never reinterpret it as cumulative match elapsed time.
-                        clock_value = f"{timer_seconds // 60:02d}:{timer_seconds % 60:02d}"
-                    elif timer_seconds is not None and period_length_seconds and timer_seconds >= 0:
-                        elapsed_periods = timer_seconds // period_length_seconds
-                        if 0 <= elapsed_periods < 4:
-                            period_value = elapsed_periods + 1
-                            remaining = period_length_seconds - (timer_seconds % period_length_seconds)
-                            clock_value = f"{remaining // 60:02d}:{remaining % 60:02d}"
-                        else:
-                            clock_value = None
-                    elif timer_seconds is not None:
-                        # PARI timerSeconds is cumulative match elapsed time.
-                        # Without a verified period length it is not a quarter countdown.
-                        clock_value = None
-                    elif clock_value is not None:
+                    def _period_number(value):
+                        if value is None:
+                            return None
+                        if isinstance(value, (int, float)) and int(value) == value and 1 <= int(value) <= 4:
+                            return int(value)
+                        match = re.search(r"(?:q|quarter|period|период|четверт\w*)\s*([1-4])|([1-4])\s*(?:st|nd|rd|th)?\s*(?:quarter|period)", str(value), re.I)
+                        if match:
+                            return int(match.group(1) or match.group(2))
+                        if str(value).strip() in ("1", "2", "3", "4"):
+                            return int(str(value).strip())
+                        return None
+
+                    explicit_period = _period_number(period_value)
+                    if explicit_period is None:
+                        # The second PARI scores array contains the completed/current
+                        # quarter rows. Use it only when every row is explicitly a quarter.
+                        score_groups = live_info.get("scores")
+                        if isinstance(score_groups, list) and len(score_groups) > 1 and isinstance(score_groups[1], list):
+                            quarter_rows = [x for x in score_groups[1] if isinstance(x, dict)
+                                            and "четвер" in str(x.get("title") or "").casefold()]
+                            if quarter_rows and len(quarter_rows) <= 4:
+                                explicit_period = len(quarter_rows)
+
+                    # PARI's timerSeconds is an elapsed match clock when the source
+                    # marks it as count-up (timerDirection=1). Do not reinterpret a
+                    # count-down/unknown timer as cumulative elapsed time.
+                    # If the period duration is missing, infer it only when exactly
+                    # one standard format (4x10 or 4x12) agrees with the explicit period.
+                    if period_length_seconds is None and timer_seconds is not None and timer_direction == 1 and explicit_period:
+                        compatible = [length for length in (600, 720)
+                                      if timer_seconds < 4 * length
+                                      and timer_seconds // length + 1 == explicit_period]
+                        if len(compatible) == 1:
+                            period_length_seconds = compatible[0]
+
+                    if clock_value is not None:
                         clock_text = str(clock_value).strip()
                         clock_match = re.fullmatch(r"(\d{1,2}):([0-5]\d)", clock_text)
                         if clock_match and int(clock_match.group(1)) * 60 + int(clock_match.group(2)) <= 1200:
                             clock_value = clock_match.group(1).zfill(2) + ":" + clock_match.group(2)
                         else:
                             clock_value = None
+                    elif timer_seconds is not None and timer_direction == 0 and period_length_seconds and explicit_period:
+                        # A count-down timer is accepted as a period clock only if it
+                        # fits inside the verified period duration.
+                        if 0 < timer_seconds <= period_length_seconds:
+                            clock_value = f"{timer_seconds // 60:02d}:{timer_seconds % 60:02d}"
+                    elif timer_seconds is not None and timer_direction == 1 and period_length_seconds:
+                        derived_period = timer_seconds // period_length_seconds + 1
+                        if timer_seconds < 4 * period_length_seconds and derived_period <= 4:
+                            if explicit_period is None or explicit_period == derived_period:
+                                period_value = derived_period
+                                remaining = period_length_seconds - (timer_seconds % period_length_seconds)
+                                clock_value = f"{remaining // 60:02d}:{remaining % 60:02d}"
+                            else:
+                                # Period and timer disagree: suppress the clock rather
+                                # than show a plausible-looking but incorrect value.
+                                clock_value = None
+                    elif timer_seconds is not None:
+                        clock_value = None
 
                     # PARI versions expose quarter scores in different shapes:
                     # liveEventInfos.scores[1], scores[0], eventMiscs.scores,
@@ -3080,19 +3115,20 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             or _extract_pari_score(event_misc) or _extract_pari_score(score_source)
                         ) else None,
                         "period": period_value,
-                        "period_source": "PARI_timer_and_catalogue" if (
-                            timer_seconds is not None and period_length_seconds
-                            and timer_seconds >= period_length_seconds
+                        "period_source": "PARI_timer_and_period_consistency" if (
+                            timer_seconds is not None and timer_direction == 1 and period_length_seconds
+                            and clock_value is not None
                         ) else ("PARI_event" if period_value is not None else None),
                         "clock": clock_value,
-                        "clock_source": "PARI_timer_and_catalogue" if (
-                            timer_seconds is not None and period_length_seconds
-                            and timer_seconds >= period_length_seconds
-                            and timer_seconds < 4 * period_length_seconds
-                        ) else ("PARI_clock_field" if clock_value is not None else None),
+                        "clock_source": "PARI_timer_and_period_consistency" if (
+                            timer_seconds is not None and timer_direction == 1 and period_length_seconds
+                            and clock_value is not None
+                        ) else ("PARI_explicit_countdown" if clock_value is not None else None),
                         "period_length_seconds": period_length_seconds,
                         "period_count": 4 if period_length_seconds else None,
-                        "match_elapsed_seconds": timer_seconds,
+                        "match_elapsed_seconds": timer_seconds if timer_direction == 1 else None,
+                        "timer_direction": timer_direction,
+                        "timer_timestamp_msec": timer_timestamp_msec,
                         "period_scores": period_scores,
                         "match_timeline": [
                             {"period": index + 1, "home": pair[0], "away": pair[1],
