@@ -493,6 +493,74 @@ function probabilityOverLine(estimate,line){
   const pOver=1-normalCdf((boundary-estimate.projection)/estimate.sigma);
   return Math.max(0,Math.min(1,pOver));
 }
+function calculationStepsHtml(options){
+  const {kind="match",ev,projection,current,elapsedMinutes,remainingMinutes,homeScore,awayScore,poss,lines=[],preliminary=false,clock=null,periodLength=null}=options||{};
+  if(!Number.isFinite(Number(current))||!Number.isFinite(Number(projection)))return "";
+  const n=x=>Number.isFinite(Number(x))?Number(x):null;
+  const fmt=(x,d=1)=>x==null?"—":Number(x).toFixed(d);
+  const totalCurrent=n(current),finalTotal=n(projection),remainingPoints=Math.max(0,finalTotal-totalCurrent);
+  const elapsed=n(elapsedMinutes),remaining=n(remainingMinutes);
+  const home=n(homeScore),away=n(awayScore);
+  const possActive=!!poss?.applied;
+  const possRate=possActive?n(poss.possPerMinute):null;
+  const ppp=possActive?n(poss.pointsPerPossession):null;
+  const homePpp=possActive?n(poss.homePointsPerPossession):null;
+  const awayPpp=possActive?n(poss.awayPointsPerPossession):null;
+  const currentTeamTotal=(home??0)+(away??0);
+  let homeWeight=0.5,awayWeight=0.5,allocation="поровну: нет подтверждённого распределения очков";
+  if(possActive&&homePpp!=null&&awayPpp!=null&&homePpp+awayPpp>0){
+    homeWeight=homePpp/(homePpp+awayPpp);awayWeight=1-homeWeight;
+    allocation="по соотношению очков за владение команд";
+  }else if(currentTeamTotal>0){
+    homeWeight=home/currentTeamTotal;awayWeight=away/currentTeamTotal;
+    allocation="по текущей доле очков команд (ориентировочное распределение)";
+  }
+  const finalHome=home==null?null:home+remainingPoints*homeWeight;
+  const finalAway=away==null?null:away+remainingPoints*awayWeight;
+  const directionRows=(lines||[]).map(x=>{
+    const p=x.pOver!=null?x:(null);
+    return p?{line:p.line,over:p.pOver,under:p.pUnder,direction:p.direction}:null;
+  }).filter(Boolean);
+  const strongest=directionRows.length?directionRows.slice().sort((a,b)=>Math.abs(b.over-0.5)-Math.abs(a.over-0.5))[0]:null;
+  const direction=strongest?strongest.direction:"линия PARI не получена — направление не определяется";
+  const stages=[];
+  stages.push({name:"1. Состояние матча",value:(home!=null&&away!=null?fmt(home,0)+" : "+fmt(away,0):fmt(totalCurrent,0)+" очков всего"),
+    detail:"Прошло "+fmt(elapsed)+" мин · осталось "+fmt(remaining)+" мин"+(clock?" · таймер "+clock:"")});
+  if(possActive){
+    stages.push({name:"2. Темп владений",value:fmt(possRate,2)+" влад./мин",
+      detail:"Среднее владений на команду: "+fmt(poss.average)+" · источник: "+String(poss.method||"подтверждённые данные")});
+    stages.push({name:"3. Эффективность владений",value:fmt(ppp,3)+" очка/владение",
+      detail:"Команда 1: "+fmt(homePpp,3)+" · команда 2: "+fmt(awayPpp,3)});
+    stages.push({name:"4. Остаток игры",value:fmt(poss.expectedRemainingPossessions)+" владений",
+      detail:fmt(poss.expectedRemainingPossessions)+" ожидаемых владений на команду × "+fmt(ppp,3)+" очка = "+fmt(poss.expectedRemainingPoints)+" ожидаемых очков"});
+  }else{
+    const ppm=elapsed>0?totalCurrent/elapsed:null;
+    stages.push({name:"2. Набранный темп",value:fmt(ppm,2)+" очка/мин",
+      detail:"Формула: "+fmt(totalCurrent,0)+" очков ÷ "+fmt(elapsed)+" мин"});
+    stages.push({name:"3. Остаток игры",value:fmt(remainingPoints)+" очков",
+      detail:fmt(ppm,2)+" очка/мин — базовый темп; без подтверждённых владений эффективность владений не подменяется оценкой"});
+  }
+  stages.push({name:"5. Итоговый тотал",value:fmt(finalTotal)+" очка",
+    detail:fmt(totalCurrent,0)+" сейчас + "+fmt(remainingPoints)+" ожидается до конца"+(preliminary?" · предварительный расчёт":"")});
+  const trajectory=[25,50,75,100].map(percent=>{
+    const partial=remainingPoints*percent/100;
+    const total=totalCurrent+partial;
+    const h=home==null?null:home+partial*homeWeight;
+    const a=away==null?null:away+partial*awayWeight;
+    return {percent,total,h,a};
+  });
+  const trajectoryHtml=trajectory.map(x=>'<tr><td>'+x.percent+'%</td><td>'+fmt(x.total)+'</td><td>'+(x.h==null?"—":fmt(x.h)+' : '+fmt(x.a))+'</td><td><div class="trajectory-track"><i style="width:'+Math.max(0,Math.min(100,x.percent))+'%"></i></div></td></tr>').join("");
+  const scoreHtml=home!=null&&away!=null
+    ?'<div class="calc-score-prediction"><span>Ожидаемый счёт (ориентир)</span><b>'+fmt(finalHome)+' : '+fmt(finalAway)+'</b><small>Распределение оставшихся очков: '+escapeHtml(allocation)+'. Это оценка командного счёта, не отдельная гарантия.</small></div>'
+    :'<p class="muted">Прогноз раздельного счёта команд не выводится: нет подтверждённого счёта по командам.</p>';
+  return '<section class="calculation-steps"><div class="calc-section-head"><div><span class="eyebrow">NUMERICAL MODEL · '+(kind==="quarter"?"QUARTER":"FULL GAME")+'</span><h3>Расчёт по этапам</h3></div><span class="calc-live-tag">'+(preliminary?"ПРЕДВАРИТЕЛЬНО":"LIVE")+'</span></div>'+
+    '<div class="calc-stage-list">'+stages.map((x,i)=>'<div class="calc-stage"><span class="calc-stage-index">'+(i+1)+'</span><div><b>'+escapeHtml(x.name.replace(/^\d+\.\s*/,""))+'</b><strong>'+escapeHtml(x.value)+'</strong><small>'+escapeHtml(x.detail)+'</small></div></div>').join("")+'</div>'+
+    '<h4>Ожидаемый счёт команд</h4>'+scoreHtml+
+    '<h4>Движение расчётного тотала до конца</h4><p class="muted">Контрольные точки показывают ожидаемый накопительный счёт по мере прохождения оставшегося времени, а не фактический будущий ход игры.</p>'+
+    '<table class="calc-table trajectory-table"><thead><tr><th>Оставшееся время пройдено</th><th>Ожидаемый тотал</th><th>Счёт команд</th><th>Ход расчёта</th></tr></thead><tbody>'+trajectoryHtml+'</tbody></table>'+
+    '<div class="calc-direction"><span>Направление относительно линии PARI</span><b>'+escapeHtml(direction)+'</b>'+
+    (strongest?'<small>Линия '+fmt(strongest.line)+' · ТБ '+(strongest.over*100).toFixed(1)+'% · ТМ '+(strongest.under*100).toFixed(1)+'%</small>':'<small>Вероятность и направление появятся после получения реальной линии PARI.</small>')+'</div></section>';
+}
 function showSelectedMatch(ev){
   const panel=$("selectedMatch");panel.hidden=false;
   $("selectedMatchTitle").textContent=(ev.team1||"Команда 1")+" — "+(ev.team2||"Команда 2");
@@ -561,7 +629,23 @@ function showSelectedMatch(ev){
       (quarter.lines.length?'<h3>Вероятности по линии PARI на Q'+escapeHtml(quarter.period||period||"?")+'</h3><table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Направление</th><th>Коэфф. PARI</th></tr></thead><tbody>'+quarter.lines.map(x=>'<tr><td>'+x.line+'</td><td>'+(x.pOver*100).toFixed(1)+'%</td><td>'+(x.pUnder*100).toFixed(1)+'%</td><td>'+escapeHtml(x.direction)+'</td><td>'+(x.odds?escapeHtml(x.odds):'—')+'</td></tr>').join('')+'</tbody></table>':'<p class="muted">Линия PARI именно на текущую четверть не получена; вероятность по линии не рассчитывается, чтобы не подменять её тоталом матча.</p>')+
       '<p class="calc-formula">Расчёт по темпу текущей четверти; если таймер или её счёт отсутствуют, используется явно помеченный предварительный ориентир на основе темпа матча/середины периода. Диапазон строится по 10 000 симуляций.</p>'
     : '<p class="muted">'+escapeHtml(quarter.reason||"Нет достаточных данных для прогноза четверти.")+'</p>';
-  $("matchForecast").insertAdjacentHTML("beforeend",'<div class="compact-analysis"><h3>Статистика матча</h3>'+statHtml+
+  if(estimate) $("matchForecast").insertAdjacentHTML("beforeend",calculationStepsHtml({
+    kind:"match",ev,projection:Number(estimate.projection),current:Number(estimate.current),
+    elapsedMinutes:Number(estimate.elapsed_minutes),remainingMinutes:Number(estimate.remaining_minutes),
+    homeScore:score?.[0],awayScore:score?.[1],poss:estimate.possession_model||possession,
+    lines:estimate.poisson?.probabilities||[],preliminary:!!estimate.preliminary,clock
+  }));
+    if(quarter.ready){
+    const qLength=Number(findPeriodLengthSeconds(ev)||inferPeriodLengthForForecast(ev)?.seconds||0);
+    const qRemaining=clock&&qLength?Math.max(0,(Number(String(clock).split(":")[0])*60+Number(String(clock).split(":")[1]))/60):null;
+    $("quarterForecast").insertAdjacentHTML("beforeend",calculationStepsHtml({
+      kind:"quarter",ev,projection:Number(quarter.projection),current:Number(quarter.current),
+      elapsedMinutes:quarter.elapsed,remainingMinutes:qRemaining,
+      homeScore:quarter.home,awayScore:quarter.away,poss:quarter.possession_model,
+      lines:quarter.lines||[],preliminary:!!quarter.preliminary,clock,periodLength:qLength
+    }));
+  }
+    $("matchForecast").insertAdjacentHTML("beforeend",'<div class="compact-analysis"><h3>Статистика матча</h3>'+statHtml+
     (timeline?'<p><b>Счёт по четвертям:</b> '+escapeHtml(timeline)+'</p>':'')+
     (statsQuality?'<p class="muted">Получено показателей: '+statsQuality.available_count+'/'+statsQuality.expected_count+'. Источник: '+escapeHtml(ev.statistics_source||"не указан")+'.</p>':'')+
     (statInsights.length?'<h3>Что показывает статистика</h3><ul class="calc-factors">'+statInsights.map(x=>'<li>'+escapeHtml(x)+'</li>').join("")+'</ul>':'')+
