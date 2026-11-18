@@ -1412,11 +1412,22 @@ async def _enrich_with_sofascore_live(events):
             # period-duration fields are accepted (never infer 10/12-minute periods).
             detail_cache = globals().setdefault("_SPORTSCORE_DETAIL_CACHE", {})
             now_detail = datetime.now(timezone.utc).timestamp()
-            detail_targets = [row for row in external_rows
-                              if (row.get("slug") or row.get("provider_id"))
-                              and not str(row.get("id") or "").startswith(("sofascore:", "espn:", "espn-ncaa:"))
-                              and (not detail_cache.get(str(row.get("id") or row.get("provider_id")), {}).get("expires", 0)
-                                   or detail_cache.get(str(row.get("id") or row.get("provider_id")), {}).get("expires", 0) <= now_detail)]
+            detail_targets_all = [row for row in external_rows
+                                  if (row.get("slug") or row.get("provider_id"))
+                                  and not str(row.get("id") or "").startswith(("sofascore:", "espn:", "espn-ncaa:"))
+                                  and (not detail_cache.get(str(row.get("id") or row.get("provider_id")), {}).get("expires", 0)
+                                       or detail_cache.get(str(row.get("id") or row.get("provider_id")), {}).get("expires", 0) <= now_detail)]
+            # SportScore applies HTTP 429 when too many match-detail requests arrive
+            # together. Fetch a rotating batch so all fixtures are covered over
+            # successive refreshes without flooding the provider.
+            detail_offset = int(globals().get("_SPORTSCORE_DETAIL_OFFSET", 0) or 0)
+            if detail_targets_all:
+                batch_size = min(8, len(detail_targets_all))
+                detail_targets = [detail_targets_all[(detail_offset + i) % len(detail_targets_all)]
+                                  for i in range(batch_size)]
+                globals()["_SPORTSCORE_DETAIL_OFFSET"] = (detail_offset + batch_size) % len(detail_targets_all)
+            else:
+                detail_targets = []
             detail_diagnostics = []
             if detail_targets:
                 async with httpx.AsyncClient(
@@ -1424,7 +1435,7 @@ async def _enrich_with_sofascore_live(events):
                     follow_redirects=True,
                     headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
                 ) as detail_client:
-                    semaphore = asyncio.Semaphore(16)
+                    semaphore = asyncio.Semaphore(3)
 
                     async def enrich_sportscore_detail(row):
                         async with semaphore:
@@ -1778,6 +1789,8 @@ async def _enrich_with_sofascore_live(events):
                 "sportscore_status_samples": sportscore_status_samples[:16],
                 "sportscore_live_rows_after_filter": len(external_rows),
                 "sportscore_detail_targets": len(detail_targets),
+                "sportscore_detail_targets_total": len(detail_targets_all),
+                "sportscore_detail_offset_next": globals().get("_SPORTSCORE_DETAIL_OFFSET", 0),
                 "sportscore_rows_without_detail_id": sum(
                     1 for row in external_rows
                     if (not row.get("clock") or not row.get("period_length_seconds"))
