@@ -3552,6 +3552,26 @@ async def _pari_startup_stats_discovery():
     try:
         result = await pari_discover()
         pattern = re.compile(r"statistic|box.?score|possession|foul|rebound|assist|turnover|steal|block|three.?point|two.?point|free.?throw|field.?goal|play.?by.?play|timeline|tracker", re.I)
+        basketball_chunks = [
+            chunk for chunk in result.get("chunk_scans", [])
+            if isinstance(chunk, dict) and
+            ("92727.js" in str(chunk.get("url") or "") or "matchCenter.entity.basketball" in str(chunk.get("url") or ""))
+        ] if isinstance(result, dict) else []
+        compact_basketball_chunks = []
+        for chunk in basketball_chunks[:3]:
+            contexts = []
+            for key in ("targeted_context_windows", "api_context_windows", "data_model_context_windows"):
+                for window in chunk.get(key, []) if isinstance(chunk.get(key), list) else []:
+                    token = str(window.get("token") or "")
+                    if pattern.search(token + " " + str(window.get("snippet") or "")):
+                        contexts.append({"token":token,"snippet":str(window.get("snippet") or "")[:1800]})
+            compact_basketball_chunks.append({
+                "url":chunk.get("url"),"status":chunk.get("status"),"bytes":chunk.get("bytes"),
+                "api_path_hints":(chunk.get("api_path_hints") or [])[:100],
+                "request_string_hints":(chunk.get("request_string_hints") or [])[:80],
+                "contexts":contexts[:24],
+            })
+        print("PARI_BASKETBALL_CHUNK_AUDIT " + json.dumps(compact_basketball_chunks, ensure_ascii=False, default=str), flush=True)
         candidates = []
         for chunk in result.get("chunk_scans", []) if isinstance(result, dict) else []:
             if not isinstance(chunk, dict):
