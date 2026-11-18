@@ -46,6 +46,16 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
         self.assertEqual(extracted["periods"][0]["period"], 2)
         self.assertEqual(extracted["periods"][0]["home"], "3")
 
+    def test_unknown_pari_codes_are_retained_but_not_used(self):
+        extracted = server._extract_pari_live_statistics([{
+            "statistics": [
+                {"kindId": "999999", "kindName": "unknown stat", "c1": "4", "c2": "5"}
+            ]
+        }])
+        self.assertEqual(extracted["match"], [])
+        self.assertEqual(extracted["unmapped"][0]["kind_id"], "999999")
+        self.assertEqual(extracted["unmapped"][0]["home"], "4")
+
     def test_missing_values_are_not_fabricated(self):
         event = {"external_statistics":[
             {"name":"Assists","metric_key":"assists","home":"4","away":"7","source":"PARI"}
