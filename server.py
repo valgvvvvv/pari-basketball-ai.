@@ -2332,8 +2332,8 @@ def _extract_pari_live_statistics(objects):
     period_found = {}
     visited = set()
 
-    def add(label, home, away, group="PARI LIVE"):
-        metric = _pari_stat_metric(label)
+    def add(label, home, away, group="PARI LIVE", metric_override=None):
+        metric = metric_override or _pari_stat_metric(label)
         if not metric or home is None or away is None:
             return
         label_text = str(label or "") + " " + str(group or "")
@@ -2375,7 +2375,7 @@ def _extract_pari_live_statistics(objects):
             kind_id = str(value.get("kindId") or value.get("kind_id") or "")
             kind_metric = {"420300": "two_pointers_made", "420400": "three_pointers_made"}.get(kind_id)
             if kind_metric and home is not None and away is not None:
-                add(kind_metric, home, away, value.get("groupName") or value.get("group") or "PARI match-centre")
+                add(label or kind_metric, home, away, value.get("groupName") or value.get("group") or "PARI match-centre", metric_override=kind_metric)
             elif label:
                 add(label, home, away, value.get("groupName") or value.get("group") or value.get("category") or "PARI LIVE")
             # PARI may encode paired team values as flat sibling keys.
