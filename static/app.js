@@ -602,7 +602,9 @@ function clearAnalysisHistory(){
   try{localStorage.removeItem(ANALYSIS_HISTORY_KEY);}catch(_){}
   renderAnalysisHistory();
 }
-function showSelectedMatch(ev){
+let selectedLiveEventId = null;
+function showSelectedMatch(ev,options={}){
+  selectedLiveEventId=String(ev?.id||"");
   const panel=$("selectedMatch");panel.hidden=false;
   $("selectedMatchTitle").textContent=(ev.team1||"Команда 1")+" — "+(ev.team2||"Команда 2");
   const score=findLiveScore(ev),period=findLivePeriod(ev),clock=findLiveClock(ev);
@@ -659,7 +661,7 @@ function showSelectedMatch(ev){
   $("matchForecast").insertAdjacentHTML("beforeend",'<div class="compact-analysis"><h3>Статистика · '+rows.length+'/'+(statsQuality?.expected_count??"—")+'</h3>'+statHtml+(timeline?'<p><b>Четверти:</b> '+escapeHtml(timeline)+'</p>':'')+
     (rows.length?'<h4>Все показатели</h4>'+rows.map(st=>'<p>'+escapeHtml(st.name||st.metric_key||"Показатель")+': <b>'+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+'</b></p>').join(""):'')+'</div>');
   saveAnalysisHistory(ev,score,period,clock,estimate,quarter);
-  panel.scrollIntoView({behavior:"smooth",block:"start"});
+  if(!options.silent)panel.scrollIntoView({behavior:"smooth",block:"start"});
 }
 
 // Direct PARI event feed: refresh on page open and every 30 seconds.
@@ -1013,6 +1015,10 @@ async function refreshLiveMatches() {
     }
     const count = (data.events || []).length;
     window.pariLiveEvents = data.events || [];
+    if(selectedLiveEventId){
+      const refreshedSelection=window.pariLiveEvents.find(x=>String(x.id)===selectedLiveEventId);
+      if(refreshedSelection)showSelectedMatch(refreshedSelection,{silent:true});
+    }
     const sourceStatus = $("liveSourceStatus");
     const sourceDetail = $("liveSourceDetail");
     if (sourceStatus) { sourceStatus.textContent = "Подключён"; sourceStatus.className = "success"; }
