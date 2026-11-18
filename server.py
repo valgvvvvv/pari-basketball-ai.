@@ -2941,6 +2941,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                                 (event, event_misc, live_info)
                                                 for key in ("comment", "scoreComment", "scoreCommentTail", "st3")).casefold()
                     overtime_detected = bool(re.search(r"\bot\b|overtime|овертайм|от\s*[:(]|дополнительн\w*\s+врем", timer_state_text))
+                    timer_paused = bool(re.search(r"timeout|time\s*out|break|halftime|перерыв|тайм-аут|таймаут", timer_state_text))
 
                     if period_length_seconds is None and timer_seconds is not None and explicit_period and not overtime_detected:
                         compatible = [length for length in (600, 720)
@@ -3141,6 +3142,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "match_elapsed_seconds": timer_seconds,
                         "timer_direction": timer_direction,
                         "timer_timestamp_msec": timer_timestamp_msec,
+                        "timer_paused": timer_paused,
                         "period_scores": period_scores,
                         "match_timeline": [
                             {"period": index + 1, "home": pair[0], "away": pair[1],
