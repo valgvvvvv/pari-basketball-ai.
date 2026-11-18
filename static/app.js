@@ -563,6 +563,45 @@ function calculationStepsHtml(options){
     '<div class="calc-direction"><span>Направление</span><b>'+escapeHtml(strongest?.direction||"нет линии")+'</b>'+(strongest?'<small>'+f(strongest.line,1)+' · ТБ '+(strongest.pOver*100).toFixed(1)+'% · ТМ '+(strongest.pUnder*100).toFixed(1)+'%</small>':'')+'</div></section>';
 }
 
+const ANALYSIS_HISTORY_KEY = "pari-analysis-history-v1";
+function readAnalysisHistory(){
+  try { const value=JSON.parse(localStorage.getItem(ANALYSIS_HISTORY_KEY)||"[]"); return Array.isArray(value)?value.filter(x=>x&&typeof x==="object"):[]; }
+  catch (_) { return []; }
+}
+function renderAnalysisHistory(){
+  const rows=readAnalysisHistory(),count=$("historyCount"),list=$("historyList");
+  if(count)count.textContent=String(rows.length);
+  if(!list)return;
+  if(!rows.length){list.innerHTML='<p class="muted">Пока нет сохранённых расчётов.</p>';return;}
+  list.innerHTML=rows.slice().reverse().map(row=>{
+    const when=row.savedAt?new Date(row.savedAt).toLocaleString("ru-RU"):"";
+    const score=row.score?row.score.join(" : "):"счёт —";
+    const projection=row.matchProjection!=null?"Матч "+row.matchProjection:(row.quarterProjection!=null?"Q"+row.period+" "+row.quarterProjection:"Прогноз —");
+    const signal=row.direction?row.direction+(row.line!=null?" "+row.line:"")+(row.probability!=null?" · "+row.probability+"%":""):"без линии";
+    return '<div class="history-row"><b>'+escapeHtml(row.teams||"Матч")+'</b><span>'+escapeHtml(when+" · "+score+" · Q"+(row.period||"—")+" "+(row.clock||"—"))+'</span><span>'+escapeHtml(projection)+'</span><span>'+escapeHtml(signal)+'</span></div>';
+  }).join("");
+}
+function saveAnalysisHistory(ev,score,period,clock,estimate,quarter){
+  if(!estimate&&!quarter?.ready)return;
+  const probabilities=estimate?.poisson?.probabilities||[];
+  const strongest=probabilities.filter(x=>x&&Number.isFinite(Number(x.pOver))).sort((a,b)=>Math.abs(Number(b.pOver)-0.5)-Math.abs(Number(a.pOver)-0.5))[0];
+  const item={eventId:String(ev?.id||""),teams:String((ev?.team1||"Команда 1")+" — "+(ev?.team2||"Команда 2")),
+    score:Array.isArray(score)?score.map(Number):null,period:period||null,clock:clock||null,
+    matchProjection:estimate?.projection??null,quarterProjection:quarter?.ready?quarter.projection:null,
+    line:strongest?.line??null,direction:strongest?.direction??null,
+    probability:strongest?Math.round(Math.max(strongest.pOver,strongest.pUnder)*1000)/10:null,savedAt:Date.now()};
+  const key=[item.eventId,item.period,item.clock,(item.score||[]).join(":")].join("|");
+  const history=readAnalysisHistory();
+  const oldIndex=history.findIndex(x=>[String(x.eventId||""),x.period||"",x.clock||"",(x.score||[]).join(":")].join("|")===key);
+  if(oldIndex>=0)history.splice(oldIndex,1);
+  history.push(item);
+  try{localStorage.setItem(ANALYSIS_HISTORY_KEY,JSON.stringify(history.slice(-100)));}catch(_){}
+  renderAnalysisHistory();
+}
+function clearAnalysisHistory(){
+  try{localStorage.removeItem(ANALYSIS_HISTORY_KEY);}catch(_){}
+  renderAnalysisHistory();
+}
 function showSelectedMatch(ev){
   const panel=$("selectedMatch");panel.hidden=false;
   $("selectedMatchTitle").textContent=(ev.team1||"Команда 1")+" — "+(ev.team2||"Команда 2");
@@ -619,6 +658,7 @@ function showSelectedMatch(ev){
     :'<p class="muted">'+escapeHtml(quarter.reason||"Недостаточно данных")+'</p>';
   $("matchForecast").insertAdjacentHTML("beforeend",'<div class="compact-analysis"><h3>Статистика · '+rows.length+'/'+(statsQuality?.expected_count??"—")+'</h3>'+statHtml+(timeline?'<p><b>Четверти:</b> '+escapeHtml(timeline)+'</p>':'')+
     (rows.length?'<h4>Все показатели</h4>'+rows.map(st=>'<p>'+escapeHtml(st.name||st.metric_key||"Показатель")+': <b>'+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+'</b></p>').join(""):'')+'</div>');
+  saveAnalysisHistory(ev,score,period,clock,estimate,quarter);
   panel.scrollIntoView({behavior:"smooth",block:"start"});
 }
 
@@ -1064,3 +1104,5 @@ async function refreshLiveMatches() {
 }
 if ($("refreshLiveMatches")) $("refreshLiveMatches").addEventListener("click", refreshLiveMatches);
 refreshLiveMatches();
+renderAnalysisHistory();
+if ($("clearHistory")) $("clearHistory").addEventListener("click", clearAnalysisHistory);
