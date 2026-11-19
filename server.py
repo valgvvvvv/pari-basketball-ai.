@@ -2158,7 +2158,7 @@ async def _enrich_with_sofascore_live(events):
                     else:
                         unmapped_stat_names += 1
                     raw_period = stat.get("period") or group.get("period") or stat.get("periodNumber") or group.get("periodNumber")
-                    period_match = re.fullmatch(r"\\s*(?:Q|quarter|period)?\\s*(\\d+)\\s*", str(raw_period), re.I) if raw_period is not None else None
+                    period_match = re.fullmatch(r"\s*(?:Q|quarter|period)?\s*(\d+)\s*", str(raw_period), re.I) if raw_period is not None else None
                     target_period = int(period_match.group(1)) if period_match else None
                     normalized.append({
                         "group": group_name, "name": name, "metric_key": metric_key,
