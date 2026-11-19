@@ -134,6 +134,25 @@ const insufficient = recentSandbox.recentTempoFromSnapshots({...rollingEvent,rec
   {period:3,captured_at:new Date(now-90000).toISOString(),clock:"02:30",score:[45,40]}
 ]},3,"01:00",600);
 assert.equal(insufficient.applied,false, "less than three minutes of snapshots is not a rolling signal");
+const mcStart = appSource.indexOf("function dynamicScenarioMonteCarlo");
+const mcEnd = appSource.indexOf("function poissonMonteCarlo", mcStart);
+const mcSource = appSource.slice(mcStart, mcEnd) +
+  "; this.dynamicScenarioMonteCarlo=dynamicScenarioMonteCarlo;";
+const mcSandbox = {
+  inferPeriodLengthForForecast:()=>({seconds:600,method:"verified"}),
+  readPeriodScore:()=>40,
+  findLiveScore:()=>[50,50],
+  currentQuarterScore:()=>({pair:[10,10]}),
+  recentTempoFromSnapshots:()=>({applied:true,rawChange:20,source:"rolling_3_5_min"}),
+  clampForecast:(value,min,max)=>Math.max(min,Math.min(max,value))
+};
+vm.runInNewContext(mcSource, mcSandbox);
+const mcResult = mcSandbox.dynamicScenarioMonteCarlo(100,80,[],"rolling-test",
+  {id:"fixture",period_length_seconds:600,period_count:4,external_live:{period_length_seconds:600}},
+  3,"01:00","match");
+assert.equal(mcResult.momentum_source,"rolling_3_5_min");
+assert.equal(mcResult.momentum,20);
+assert.equal(mcResult.research_scheme,true);
 assert.ok(htmlSource.indexOf("forecast-core.js") < htmlSource.indexOf("app.js"),
   "the tested forecast core must load before the UI code");
 assert.ok(htmlSource.includes("20261119-forecast-core-v2"), "forecast core cache must be refreshed with model changes");
