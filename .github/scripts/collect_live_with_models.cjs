@@ -216,7 +216,7 @@ const { chromium } = require("playwright");
       Array.from(document.styleSheets).map(sheet => sheet.href || "").find(href => href.includes("/static/styles.css")) || ""
     );
     result.ui_smoke = { status: "skipped_old_deployment", app_script: appScriptUrl, stylesheet: stylesheetUrl,
-      expected_bundle: "20261119-integrity-v61", expected_stylesheet: "20261119-ui-v8" };
+      expected_bundle: "20261119-integrity-v61", expected_stylesheet: "20261119-ui-v8", expected_viewports: [360, 390, 768, 1280] };
     if (appScriptUrl.includes("20261119-integrity-v61") && stylesheetUrl.includes("20261119-ui-v8")) {
       const smokeRow = result.forecasts.find(row => row.event_id);
       if (smokeRow) {
@@ -363,6 +363,7 @@ const { chromium } = require("playwright");
           status: "passed", app_script: appScriptUrl,
           deployed_app_version: appScriptUrl.split("integrity-v").pop() || "unknown",
           deployed_stylesheet_version: stylesheetUrl.split("ui-v").pop() || "unknown",
+          expected_viewports: [360, 390, 768, 1280],
           viewport_checks: viewportChecks,
           tool_rows: toolRows,
           selection_fallback: selectionFallback,
