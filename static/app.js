@@ -967,7 +967,16 @@ function showSelectedMatch(ev,options={}){
     if(!anchor&&scrollAnchor?.summary)anchor=Array.from(panel.querySelectorAll("details")).find(d=>d.querySelector("summary")?.textContent?.trim()===scrollAnchor.summary)||null;
     if(!anchor&&scrollAnchor?.inside&&scrollAnchor?.text)anchor=Array.from(panel.querySelectorAll("summary,p,h3,h4,.forecast-main,.calc-section")).find(el=>el.tagName===scrollAnchor.tag&&el.textContent.trim().startsWith(scrollAnchor.text))||null;
     if(!anchor&&scrollAnchor?.inside)anchor=panel;
-    if(anchor){const root=document.documentElement,prior=root.style.scrollBehavior;root.style.scrollBehavior="auto";window.scrollBy(0,anchor.getBoundingClientRect().top-scrollAnchor.top);root.style.scrollBehavior=prior;}
+    if(anchor){
+      const restoreReadingAnchor=()=>{
+        if(!anchor.isConnected)return;
+        const root=document.documentElement,prior=root.style.scrollBehavior;
+        root.style.scrollBehavior="auto";
+        window.scrollBy(0,anchor.getBoundingClientRect().top-scrollAnchor.top);
+        root.style.scrollBehavior=prior;
+      };
+      requestAnimationFrame(()=>requestAnimationFrame(restoreReadingAnchor));
+    }
   }
 }
 
