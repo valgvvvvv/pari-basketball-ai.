@@ -222,46 +222,66 @@ def api_analyze(req: AnalyzeRequest):
 def api_analyze_quarter(req: QuarterAnalyzeRequest):
     period_sec = req.period_minutes * 60
     elapsed_sec = parse_clock(req.clock)
-    if elapsed_sec <= 0 or elapsed_sec > period_sec:
-        raise ValueError("Время должно быть внутри текущей четверти и больше нуля")
+    if elapsed_sec < 180:
+        return {
+            "ready": False, "status": "insufficient_data",
+            "quarter": req.quarter, "current_total": req.score1 + req.score2,
+            "elapsed_seconds": elapsed_sec,
+            "reason": "Первые 3 минуты без истории завершённых периодов: темп нельзя переносить на всю четверть."
+        }
+    if elapsed_sec > period_sec:
+        raise ValueError("Прошедшее время превышает длительность периода")
     current = req.score1 + req.score2
     elapsed_min = elapsed_sec / 60.0
     remaining_min = (period_sec - elapsed_sec) / 60.0
-    pace = current / elapsed_min
-    mu = pace * remaining_min
+    # Jeffreys Gamma(1/2, 0) prior updated by current-quarter points/time.
+    alpha = current + 0.5
+    beta = elapsed_min
+    mu = alpha / beta * remaining_min
+    variance = mu + mu * mu / alpha
     expected = current + mu
-    sigma = max(math.sqrt(max(mu, 1.0)) * 1.18, 1.0)
     rng = random.Random()
     n = req.simulations
     totals = []
     over = under = push = 0
     for _ in range(n):
-        total = current + max(0, int(round(rng.gauss(mu, sigma))))
+        rate = rng.gammavariate(alpha, 1.0 / beta)
+        lam = rate * remaining_min
+        if lam > 35:
+            remaining_points = max(0, int(round(rng.gauss(lam, math.sqrt(lam)))))
+        elif lam <= 0:
+            remaining_points = 0
+        else:
+            limit = math.exp(-lam)
+            product, count = 1.0, 0
+            while product > limit:
+                count += 1
+                product *= rng.random()
+            remaining_points = count - 1
+        total = current + remaining_points
         totals.append(total)
         if total > req.total_line: over += 1
         elif total < req.total_line: under += 1
         else: push += 1
-    p_over = over / n
-    p_under = under / n
-    p_push = push / n
     totals.sort()
     def qtile(q):
-        return round(totals[min(n - 1, max(0, int(q * (n - 1))))], 1)
-    p_over = over / n
+        return round(totals[min(n - 1, max(0, math.ceil(q * n) - 1))], 1)
+    p_over, p_under, p_push = over / n, under / n, push / n
+    decisive = p_over + p_under
     return {
-        "quarter": req.quarter, "current_total": current,
-        "elapsed_minutes": round(elapsed_min, 2),
-        "remaining_minutes": round(remaining_min, 2),
-        "pace_per_min": round(pace, 3), "expected_total": round(expected, 1),
-        "line": req.total_line, "direction": "ТБ" if p_over >= 0.5 else "ТМ",
-        "p_over_mc": round(p_over * 100, 1),
-        "p_under_mc": round(p_under * 100, 1), "p_push_mc": round(p_push * 100, 1),
+        "ready": True, "quarter": req.quarter, "current_total": current,
+        "elapsed_seconds": elapsed_sec, "elapsed_minutes": round(elapsed_min, 3),
+        "remaining_minutes": round(remaining_min, 3),
+        "expected_remaining_points": round(mu, 2), "variance_remaining": round(variance, 2),
+        "expected_total": round(expected, 1), "line": req.total_line,
+        "direction": "ТБ" if (p_over / decisive if decisive else 0.5) >= 0.5 else "ТМ",
+        "p_over_mc": round(p_over * 100, 2), "p_under_mc": round(p_under * 100, 2),
+        "p_push_mc": round(p_push * 100, 2),
         "range80": [qtile(.10), qtile(.90)],
         "range95": [qtile(.025), qtile(.975)],
-        "grade": "A" if max(p_over, 1-p_over) >= .72 and abs(expected-req.total_line) >= 3 else ("B" if max(p_over,1-p_over) >= .62 else "C"),
-        "simulations": n,
-        "warnings": ["Оценка основана на темпе текущей четверти и приближённой симуляции.",
-                     "Не учитываются владения, составы, фолы по командам и игровые события; модель пока не обучена на истории лиги."]
+        "simulations": n, "distribution": "Gamma-Poisson posterior predictive",
+        "warnings": ["Без истории предыдущих четвертей используется только текущая четверть и Jeffreys prior.",
+                     "Вероятности не калиброваны на независимой исторической выборке."]
     }
 
 
