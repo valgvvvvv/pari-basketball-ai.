@@ -448,6 +448,13 @@ function advancedMatchCalculations(ev,estimate,period,clock,possession,quarterFo
   const matchElapsed=Number(estimate?.elapsed_seconds||0),matchCurrent=Number(estimate?.current||0);
   const matchRate=matchElapsed>0?matchCurrent/(matchElapsed/60):null;
   const qMatch=Number(period)>0?currentQuarterScore(ev,Number(period),findLiveScore(ev)):null;
+  const dynamics=liveTempoDynamics(ev,estimate,period,clock,"match");
+  if(dynamics.applied){
+    out.push({name:"Коэффициент ускорения / спада",value:(dynamics.rawChange>=0?"+":"")+fmt(dynamics.rawChange,1)+"%",
+      detail:"Текущий темп "+fmt(dynamics.currentRate,2)+" · базовый "+fmt(dynamics.baselineRate,2)+" оч./мин"});
+    out.push({name:"Поправка к прогнозу",value:"×"+fmt(dynamics.factor,3),
+      detail:"Влияние на оставшийся тотал "+(dynamics.factor>=1?"+":"")+fmt((dynamics.factor-1)*100,1)+"% · уверенность "+dynamics.confidence});
+  }else out.push({name:"Ускорение / спад",value:"не рассчитано",detail:dynamics.reason});
   const qClock=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
   const qElapsed=length>0&&qClock?length-(Number(qClock[1])*60+Number(qClock[2])):null;
   const formatUnverified=String(inferPeriodLengthForForecast(ev)?.method||"").includes("предварительно");
@@ -568,6 +575,37 @@ function possessionModelContext(ev,estimate,period,clock){
     expectedRemainingPoints:Math.round((projected-current)*10)/10,projection:Math.round(projected*10)/10,remaining_minutes:Math.round(remaining/60*100)/100,
     adjustment:clampForecast((projected-current)/baseline,0.90,1.10)};
 }
+function liveTempoDynamics(ev,estimate,period,clock,kind="match"){
+  const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||inferPeriodLengthForForecast(ev||{})?.seconds||0);
+  const p=Math.max(1,Number(period)||1),completed=[];
+  if(length>0){
+    for(let i=0;i<p-1;i++){const q=readPeriodScore(ev,i);if(Number.isFinite(q)&&q>0)completed.push(q);}
+  }
+  const cm=String(clock||"").match(/^([0-9]{1,2}):([0-5][0-9])$/);
+  const elapsed=cm&&length?Math.max(0,length-(Number(cm[1])*60+Number(cm[2]))):0;
+  const currentPair=currentQuarterScore(ev,p,findLiveScore(ev));
+  const currentQ=currentPair?.pair?.reduce((a,b)=>a+b,0);
+  if(!length||elapsed<180||!Number.isFinite(currentQ)||!completed.length)
+    return {applied:false,factor:1,acceleration:0,decline:0,confidence:"недостаточно данных",reason:"нужны минимум 3 минуты текущей четверти и завершённая четверть"};
+  const qMinutes=length/60;
+  const baseline=completed.reduce((a,b)=>a+b,0)/completed.length/qMinutes;
+  if(!(baseline>0))return {applied:false,factor:1,acceleration:0,decline:0,confidence:"недостаточно данных",reason:"нет базового темпа"};
+  const currentRate=currentQ/(elapsed/60);
+  const rawChange=currentRate/baseline-1;
+  const acceleration=Math.max(0,rawChange*100);
+  const decline=Math.max(0,-rawChange*100);
+  const last=completed[completed.length-1];
+  const earlier=completed.slice(0,-1);
+  const earlierAvg=earlier.length?earlier.reduce((a,b)=>a+b,0)/earlier.length:last;
+  const priorTrend=earlier.length?Math.max(-0.20,Math.min(0.20,last/Math.max(earlierAvg,1)-1)):0;
+  const liveTrend=Math.max(-0.30,Math.min(0.30,rawChange));
+  const combined=liveTrend*0.75+priorTrend*0.25;
+  const factor=Math.max(0.94,Math.min(1.06,1+combined*0.12));
+  return {applied:true,factor,acceleration,decline,currentRate,baselineRate:baseline,
+    lastQuarter:last,priorTrend:priorTrend*100,rawChange:rawChange*100,
+    confidence:elapsed>=300&&completed.length>=2?"средняя":"ограниченная",
+    reason:"темп текущей Q сравнен со средним завершённых Q; тренд прошлой Q учтён с весом 25%"};
+}
 function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=null){
   if(!estimate||!Number.isFinite(estimate.projection)||!Number.isFinite(estimate.current))return estimate;
   const context=estimate.source==="period_range"?{estimate,factors:[],adjustment:1}:applyGameContext(estimate,ev||{},period,clock);
@@ -582,8 +620,12 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   const baseMu=Math.max(0,adjusted.projection-adjusted.current);
   const possMu=possession.applied?Math.max(0,possession.projection-adjusted.current):baseMu;
   const secondaryAdjustment=possession.applied?clampForecast(1+(statsContext.adjustment-1)*0.35,0.985,1.015):statsContext.adjustment;
-  const mu=possMu*secondaryAdjustment,mc=dynamicScenarioMonteCarlo(adjusted.current,mu,lines,seedText,ev,period,clock,"match");
+  const tempoDynamics=liveTempoDynamics(ev||{},adjusted,period,clock,"match");
+  const tempoFactor=tempoDynamics.applied?tempoDynamics.factor:1;
+  const mu=possMu*secondaryAdjustment*tempoFactor,mc=dynamicScenarioMonteCarlo(adjusted.current,mu,lines,seedText,ev,period,clock,"match");
   const factors=[...(context.factors||[]),...(statsContext.factors||[])];
+  if(tempoDynamics.applied)factors.push("Динамика темпа: "+(tempoDynamics.acceleration>0?"ускорение ":"спад ")+Math.abs(tempoDynamics.rawChange).toFixed(1)+"% · коэффициент "+tempoFactor.toFixed(3)+" · влияние на оставшийся тотал "+((tempoFactor-1)*100).toFixed(1)+"%");
+  else factors.push("Динамика темпа: коэффициент не применён — "+tempoDynamics.reason);
   const scenarioText=(mc?.scenarios||[]).map(x=>x.name+" "+x.probability+"%").join(" · ");
   if(scenarioText)factors.push("100 000 динамических сценариев: "+scenarioText+" · импульс "+Number(mc.momentum||0).toFixed(1)+"%");
   if(possession.applied){
@@ -593,7 +635,7 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   }
   return {...adjusted,context_factors:factors,context_adjustment:context.adjustment,statistics_adjustment:secondaryAdjustment,
     statistics_quality:statsContext.quality,shooting_efg:statsContext.efg??null,possession_model:possession,
-    poisson:mc,low:mc.low80,high:mc.high80,sigma:Math.sqrt(Math.max(mu,0)),projection:Math.round((adjusted.current+mu)*10)/10};
+    poisson:mc,tempo_dynamics:tempoDynamics,low:mc.low80,high:mc.high80,sigma:Math.sqrt(Math.max(mu,0)),projection:Math.round((adjusted.current+mu)*10)/10};
 }
 function normalCdf(z){
   const sign=z<0?-1:1,x=Math.abs(z),t=1/(1+0.2316419*x);
@@ -1274,16 +1316,18 @@ function automaticQuarterForecast(ev) {
   const shootingContext=liveShootingContext(ev,{elapsed_seconds:1});
   const quarterStatsAdjustment=shootingContext.efg!=null
     ?clampForecast(1+(shootingContext.adjustment-1)*0.35,0.985,1.015):1;
-  const mu=baseMu*quarterStatsAdjustment;
+  const quarterDynamics=liveTempoDynamics(ev, {current:simulationCurrent}, period, clock, "quarter");
+  const quarterTempoFactor=quarterDynamics.applied?quarterDynamics.factor:1;
+  const mu=baseMu*quarterStatsAdjustment*quarterTempoFactor;
   const poisson=dynamicScenarioMonteCarlo(simulationCurrent,mu,quarterLines,String(ev.id||"")+"|Q"+(period||"?")+"|"+(clock||"no-clock"),ev,period,clock,"quarter");
   const preliminary=!elapsed||elapsed<180||source.includes("ориентир")||source.includes("таймер отсутствует")||source.includes("предварительно")||String(info?.method||"").includes("предварительно")||recoveredClock;
   return {ready:true,period,current:observed??null,projection:Math.round(projection*10)/10,
     home:currentQuarter?.pair?.[0]??null,away:currentQuarter?.pair?.[1]??null,
     score_source:source,elapsed:elapsedMinutes,low80:poisson.low80,high80:poisson.high80,
     low95:poisson.low95,high95:poisson.high95,poisson,lines:poisson.probabilities,
-    preliminary,context_factors:[source,...(possessionModel?["модель владений — основной расчёт четверти"]:[]),...(shootingContext.efg!=null?["слабая поправка Q по eFG всего матча "+(shootingContext.efg*100).toFixed(1)+"%"]:[])],
+    preliminary,context_factors:[source,...(quarterDynamics.applied?["Коэффициент ускорения/спада ×"+quarterTempoFactor.toFixed(3)+" · изменение темпа "+quarterDynamics.rawChange.toFixed(1)+"%"]:["Ускорение/спад: "+quarterDynamics.reason]),...(possessionModel?["модель владений — основной расчёт четверти"]:[]),...(shootingContext.efg!=null?["слабая поправка Q по eFG всего матча "+(shootingContext.efg*100).toFixed(1)+"%"]:[])],
     possession_model:possessionModel, possession_projection:possessionQuarterProjection,
-    statistics_adjustment:quarterStatsAdjustment};
+    statistics_adjustment:quarterStatsAdjustment,tempo_dynamics:quarterDynamics};
 }
 let liveRefreshInFlight = false;
 let nextLiveRefreshDelay = 30000;
