@@ -74,6 +74,8 @@ class ForecastIntegrityTests(unittest.TestCase):
         self.assertIn("prediction_contracts", collector)
         self.assertIn("snapshot_id", collector)
         self.assertIn("mean_uncertainty_sd", collector)
+        self.assertIn("scenario_weight_rule", collector)
+        self.assertIn("momentum_rule", collector)
         self.assertIn('interval_type: "predictive_total_interval"', collector)
         self.assertIn('status: "unresolved"', collector)
         self.assertIn("#selectedMatch", collector)
