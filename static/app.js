@@ -1613,10 +1613,13 @@ async function refreshLiveMatches() {
     }
     $("feedStatus").textContent = count ? "PARI LIVE: найдено " + count + " матчей" : "PARI API отвечает; матчи не распознаны";
     if (userScrollIntentVersion === scrollIntentAtStart) {
-      const root=document.documentElement,previousBehavior=root.style.scrollBehavior;
-      root.style.scrollBehavior="auto";
-      window.scrollTo(0,refreshScrollY);
-      root.style.scrollBehavior=previousBehavior;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (userScrollIntentVersion !== scrollIntentAtStart) return;
+        const root=document.documentElement,previousBehavior=root.style.scrollBehavior;
+        root.style.scrollBehavior="auto";
+        window.scrollTo({top:refreshScrollY,behavior:"instant"});
+        root.style.scrollBehavior=previousBehavior;
+      }));
     }
   } catch (error) {
     const sourceStatus = $("liveSourceStatus");
