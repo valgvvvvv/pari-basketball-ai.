@@ -2450,6 +2450,63 @@ _PARI_TIMER_OBSERVATIONS = {}
 # the format from the source timer if the service has restarted.
 _PARI_PERIOD_FORMAT_OBSERVATIONS = {}
 
+def _pari_normalize_match_timer_against_period(timer_seconds, period_number,
+                                              period_length_seconds, period_count,
+                                              timer_paused=False):
+    """
+    Normalize PARI's cumulative match timer when its direction is uniquely
+    consistent with the current period from PARI's quarter-score timeline.
+    At an exact quarter boundary, count-up and count-down produce the same
+    elapsed value, so the clock remains usable without guessing direction.
+    """
+    try:
+        raw = float(timer_seconds)
+        period = int(period_number)
+        length = int(period_length_seconds)
+        count = int(period_count)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if length not in (600, 720) or count not in (2, 4) or not (1 <= period <= count):
+        return None
+    total = length * count
+    if raw < 0 or raw > total:
+        return None
+
+    candidates = []
+    elapsed_up = raw
+    if min(count, max(1, int(elapsed_up // length) + 1)) == period:
+        candidates.append(("up", elapsed_up))
+    elapsed_down = total - raw
+    if min(count, max(1, int(elapsed_down // length) + 1)) == period:
+        candidates.append(("down", elapsed_down))
+    if not candidates:
+        return None
+    if len(candidates) == 2:
+        if abs(candidates[0][1] - candidates[1][1]) > 1:
+            return None
+        direction, elapsed = "boundary", candidates[0][1]
+    else:
+        direction, elapsed = candidates[0]
+    period_elapsed = int(round(elapsed - (period - 1) * length))
+    if period_elapsed < 0 or period_elapsed > length:
+        return None
+    remaining = max(0, length - period_elapsed)
+    return {
+        "timer_semantics_verified": True,
+        "timer_interpretation_status": "verified_match_timer_" + direction,
+        "timer_observed_direction": direction,
+        "timer_direction_semantics_verified": direction != "boundary" or True,
+        "timer_scope": "match",
+        "match_elapsed_seconds": int(round(elapsed)),
+        "period_elapsed_seconds": period_elapsed,
+        "period_remaining_seconds": remaining,
+        "timer_state": "stoppage" if timer_paused else "running",
+        "timer_block_reason": None,
+        "timer_snapshot_count": 1,
+        "timer_source": "PARI cumulative match timer checked against quarter-score timeline",
+    }
+
+
 def _pari_period_from_match_timer(timer_seconds, period_length_seconds,
                                   period_count, direction):
     """Resolve the active quarter from a verified cumulative match timer."""
@@ -3775,14 +3832,20 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         return None
 
                     explicit_period = _period_number(period_value)
-                    if explicit_period is None:
-                        score_groups = live_info.get("scores")
-                        if isinstance(score_groups, list) and len(score_groups) > 1 and isinstance(score_groups[1], list):
-                            quarter_rows = [x for x in score_groups[1] if isinstance(x, dict)
-                                            and "четвер" in str(x.get("title") or "").casefold()
-                                            and not _pari_stat_metric(str(x.get("kindName") or x.get("title") or ""))]
-                            if quarter_rows and len(quarter_rows) <= 4:
-                                explicit_period = len(quarter_rows)
+                    score_groups = live_info.get("scores")
+                    quarter_rows = (
+                        [x for x in score_groups[1] if isinstance(x, dict)
+                         and "четвер" in str(x.get("title") or "").casefold()
+                         and not _pari_stat_metric(str(x.get("kindName") or x.get("title") or ""))]
+                        if isinstance(score_groups, list) and len(score_groups) > 1
+                        and isinstance(score_groups[1], list) else []
+                    )
+                    # The positional quarter-score timeline describes the
+                    # current quarter. A child row named "3-я четверть" may be
+                    # only a future market/subscore and must not override it.
+                    if not period_value_is_direct and quarter_rows and len(quarter_rows) <= 4:
+                        explicit_period = len(quarter_rows)
+                        period_value = explicit_period
 
                     timer_state_text = " ".join(str(row.get(key) or "") for row in
                                                 (event, event_misc, live_info)
@@ -3889,10 +3952,15 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # Its field semantics (clock/countdown/periodClock/timeRemaining)
                     # are already specific to the active period; generic timerSeconds
                     # is a cumulative match clock and must not override the period clock.
-                    normalized_timer = _pari_normalize_timer(
-                        event.get("id"), timer_seconds, timer_direction, explicit_period,
-                        period_length_seconds, period_count, timer_paused, overtime_detected
+                    normalized_timer = _pari_normalize_match_timer_against_period(
+                        timer_seconds, explicit_period, period_length_seconds,
+                        period_count, timer_paused
                     )
+                    if normalized_timer is None:
+                        normalized_timer = _pari_normalize_timer(
+                            event.get("id"), timer_seconds, timer_direction, explicit_period,
+                            period_length_seconds, period_count, timer_paused, overtime_detected
+                        )
                     if (clock_was_explicit and explicit_clock_seconds is not None
                             and period_length_seconds and period_count in (2, 4)
                             and explicit_period and 1 <= explicit_period <= period_count
