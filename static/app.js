@@ -474,8 +474,8 @@ function advancedMatchCalculations(ev,estimate,period,clock,possession,quarterFo
   if(dynamics.applied){
     out.push({name:"Коэффициент ускорения / спада",value:(dynamics.rawChange>=0?"+":"")+fmt(dynamics.rawChange,1)+"%",
       detail:"Текущий темп "+fmt(dynamics.currentRate,2)+" · базовый "+fmt(dynamics.baselineRate,2)+" оч./мин"});
-    out.push({name:"Поправка к прогнозу",value:"×"+fmt(dynamics.factor,3),
-      detail:"Коэффициент диагностический; импульс не дублируется в среднем прогнозе · "+dynamics.confidence});
+    out.push({name:"Диагностический индекс темпа",value:"×"+fmt(dynamics.factor,3),
+      detail:"Не сдвигает средний прогноз. Импульс MC "+(Number(estimate?.poisson?.momentum||0)>=0?"+":"")+fmt(estimate?.poisson?.momentum||0,1)+"% меняет веса сценариев · "+dynamics.confidence});
   }else out.push({name:"Ускорение / спад",value:"не рассчитано",detail:dynamics.reason});
   const qClock=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
   const qElapsed=length>0&&qClock?length-(Number(qClock[1])*60+Number(qClock[2])):null;
@@ -668,7 +668,7 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
     providerEventTimestampAvailable:!!(ev?.updated_at||ev?.raw?.updated_at||ev?.raw?.updatedAt),
     label:modeLabel+" · статистика "+available+"/"+expected
   };
-  if(tempoDynamics.applied)factors.push("Динамика темпа: "+(tempoDynamics.acceleration>0?"ускорение ":"спад ")+Math.abs(tempoDynamics.rawChange).toFixed(1)+"% · коэффициент "+tempoFactor.toFixed(3)+" · влияние на оставшийся тотал "+((tempoFactor-1)*100).toFixed(1)+"%");
+  if(tempoDynamics.applied)factors.push("Динамика темпа: "+(tempoDynamics.rawChange>=0?"ускорение ":"спад ")+Math.abs(tempoDynamics.rawChange).toFixed(1)+"% · диагностический индекс ×"+tempoFactor.toFixed(3)+" · импульс сценариев MC "+Number(mc.momentum||0).toFixed(1)+"% (влияет на распределение, не повторно на центр)");
   else factors.push("Динамика темпа: коэффициент не применён — "+tempoDynamics.reason);
   const scenarioText=(mc?.scenarios||[]).map(x=>x.name+" "+x.probability+"%").join(" · ");
   if(scenarioText)factors.push("100 000 динамических сценариев: "+scenarioText+" · импульс "+Number(mc.momentum||0).toFixed(1)+"%");
