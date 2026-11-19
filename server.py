@@ -3270,10 +3270,19 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "period_length_seconds": period_length_seconds,
                         "period_count": period_count,
                         "period_format_source": period_format_source,
-                        "match_elapsed_seconds": timer_seconds,
+                        # Keep source timer value separate from verified elapsed/remaining clocks.
+                        "source_timer_seconds": timer_seconds,
+                        "match_elapsed_seconds": None,
+                        "period_elapsed_seconds": None,
+                        "period_remaining_seconds": None,
                         "timer_direction": timer_direction,
                         "timer_timestamp_msec": timer_timestamp_msec,
                         "timer_paused": timer_paused,
+                        "overtime_detected": overtime_detected,
+                        "overtime_length_seconds": 300 if period_format_source else None,
+                        "timer_state": ("overtime" if overtime_detected else
+                                        "stoppage" if timer_paused else
+                                        "source_status_unconfirmed" if timer_seconds is not None else "not_received"),
                         "timer_semantics_verified": timer_semantics_verified,
                         "timer_interpretation_status": timer_interpretation_status,
                         "period_scores": period_scores,
