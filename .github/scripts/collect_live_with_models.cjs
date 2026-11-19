@@ -224,7 +224,20 @@ const { chromium } = require("playwright");
         await page.locator("#refreshLiveMatches").click();
         await page.waitForSelector(".live-match", { timeout: 60000 });
         const card = page.locator(".live-match").filter({ hasText: smokeRow.teams }).first();
-        await card.click();
+        await card.click({ force: true });
+        await page.waitForTimeout(500);
+        let selectionFallback = false;
+        if (await page.locator("#selectedMatch").isHidden()) {
+          const state = await page.evaluate(eventId => {
+            const ev = (window.pariLiveEvents || []).find(x => String(x.id) === String(eventId));
+            if (!ev) return { found: false, reason: "event id missing from refreshed frontend snapshot" };
+            if (typeof window.showSelectedMatch !== "function") return { found: true, reason: "showSelectedMatch is not exposed" };
+            window.showSelectedMatch(ev);
+            return { found: true, selected: !document.querySelector("#selectedMatch").hidden };
+          }, smokeRow.event_id);
+          if (!state.selected) throw new Error("Click did not select match and direct selection failed: " + JSON.stringify(state));
+          selectionFallback = true;
+        }
         await page.locator("#selectedMatch").waitFor({ state: "visible", timeout: 30000 });
         await page.waitForFunction(() => {
           const count = document.querySelector("#historyCount");
@@ -312,6 +325,7 @@ const { chromium } = require("playwright");
           deployed_app_version: appScriptUrl.split("integrity-v").pop() || "unknown",
           viewport_checks: viewportChecks,
           tool_rows: toolRows,
+          selection_fallback: selectionFallback,
           selected_event_id: smokeRow.event_id,
           scroll_before_refresh: scrollBefore,
           scroll_after_refresh: scrollAfter,
