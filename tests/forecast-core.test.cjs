@@ -136,7 +136,7 @@ assert.ok(appSource.includes('forecastStatus:estimate||quarter?.ready?"calculate
 assert.ok(htmlSource.includes("20261119-integrity-v55"), "history fix must bump frontend cache");
 assert.ok(archivePublisherSource.startsWith("import hashlib"), "permanent archive publisher must import hashlib before calculating checksums");
 assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
-assert.ok(htmlSource.includes("20261119-integrity-v54"), "frontend cache must be bumped after display fixes");
+assert.ok(htmlSource.includes("20261119-integrity-v55"), "frontend cache must be bumped after display fixes");
 assert.ok(appSource.includes("Ансамбль сценариев") && appSource.includes("не независимый голос"), "scenario mixture must be shown without counting it as an independent model");
 assert.ok(!appSource.includes('add("Динамика четверти"'), "a duplicate of the primary quarter forecast must not appear as a separate method");
 assert.ok(!appSource.includes("Единый прогноз · повтор основного расчёта"), "duplicate primary forecast cards must stay removed");
