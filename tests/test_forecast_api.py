@@ -14,7 +14,7 @@ class ForecastApiRegressionTests(unittest.TestCase):
 
     def test_early_q3_uses_completed_period_prior_not_first_minute_extrapolation(self):
         req = server.QuarterAnalyzeRequest(
-            quarter=3, score1=1, score2=0, clock="08:57",
+            quarter=3, score1=1, score2=0, clock="01:03",
             period_minutes=10, prior_quarter_totals=[41, 42],
             total_line=40.5, simulations=20000
         )
@@ -30,7 +30,7 @@ class ForecastApiRegressionTests(unittest.TestCase):
 
     def test_zero_zero_at_period_start_uses_prior(self):
         req = server.QuarterAnalyzeRequest(
-            quarter=2, score1=0, score2=0, clock="10:00",
+            quarter=2, score1=0, score2=0, clock="00:00",
             period_minutes=10, prior_quarter_totals=[40],
             total_line=40, simulations=12000
         )
@@ -41,7 +41,7 @@ class ForecastApiRegressionTests(unittest.TestCase):
 
     def test_early_period_without_prior_is_not_projected(self):
         req = server.QuarterAnalyzeRequest(
-            quarter=1, score1=0, score2=0, clock="09:15",
+            quarter=1, score1=0, score2=0, clock="00:45",
             period_minutes=10, total_line=40.5, simulations=10000
         )
         result = server.api_analyze_quarter(req)
@@ -55,7 +55,8 @@ class ForecastApiRegressionTests(unittest.TestCase):
             simulations=1000
         )
         result = server.analyze(req)
-        self.assertEqual(result["elapsed_minutes"], 21.0)
+        self.assertEqual(result["elapsed_minutes"], 39.0)
+        self.assertEqual(result["remaining_minutes"], 1.0)
         self.assertEqual(result["remaining_minutes"], 19.0)
 
 
