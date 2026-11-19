@@ -116,6 +116,17 @@ class PariTimerNormalizationTests(unittest.TestCase):
         self.assertEqual(result["period_elapsed_seconds"], 20)
         self.assertEqual(result["period_remaining_seconds"], 280)
 
+
+    def test_first_quarter_match_clock_is_verified(self):
+        result = _pari_normalize_match_timer_against_period(693, 1, 720, 4)
+        self.assertTrue(result["timer_semantics_verified"])
+        self.assertEqual(result["period_remaining_seconds"], 27)
+
+    def test_second_quarter_match_clock_is_verified(self):
+        result = _pari_normalize_match_timer_against_period(781, 2, 600, 4)
+        self.assertTrue(result["timer_semantics_verified"])
+        self.assertEqual(result["period_remaining_seconds"], 419)
+
     def test_count_up_verified_after_one_clean_interval(self):
         self.assertFalse(self.normalize("up", 100, 1, 1000)["timer_semantics_verified"])
         result = self.normalize("up", 130, 1, 1030)
