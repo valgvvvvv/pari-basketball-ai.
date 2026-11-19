@@ -57,6 +57,16 @@ class ForecastApiRegressionTests(unittest.TestCase):
         result = server.analyze(req)
         self.assertEqual(result["elapsed_minutes"], 39.0)
         self.assertEqual(result["remaining_minutes"], 1.0)
+
+    def test_four_by_twelve_minutes_are_supported_explicitly(self):
+        req = server.AnalyzeRequest(
+            score1=45, score2=43, period=2, clock="11:00",
+            period_minutes=12, period_count=4, total_line=180.5,
+            simulations=1000
+        )
+        result = server.analyze(req)
+        self.assertEqual(result["elapsed_minutes"], 23.0)
+        self.assertEqual(result["remaining_minutes"], 25.0)
         self.assertEqual(result["remaining_minutes"], 1.0)
 
 
