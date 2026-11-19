@@ -7,7 +7,7 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
     def test_explicit_sport_function_prevents_cross_sport_contamination(self):
         self.assertTrue(server._pari_score_function_is_basketball("Basketball"))
         self.assertTrue(server._pari_score_function_is_basketball("баскетбол"))
-        self.assertTrue(server._pari_score_function_is_basketball(None))
+        self.assertFalse(server._pari_score_function_is_basketball(None))
         self.assertFalse(server._pari_score_function_is_basketball("Football"))
         self.assertFalse(server._pari_score_function_is_basketball("Soccer"))
         self.assertFalse(server._pari_score_function_is_basketball("Volleyball"))
@@ -94,6 +94,7 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
         ]}
         self.assertEqual(server._pari_period_scores(source), [])
         self.assertEqual(server._pari_period_score_records(source), [])
+        self.assertEqual(server._pari_period_score_unmapped_records(source)[0]["kind_id"], "999001")
 
     def test_sport_hierarchy_requires_basketball_ancestor_not_competition_name(self):
         catalogue = {
