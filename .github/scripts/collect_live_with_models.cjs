@@ -192,7 +192,10 @@ const { chromium } = require("playwright");
       const basis = [row.event_id, row.captured_at_utc, JSON.stringify(row.score), row.period, row.clock].join("|");
       row.snapshot_id = crypto.createHash("sha256").update(basis).digest("hex");
       for (const contract of row.prediction_contracts || []) {
-        contract.snapshot_id = crypto.createHash("sha256")
+        // Every forecast block from one captured event update shares the same snapshot ID.
+        // Target-specific identity is separate and never replaces the source snapshot ID.
+        contract.snapshot_id = row.snapshot_id;
+        contract.contract_id = crypto.createHash("sha256")
           .update(row.snapshot_id + "|" + JSON.stringify(contract.target)).digest("hex");
       }
     }
