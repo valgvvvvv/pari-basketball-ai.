@@ -1526,10 +1526,18 @@ async function refreshLiveMatches() {
       liveBadge.className = "pill " + (count ? "success" : "warn");
     }
     const liveScoreSource = data.live_score_source || {};
+    const enrichmentStatus = liveScoreSource.status || "not_started";
+    const enrichmentText = enrichmentStatus === "cached" ? "дополнительная статистика обновлена из кэша"
+      : enrichmentStatus === "background_queued" || enrichmentStatus === "background_running" ? "обогащение статистики выполняется отдельно, список не ожидает его завершения"
+      : enrichmentStatus === "no_confident_match" ? "точное соответствие матча не найдено"
+      : enrichmentStatus === "no_live_events" ? "внешний LIVE-список не содержит подходящих матчей"
+      : enrichmentStatus === "timeout" ? "источник превысил свой тайм-аут"
+      : enrichmentStatus === "error" ? "ошибка внешнего источника"
+      : "статус дополнительного источника: " + enrichmentStatus;
     if (liveMessage) liveMessage.textContent = count
-      ? "PARI: " + data.total_events + " событий, LIVE-матчей: " + count + ". Независимый источник счёта: " + (liveScoreSource.status === "ok" ? "получен, совпадений " + (liveScoreSource.matched || 0) : liveScoreSource.status === "no_live_events" ? "ответил, но не вернул LIVE-матчи" : "недоступен (" + (liveScoreSource.errors || []).join(", ") + ")") + ". Счёт и таймер отображаются только при подтверждённом совпадении команд."
+      ? "PARI: " + data.total_events + " событий, LIVE-матчей: " + count + ". " + enrichmentText + ". PARI остаётся основным источником счёта и линий."
       : "API PARI отвечает (" + data.total_events + " событий), но сейчас не найдено LIVE-событий мужского баскетбола после фильтрации лиг.";
-    if (liveUpdated) liveUpdated.textContent = "Обновлено: " + new Date(data.checked_at_utc).toLocaleTimeString("ru-RU") + " · " + (data.attempts?.[0]?.host || "PARI");
+    if (liveUpdated) liveUpdated.textContent = "Обновлено: " + new Date(data.checked_at_utc).toLocaleTimeString("ru-RU") + " · источник: " + (data.successful_source || data.source_url || "PARI");
     if (liveList) {
       liveList.innerHTML = count ? window.pariLiveEvents.map(ev => {
         try {
@@ -1537,8 +1545,12 @@ async function refreshLiveMatches() {
           const score = eventScore(ev);
           const totalMarkets = (ev.match_total_candidates || []).map(f => f.pt ? ("Тотал " + f.pt + " · фактор " + f.f + " (ТБ/ТМ неизвестно) · " + f.v) : ("Коэф. " + f.v));
           const statCount = (ev.external_statistics || []).length;
-          const coverage = ev.statistics_quality ? (" · покрытие " + ev.statistics_quality.available_count + "/" + ev.statistics_quality.expected_count) : "";
-          const statsLabel = statCount ? ("Статистика: " + statCount + " показателей" + coverage + " · " + (ev.statistics_source || "источник не указан")) : "Статистика: нет подтверждённых значений PARI/внешнего источника";
+          const quality = ev.statistics_quality || {};
+          const coverage = quality.expected_count ? (" · покрытие " + quality.available_count + "/" + quality.expected_count) : "";
+          const statusLabels = {field_absent_from_returned_sources:"поле отсутствует в полученных данных",unknown_metric_code:"неизвестен код показателя",no_exact_match:"не найдено точное соответствие матча",source_unavailable:"источник недоступен",timeout:"превышен тайм-аут источника",stale:"данные устарели",parse_error:"ошибка разбора",conflict:"данные противоречивы"};
+          const missingStatuses = Object.values(quality.missing_status || {});
+          const missingReason = missingStatuses.length ? (statusLabels[missingStatuses[0]] || missingStatuses[0]) : "показатели пока не получены";
+          const statsLabel = statCount ? ("Статистика: " + statCount + " показателей" + coverage + " · " + (ev.statistics_source || "источник не указан")) : "Статистика: " + missingReason;
           const details = [ev.league || ev.sport_name, score, eventPeriod(ev), eventClock(ev), statsLabel, ...totalMarkets].filter(Boolean).map(escapeHtml).join(" · ");
           const forecast = automaticForecast(ev);
           const quarterForecast = automaticQuarterForecast(ev);
