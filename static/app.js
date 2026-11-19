@@ -848,6 +848,8 @@ function clearAnalysisHistory(){
 let selectedLiveEventId = null;
 function showSelectedMatch(ev,options={}){
   const panel=$("selectedMatch");
+  const previousPanelHeight=options.silent?panel.getBoundingClientRect().height:0;
+  if(!options.silent)panel.style.minHeight="";
   const scrollAnchor=options.silent?(()=>{
     const hit=document.elementFromPoint(window.innerWidth/2,Math.min(140,window.innerHeight/2));
     const details=hit?.closest("#selectedMatch details");
@@ -947,6 +949,8 @@ function showSelectedMatch(ev,options={}){
   saveAnalysisHistory(ev,score,period,clock,estimate,quarter);
   if(!options.silent)panel.scrollIntoView({behavior:"smooth",block:"start"});
   else{
+    const currentFloor=Number.parseFloat(panel.style.minHeight)||0;
+    panel.style.minHeight=Math.max(currentFloor,previousPanelHeight,panel.getBoundingClientRect().height)+"px";
     let anchor=scrollAnchor?.node?.isConnected?scrollAnchor.node:null;
     if(!anchor&&scrollAnchor?.summary)anchor=Array.from(panel.querySelectorAll("details")).find(d=>d.querySelector("summary")?.textContent?.trim()===scrollAnchor.summary)||null;
     if(!anchor&&scrollAnchor?.inside&&scrollAnchor?.text)anchor=Array.from(panel.querySelectorAll("summary,p,h3,h4,.forecast-main,.calc-section")).find(el=>el.tagName===scrollAnchor.tag&&el.textContent.trim().startsWith(scrollAnchor.text))||null;
