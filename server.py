@@ -903,7 +903,7 @@ async def _enrich_with_sofascore_live(events):
             return False
         pari_youth = youth_bucket(pari_league, pari.get("team1"), pari.get("team2"))
         ext_youth = youth_bucket(ext_league, external.get("home"), external.get("away"))
-        if pari_youth != "senior_or_unknown" and ext_youth != "senior_or_unknown" and pari_youth != ext_youth:
+        if pari_youth != ext_youth and (pari_youth != "senior_or_unknown" or ext_youth != "senior_or_unknown"):
             return False
         pari_length = pari.get("period_length_seconds") or (pari.get("external_live") or {}).get("period_length_seconds")
         ext_length = external.get("period_length_seconds")
@@ -928,7 +928,9 @@ async def _enrich_with_sofascore_live(events):
         else:
             same_competition = False
         # Team names alone never confirm identity: competition or kickoff context is required.
-        return same_competition or same_fixture_window
+        if pari_league and ext_league:
+            return same_competition
+        return same_fixture_window
 
     if not events:
         return {"source": "sofascore", "status": "skipped_no_pari_events", "matched": 0}
@@ -1803,12 +1805,13 @@ async def _enrich_with_sofascore_live(events):
             ambiguous = 0
             diagnostics = []
             for pari in events:
-                ranked = sorted(
+                all_ranked = sorted(
                     ((pair_score(pari.get("team1"), pari.get("team2"), row["home"], row["away"]), row)
                      for row in external_rows),
                     key=lambda x: x[0], reverse=True,
                 )
-                best = ranked[0] if ranked else None
+                ranked = [candidate for candidate in all_ranked if match_context_compatible(pari, candidate[1])]
+                best = ranked[0] if ranked else (all_ranked[0] if all_ranked else None)
                 diagnostic = {
                     "pari_match": str(pari.get("team1") or "") + " — " + str(pari.get("team2") or ""),
                     "best_external_match": (best[1]["home"] + " — " + best[1]["away"]) if best else None,
@@ -1822,6 +1825,9 @@ async def _enrich_with_sofascore_live(events):
                 diagnostics.append(diagnostic)
                 if not best:
                     diagnostic["rejection_reason"] = "no_external_candidate"
+                    continue
+                if not ranked:
+                    diagnostic["rejection_reason"] = "competition_date_gender_or_format_not_confirmed"
                     continue
                 # Team-pair confidence is the minimum of the two independent
                 # team-name scores. Accept shortened/transliterated club names,
@@ -2053,12 +2059,13 @@ async def _enrich_with_sofascore_live(events):
     matched_rows = []
     match_diagnostics = []
     for pari in events:
-        ranked = sorted(
+        all_ranked = sorted(
             ((pair_score(pari.get("team1"), pari.get("team2"), row["home"], row["away"]), row)
              for row in live_rows),
             key=lambda x: x[0], reverse=True
         )
-        best = ranked[0] if ranked else None
+        ranked = [candidate for candidate in all_ranked if match_context_compatible(pari, candidate[1])]
+        best = ranked[0] if ranked else (all_ranked[0] if all_ranked else None)
         match_diagnostics.append({
             "pari_match": str(pari.get("team1") or "") + " — " + str(pari.get("team2") or ""),
             "best_external_match": (ranked[0][1]["home"] + " — " + ranked[0][1]["away"]) if ranked else None,
@@ -2067,7 +2074,11 @@ async def _enrich_with_sofascore_live(events):
             "external_period": ranked[0][1]["period"] if ranked else None,
             "external_clock": ranked[0][1]["clock"] if ranked else None,
         })
-        if not ranked or ranked[0][0] < 0.86:
+        if not ranked:
+            if match_diagnostics:
+                match_diagnostics[-1]["rejection_reason"] = "competition_date_gender_or_format_not_confirmed"
+            continue
+        if ranked[0][0] < 0.86:
             continue
         if len(ranked) > 1 and ranked[0][0] - ranked[1][0] < 0.07:
             ambiguous += 1
