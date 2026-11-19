@@ -849,7 +849,12 @@ let selectedLiveEventId = null;
 function showSelectedMatch(ev,options={}){
   const panel=$("selectedMatch");
   const previousPanelHeight=options.silent?panel.getBoundingClientRect().height:0;
-  if(!options.silent)panel.style.minHeight="";
+  const previousDocumentHeight=options.silent?Math.max(document.documentElement.scrollHeight,document.body.scrollHeight):0;
+  if(!options.silent){
+    panel.style.minHeight="";
+    const oldSpacer=document.getElementById("liveRefreshScrollSpacer");
+    if(oldSpacer)oldSpacer.style.height="0px";
+  }
   const scrollAnchor=options.silent?(()=>{
     const hit=document.elementFromPoint(window.innerWidth/2,Math.min(140,window.innerHeight/2));
     const details=hit?.closest("#selectedMatch details");
@@ -951,6 +956,13 @@ function showSelectedMatch(ev,options={}){
   else{
     const currentFloor=Number.parseFloat(panel.style.minHeight)||0;
     panel.style.minHeight=Math.max(currentFloor,previousPanelHeight,panel.getBoundingClientRect().height)+"px";
+    let spacer=document.getElementById("liveRefreshScrollSpacer");
+    if(!spacer){spacer=document.createElement("div");spacer.id="liveRefreshScrollSpacer";spacer.setAttribute("aria-hidden","true");spacer.style.cssText="width:100%;pointer-events:none;";}
+    if(!spacer.isConnected)document.body.appendChild(spacer);
+    const oldSpacerHeight=Number.parseFloat(spacer.style.height)||0;
+    const currentDocumentHeight=Math.max(document.documentElement.scrollHeight,document.body.scrollHeight);
+    const contentHeightWithoutSpacer=currentDocumentHeight-oldSpacerHeight;
+    spacer.style.height=Math.max(0,previousDocumentHeight-contentHeightWithoutSpacer)+"px";
     let anchor=scrollAnchor?.node?.isConnected?scrollAnchor.node:null;
     if(!anchor&&scrollAnchor?.summary)anchor=Array.from(panel.querySelectorAll("details")).find(d=>d.querySelector("summary")?.textContent?.trim()===scrollAnchor.summary)||null;
     if(!anchor&&scrollAnchor?.inside&&scrollAnchor?.text)anchor=Array.from(panel.querySelectorAll("summary,p,h3,h4,.forecast-main,.calc-section")).find(el=>el.tagName===scrollAnchor.tag&&el.textContent.trim().startsWith(scrollAnchor.text))||null;
