@@ -2484,12 +2484,14 @@ def _pari_normalize_match_timer_against_period(timer_seconds, period_number,
         count = int(period_count)
     except (TypeError, ValueError, OverflowError):
         return None
-    if length not in (600, 720) or count not in (2, 4) or period < count:
+    if length not in (600, 720) or count not in (2, 4):
         return None
     total = length * count
     if raw < 0:
         return None
     if count == 4 and raw > total:
+        if period < count:
+            return None
         # PARI match timer has passed regulation. Basketball overtime periods
         # are 5 minutes; keep regulation length separate from active OT length.
         overtime_elapsed_total = raw - total
@@ -4011,6 +4013,20 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 "competition_id": next((str(x) for x in competition_id_candidates if x is not None), None),
                                 **inferred_format,
                             }
+
+                    # When no positional quarter-score timeline is supplied,
+                    # PARI's timerSeconds/timer pair is the cumulative match clock.
+                    # Use it to reject a future zero-score quarter row (e.g. Q2 0:0
+                    # while Q1 is still running) and determine the active period.
+                    if (not period_value_is_direct and not quarter_rows
+                            and period_length_seconds in (600, 720)
+                            and period_count == 4 and timer_seconds is not None
+                            and 0 <= timer_seconds < period_length_seconds * period_count):
+                        timer_period = min(
+                            period_count, max(1, int(timer_seconds // period_length_seconds) + 1)
+                        )
+                        explicit_period = timer_period
+                        period_value = timer_period
 
                     if period_length_seconds in (600, 720) and period_count == 4:
                         _PARI_PERIOD_FORMAT_OBSERVATIONS[format_memory_key] = {
