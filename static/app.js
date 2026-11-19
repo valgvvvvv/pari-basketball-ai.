@@ -894,7 +894,7 @@ function showSelectedMatch(ev,options={}){
   const matchLine=matchProb.slice().sort((a,b)=>Math.abs(Number(a.line)-Number(estimate?.projection||0))-Math.abs(Number(b.line)-Number(estimate?.projection||0)))[0]||null;
   const qProb=quarter?.lines||[];
   const qLine=qProb.slice().sort((a,b)=>Math.abs(Number(a.line)-Number(quarter?.projection||0))-Math.abs(Number(b.line)-Number(quarter?.projection||0)))[0]||null;
-  const probText=p=>p?'ТБ '+(Number(p.pOver)*100).toFixed(1)+'% · ТМ '+(Number(p.pUnder)*100).toFixed(1)+'% · возврат '+(Number(p.pPush||0)*100).toFixed(1)+'%':'вероятности не рассчитаны';
+  const probText=p=>p?'модельные: ТБ '+(Number(p.pOver)*100).toFixed(1)+'% · ТМ '+(Number(p.pUnder)*100).toFixed(1)+'% · возврат '+(Number(p.pPush||0)*100).toFixed(1)+'% · не калиброваны':'вероятности не рассчитаны';
   $("matchForecast").innerHTML=estimate
     ? '<div class="forecast-main"><b>Ожидаемый тотал матча</b><div class="forecast-number">'+Number(estimate.projection).toFixed(1)+'</div>'+
       '<p>Сейчас '+estimate.current+' · ожидаемый остаток '+Number(estimate.poisson?.mu??estimate.calculation?.expectedRemaining??(estimate.projection-estimate.current)).toFixed(1)+' оч.</p>'+
@@ -916,8 +916,13 @@ function showSelectedMatch(ev,options={}){
   const statsMeta=statsQuality?'<p>Покрытие: <b>'+Number(statsQuality.coverage_percent||0)+'%</b> · источники: '+escapeHtml(ev.statistics_source||"нет")+'</p>':'';
   const missingStats=statsQuality?.missing_metrics?.length?'<p class="muted">Нет данных: '+escapeHtml(statsQuality.missing_metrics.join(", "))+'</p>':'';
   const statsConflicts=statsQuality?.conflicts?.length?'<p class="warn">Расхождения источников: '+statsQuality.conflicts.length+' · значения не скрыты</p>':'';
-  $("matchForecast").insertAdjacentHTML("beforeend",'<details class="technical-details"><summary>Статистика · '+rows.length+'/'+(statsQuality?.expected_count??"—")+'</summary>'+statsMeta+missingStats+statsConflicts+statHtml+(timeline?'<p><b>Четверти:</b> '+escapeHtml(timeline)+'</p>':'')+
-    (rows.length?'<h4>Все показатели матча</h4>'+rows.map(st=>'<p>'+escapeHtml(st.name||st.metric_key||"Показатель")+': <b>'+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+'</b> · '+escapeHtml(st.source||"источник не указан")+'</p>').join(""):'')+periodStatHtml+'</details>');
+  $("matchForecast").insertAdjacentHTML("beforeend",
+    '<details class="technical-details"><summary>Статистика · '+rows.length+'/'+(statsQuality?.expected_count??"—")+'</summary>'+statHtml+
+      (timeline?'<p><b>Четверти:</b> '+escapeHtml(timeline)+'</p>':'')+
+      (rows.length?'<h4>Все показатели матча</h4>'+rows.map(st=>'<p>'+escapeHtml(st.name||st.metric_key||"Показатель")+': <b>'+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+'</b> · '+escapeHtml(st.source||"источник не указан")+'</p>').join(""):'')+periodStatHtml+'</details>'+
+    '<details class="technical-details"><summary>Источники и качество данных</summary>'+statsMeta+missingStats+statsConflicts+
+      '<p>Счёт: '+escapeHtml(ev.score_source||ev.external_live?.score_source||"не указан")+' · таймер: '+escapeHtml(ev.clock_source||ev.external_live?.clock_source||"не указан")+' · статистика: '+escapeHtml(ev.statistics_source||"не указан")+'</p>'+
+      '<p>Снимок API: '+(Number.isFinite(Date.parse(ev.feed_checked_at_utc||""))?Math.round((Date.now()-Date.parse(ev.feed_checked_at_utc))/1000)+" сек. назад":"время обновления неизвестно")+'</p></details>');
   saveAnalysisHistory(ev,score,period,clock,estimate,quarter);
   if(!options.silent)panel.scrollIntoView({behavior:"smooth",block:"start"});
 }
@@ -1261,13 +1266,22 @@ function unifiedToolsPanelHtml(ev,matchData,quarterData,matchForecast,quarterFor
   const active=[],inactive=[];
   for(const t of reg){
     const mv=t.mv,qv=t.qv;
-    t.match=mv?(mv.distribution?prob(md,ml,m?.projection):numeric(mv.projection,mln)):(t.id==="gamma-poisson"?"не поддерживает цель матча":"не выдаёт отдельный прогноз");
-    t.quarter=qv?(qv.distribution?prob(qd,ql,q?.projection):numeric(qv.projection,qln)):(t.id==="possessions"?"не поддерживает цель четверти":"не выдаёт отдельный прогноз");
+    t.match=t.id==="smooth-game"?(matchData?.anomaly?"диагностика; прогноза нет":"недостаточно истории"):mv?(mv.distribution?prob(md,ml,m?.projection):numeric(mv.projection,mln)):(t.id==="gamma-poisson"?"не поддерживает цель матча":"не выдаёт отдельный прогноз");
+    t.quarter=t.id==="smooth-game"?"не поддерживает цель четверти":qv?(qv.distribution?prob(qd,ql,q?.projection):numeric(qv.projection,qln)):(t.id==="possessions"?"не поддерживает цель четверти":"не выдаёт отдельный прогноз");
     if(t.id==="smooth-game"&&matchData?.anomaly)t.status=(matchData.anomaly.smooth?"ровная траектория":"неровная траектория")+" · CV "+matchData.anomaly.cv+"%";
     (mv||qv?active:inactive).push(t);
   }
+  const critical=[];
+  if(m?.overtime_policy==="not_included_market_rule_unverified")critical.push("ОТ не включён в прогноз; правило расчёта линии не подтверждено.");
+  if(ev?.clock_integrity?.valid===false)critical.push("Таймер источника противоречив — прогноз четверти заблокирован.");
+  const formatInfo=inferPeriodLengthForForecast(ev||{});
+  if(!formatInfo||String(formatInfo.method||"").includes("предварительно"))critical.push("Формат / длительность периода не подтверждены.");
+  const feedAt=Date.parse(ev?.feed_checked_at_utc||"");
+  if(Number.isFinite(feedAt)&&Date.now()-feedAt>120000)critical.push("Снимок LIVE устарел более чем на 2 минуты.");
+  if(ev?.statistics_quality?.conflicts?.length)critical.push("Обнаружены расхождения статистических источников: "+ev.statistics_quality.conflicts.length+".");
+  const warningsHtml=critical.length?'<div class="live-critical-warnings"><b>Ограничения</b><ul>'+critical.map(x=>'<li>'+escapeHtml(x)+'</li>').join("")+'</ul></div>':"";
   const row=t=>'<tr><td data-label="Инструмент"><b>'+escapeHtml(t.name)+'</b><small>'+escapeHtml(t.id)+'</small></td><td data-label="Статус / роль">'+escapeHtml(t.status)+'<small>'+escapeHtml(t.role)+'</small></td><td data-label="Матч">'+escapeHtml(t.match)+'</td><td data-label="Четверть">'+escapeHtml(t.quarter)+'</td></tr>';
-  return '<section class="classic-model-panel unified-tools-panel"><div class="calc-section-head"><div><span class="eyebrow">MODEL REGISTRY</span><h3>Все инструменты · общий реестр</h3></div><span class="calc-live-tag">'+active.length+' активных</span></div>'+
+  return '<section class="classic-model-panel unified-tools-panel"><div class="calc-section-head"><div><span class="eyebrow">MODEL REGISTRY</span><h3>Все инструменты · общий реестр</h3></div><span class="calc-live-tag">'+active.length+' доступно</span></div>'+warningsHtml+
     '<table class="calc-table unified-tools-table"><thead><tr><th>Инструмент</th><th>Статус / роль</th><th>Матч: тотал, уклон</th><th>Q'+escapeHtml(q?.period||findLivePeriod(ev)||"n")+': тотал, уклон</th></tr></thead><tbody>'+active.map(row).join("")+'</tbody></table>'+
     '<details><summary>Недоступны / отключены: '+inactive.length+' — раскрыть</summary><table class="calc-table unified-tools-table"><tbody>'+inactive.map(row).join("")+'</tbody></table></details>'+
     '<p class="muted">Вероятности показаны только из собственного распределения. Числовой уклон не является вероятностью или доказанным преимуществом; зависимые методы не считаются независимыми голосами.</p></section>';
