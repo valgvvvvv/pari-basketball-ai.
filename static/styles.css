@@ -163,3 +163,6 @@ html,body{max-width:100%;overflow-x:clip}
   .sidebar nav a{display:block;min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:break-word;padding:8px 9px}
   .shell main{width:100%;max-width:100%;min-width:0}
 }
+
+/* The app restores the selected match's reading anchor itself after refresh. */
+html,body,#selectedMatch{overflow-anchor:none}
