@@ -2432,30 +2432,150 @@ def _pari_period_score_unmapped_records(source_row):
     return result
 
 
+_PARI_TIMER_OBSERVATIONS = {}
+
+def _pari_normalize_timer(event_id, timer_seconds, timer_direction, period_number,
+                          period_length_seconds, period_count, timer_paused=False,
+                          overtime_detected=False, now_seconds=None):
+    """Infer PARI timer semantics only after two consistent real snapshot intervals."""
+    now_seconds = float(now_seconds if now_seconds is not None else datetime.now(timezone.utc).timestamp())
+    if timer_seconds is None:
+        return {"timer_semantics_verified": False, "timer_interpretation_status": "timer_not_received",
+                "timer_block_reason": "PARI не передал timerSeconds"}
+    if not period_length_seconds or period_count not in (2, 4):
+        return {"timer_semantics_verified": False, "timer_interpretation_status": "received_period_format_unconfirmed",
+                "timer_block_reason": "Нет подтверждённой длительности и количества периодов"}
+    if not isinstance(period_number, int) or period_number < 1:
+        return {"timer_semantics_verified": False, "timer_interpretation_status": "received_period_format_unconfirmed",
+                "timer_block_reason": "Не определён текущий период"}
+    overtime_length = 300
+    is_ot = bool(overtime_detected or period_number > period_count)
+    allowed_period_length = overtime_length if is_ot else int(period_length_seconds)
+    if is_ot and period_number <= period_count:
+        return {"timer_semantics_verified": False, "timer_interpretation_status": "overtime_unconfirmed",
+                "timer_block_reason": "Овертайм обозначен текстом, но номер дополнительного периода не подтверждён"}
+    if is_ot and period_number > period_count:
+        allowed_period_length = overtime_length
+    raw = float(timer_seconds)
+    if raw < 0 or raw > (period_length_seconds * period_count + 600):
+        return {"timer_semantics_verified": False, "timer_interpretation_status": "timer_value_out_of_range",
+                "timer_block_reason": "timerSeconds вне допустимого диапазона"}
+    key = str(event_id or "unknown")
+    history = _PARI_TIMER_OBSERVATIONS.setdefault(key, [])
+    signature = (int(period_number), int(period_length_seconds), int(period_count), timer_direction, bool(is_ot))
+    if history and history[-1].get("signature") != signature:
+        history.clear()
+    history.append({"value": raw, "at": now_seconds, "signature": signature})
+    del history[:-4]
+    observed_direction = None
+    paused_by_snapshots = False
+    intervals = []
+    for previous, current in zip(history, history[1:]):
+        dt = current["at"] - previous["at"]
+        delta = current["value"] - previous["value"]
+        if dt < 12 or dt > 180:
+            continue
+        if abs(delta) <= 1:
+            paused_by_snapshots = True
+            intervals.append("paused")
+            continue
+        if abs(abs(delta) - dt) <= max(5.0, dt * 0.75):
+            intervals.append("up" if delta > 0 else "down")
+        else:
+            intervals.append("inconsistent")
+    moving = [x for x in intervals if x in ("up", "down")]
+    if len(moving) >= 2 and len(set(moving[-2:])) == 1 and "inconsistent" not in intervals[-2:]:
+        observed_direction = moving[-1]
+    if timer_paused:
+        paused_by_snapshots = True
+    if observed_direction is None and not paused_by_snapshots:
+        return {"timer_semantics_verified": False, "timer_interpretation_status": "awaiting_sequential_snapshots",
+                "timer_block_reason": "Нужно ещё два согласованных интервала PARI (минимум 3 снимка)",
+                "timer_observed_direction": None, "timer_snapshot_count": len(history)}
+    if observed_direction is None and paused_by_snapshots:
+        # A stopped clock is usable only after its count-up/count-down semantics
+        # were already established; an unchanged value alone cannot reveal direction.
+        prior = [x for x in history[:-1]]
+        if len(prior) < 3:
+            return {"timer_semantics_verified": False, "timer_interpretation_status": "stoppage_direction_unverified",
+                    "timer_block_reason": "Часы стоят, но направление не было подтверждено до остановки",
+                    "timer_snapshot_count": len(history)}
+        return {"timer_semantics_verified": False, "timer_interpretation_status": "stoppage_direction_unverified",
+                "timer_block_reason": "Для остановленных часов нет ранее подтверждённого направления",
+                "timer_snapshot_count": len(history)}
+    if observed_direction == "up":
+        if raw <= allowed_period_length:
+            period_elapsed = int(round(raw))
+        else:
+            match_elapsed_raw = raw
+            regulation_elapsed = (period_number - 1) * int(period_length_seconds) + allowed_period_length
+            if is_ot:
+                match_elapsed = int(period_length_seconds) * period_count + (period_number - period_count - 1) * overtime_length + int(round(raw))
+                period_elapsed = int(round(raw))
+                return {"timer_semantics_verified": True, "timer_interpretation_status": "verified_count_up_overtime",
+                        "timer_observed_direction": observed_direction, "match_elapsed_seconds": match_elapsed,
+                        "period_elapsed_seconds": period_elapsed, "period_remaining_seconds": max(0, overtime_length-period_elapsed),
+                        "timer_state": "overtime", "timer_block_reason": None, "timer_snapshot_count": len(history)}
+            if match_elapsed_raw > period_length_seconds * period_count:
+                return {"timer_semantics_verified": False, "timer_interpretation_status": "timer_value_out_of_range",
+                        "timer_block_reason": "Нарастающий таймер превышает подтверждённую длительность матча"}
+            period_elapsed = int(round(match_elapsed_raw - (period_number - 1) * period_length_seconds))
+        match_elapsed = ((period_number - 1) * int(period_length_seconds) + period_elapsed) if not is_ot else (
+            int(period_length_seconds) * period_count + (period_number-period_count-1)*overtime_length + period_elapsed)
+    else:
+        if raw <= allowed_period_length:
+            period_remaining = int(round(raw))
+            period_elapsed = allowed_period_length - period_remaining
+        else:
+            total = int(period_length_seconds) * period_count
+            if is_ot:
+                return {"timer_semantics_verified": False, "timer_interpretation_status": "overtime_timer_ambiguous",
+                        "timer_block_reason": "Таймер ОТ превышает длительность одного дополнительного периода"}
+            match_remaining = int(round(raw))
+            match_elapsed = total - match_remaining
+            period_elapsed = match_elapsed - (period_number - 1) * int(period_length_seconds)
+            if period_elapsed < 0 or period_elapsed > period_length_seconds:
+                return {"timer_semantics_verified": False, "timer_interpretation_status": "timer_period_mismatch",
+                        "timer_block_reason": "Таймер не соответствует номеру периода"}
+            period_remaining = int(period_length_seconds) - period_elapsed
+        if is_ot:
+            match_elapsed = int(period_length_seconds) * period_count + (period_number-period_count-1)*overtime_length + period_elapsed
+        else:
+            match_elapsed = (period_number - 1) * int(period_length_seconds) + period_elapsed
+    if period_elapsed < 0 or period_elapsed > allowed_period_length:
+        return {"timer_semantics_verified": False, "timer_interpretation_status": "timer_period_mismatch",
+                "timer_block_reason": "Нормализованное время не попадает в текущий период"}
+    period_remaining = max(0, allowed_period_length - period_elapsed)
+    return {"timer_semantics_verified": True, "timer_interpretation_status": "verified_" + observed_direction,
+            "timer_observed_direction": observed_direction, "match_elapsed_seconds": int(match_elapsed),
+            "period_elapsed_seconds": int(period_elapsed), "period_remaining_seconds": int(period_remaining),
+            "timer_state": "stoppage" if timer_paused else ("overtime" if is_ot else "running"),
+            "timer_block_reason": None, "timer_snapshot_count": len(history),
+            "overtime_length_seconds": overtime_length if is_ot else None}
+
+
 def _pari_timer_metadata(timer_seconds, timer_direction, timer_timestamp_msec,
                           period_length_seconds=None, period_format_source=None,
-                          timer_paused=False, overtime_detected=False):
-    """Preserve source clock fields without inventing elapsed/remaining semantics."""
+                          timer_paused=False, overtime_detected=False, normalized_timer=None):
+    """Expose raw and normalized timer values plus the actual verification reason."""
+    normalized_timer = normalized_timer or {}
     has_timer = timer_seconds is not None
     return {
         "source_timer_seconds": timer_seconds,
-        "match_elapsed_seconds": None,
-        "period_elapsed_seconds": None,
-        "period_remaining_seconds": None,
+        "match_elapsed_seconds": normalized_timer.get("match_elapsed_seconds"),
+        "period_elapsed_seconds": normalized_timer.get("period_elapsed_seconds"),
+        "period_remaining_seconds": normalized_timer.get("period_remaining_seconds"),
         "timer_direction": timer_direction,
+        "timer_observed_direction": normalized_timer.get("timer_observed_direction"),
         "timer_timestamp_msec": timer_timestamp_msec,
         "timer_paused": bool(timer_paused),
-        "overtime_detected": bool(overtime_detected),
-        "overtime_length_seconds": 300 if period_format_source else None,
-        "timer_state": ("overtime" if overtime_detected else
-                        "stoppage" if timer_paused else
-                        "source_status_unconfirmed" if has_timer else "not_received"),
-        "timer_interpretation_status": (
-            "received_period_format_unconfirmed"
-            if has_timer and period_length_seconds is None
-            else "received_timer_semantics_unverified" if has_timer
-            else "timer_not_received"
-        ),
+        "overtime_detected": bool(overtime_detected or normalized_timer.get("timer_state") == "overtime"),
+        "overtime_length_seconds": normalized_timer.get("overtime_length_seconds"),
+        "timer_state": normalized_timer.get("timer_state", "source_status_unconfirmed" if has_timer else "not_received"),
+        "timer_semantics_verified": bool(normalized_timer.get("timer_semantics_verified")),
+        "timer_snapshot_count": normalized_timer.get("timer_snapshot_count", 0),
+        "timer_block_reason": normalized_timer.get("timer_block_reason"),
+        "timer_interpretation_status": normalized_timer.get("timer_interpretation_status", "timer_not_received"),
     }
 
 
@@ -3445,17 +3565,18 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         else:
                             clock_value = None
 
-                    # timerSeconds and timerDirection are preserved verbatim for
-                    # diagnostics. Until sequential snapshots establish their
-                    # per-feed semantics, they never generate a live clock.
-                    timer_semantics_verified = False
-                    timer_interpretation_status = (
-                        "received_period_format_unconfirmed"
-                        if timer_seconds is not None and period_length_seconds is None
-                        else "received_timer_semantics_unverified"
-                        if timer_seconds is not None
-                        else "timer_not_received"
+                    # Infer direction empirically from consecutive PARI snapshots;
+                    # timerDirection itself is retained but never guessed as an enum.
+                    normalized_timer = _pari_normalize_timer(
+                        event.get("id"), timer_seconds, timer_direction, explicit_period,
+                        period_length_seconds, period_count, timer_paused, overtime_detected
                     )
+                    timer_semantics_verified = bool(normalized_timer.get("timer_semantics_verified"))
+                    timer_interpretation_status = normalized_timer.get("timer_interpretation_status")
+                    if timer_semantics_verified and not clock_was_explicit:
+                        remaining_value = normalized_timer.get("period_remaining_seconds")
+                        if remaining_value is not None:
+                            clock_value = f"{int(remaining_value)//60:02d}:{int(remaining_value)%60:02d}"
 
                     # Period score extraction is centralized and kind-ID aware.
                     # Shot-stat rows cannot become quarter points by label collision.
@@ -3545,9 +3666,13 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         **_pari_timer_metadata(
                             timer_seconds, timer_direction, timer_timestamp_msec,
                             period_length_seconds, period_format_source,
-                            timer_paused, overtime_detected
+                            timer_paused, overtime_detected, normalized_timer
                         ),
                         "timer_semantics_verified": timer_semantics_verified,
+                        "timer_interpretation_status": timer_interpretation_status,
+                        "timer_block_reason": normalized_timer.get("timer_block_reason"),
+                        "timer_observed_direction": normalized_timer.get("timer_observed_direction"),
+                        "timer_snapshot_count": normalized_timer.get("timer_snapshot_count", 0),
                         "period_scores": period_scores,
                         "period_score_sources": list(period_score_by_number.values()),
                         "period_score_conflicts": period_score_conflicts,
