@@ -1454,7 +1454,7 @@ async function refreshLiveMatches() {
       : "API PARI отвечает (" + data.total_events + " событий), но сейчас не найдено LIVE-событий мужского баскетбола после фильтрации лиг.";
     if (liveUpdated) liveUpdated.textContent = "Обновлено: " + new Date(data.checked_at_utc).toLocaleTimeString("ru-RU") + " · " + (data.attempts?.[0]?.host || "PARI");
     if (liveList) {
-      liveList.innerHTML = count ? data.events.map(ev => {
+      liveList.innerHTML = count ? window.pariLiveEvents.map(ev => {
         try {
           const teams = escapeHtml(ev.team1 || "Команда 1") + " — " + escapeHtml(ev.team2 || "Команда 2");
           const score = eventScore(ev);
