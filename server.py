@@ -2484,7 +2484,9 @@ def _pari_normalize_timer(event_id, timer_seconds, timer_direction, period_numbe
         else:
             intervals.append("inconsistent")
     moving = [x for x in intervals if x in ("up", "down")]
-    if len(moving) >= 2 and len(set(moving[-2:])) == 1 and "inconsistent" not in intervals[-2:]:
+    recent_intervals = intervals[-2:]
+    if (len(recent_intervals) >= 2 and moving and len(set(moving)) == 1
+            and all(item in (moving[-1], "paused") for item in recent_intervals)):
         observed_direction = moving[-1]
     if timer_paused:
         paused_by_snapshots = True
@@ -2549,7 +2551,7 @@ def _pari_normalize_timer(event_id, timer_seconds, timer_direction, period_numbe
     return {"timer_semantics_verified": True, "timer_interpretation_status": "verified_" + observed_direction,
             "timer_observed_direction": observed_direction, "match_elapsed_seconds": int(match_elapsed),
             "period_elapsed_seconds": int(period_elapsed), "period_remaining_seconds": int(period_remaining),
-            "timer_state": "stoppage" if timer_paused else ("overtime" if is_ot else "running"),
+            "timer_state": "stoppage" if (timer_paused or paused_by_snapshots) else ("overtime" if is_ot else "running"),
             "timer_block_reason": None, "timer_snapshot_count": len(history),
             "overtime_length_seconds": overtime_length if is_ot else None}
 
@@ -2568,7 +2570,7 @@ def _pari_timer_metadata(timer_seconds, timer_direction, timer_timestamp_msec,
         "timer_direction": timer_direction,
         "timer_observed_direction": normalized_timer.get("timer_observed_direction"),
         "timer_timestamp_msec": timer_timestamp_msec,
-        "timer_paused": bool(timer_paused),
+        "timer_paused": bool(timer_paused or normalized_timer.get("timer_state") == "stoppage"),
         "overtime_detected": bool(overtime_detected or normalized_timer.get("timer_state") == "overtime"),
         "overtime_length_seconds": normalized_timer.get("overtime_length_seconds"),
         "timer_state": normalized_timer.get("timer_state", "source_status_unconfirmed" if has_timer else "not_received"),
