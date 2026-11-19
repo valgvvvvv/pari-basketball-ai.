@@ -34,8 +34,8 @@
       alpha,beta,remainingMinutes,expectedRemaining,varianceRemaining,meanUncertaintyVariance,meanUncertaintySd,
       projection:current+expectedRemaining,priorQuarterCount,priorQuarterMean:priorMean,
       priorAlpha,priorExposure,completedPoints,completedQuarterTotals:completed.slice(),priorIsAggregate:hasAggregatePrior,periodMinutes,
-      quality:completed.length>=2&&elapsedSeconds>=180?"ограниченная · prior по двум и более четвертям":
-        completed.length===1?"низкая · prior по одной четверти":"низкая · только текущий темп",
+      quality:priorQuarterCount>=2&&elapsedSeconds>=180?"ограниченная · prior по сумме завершённых периодов":
+        priorQuarterCount===1?"низкая · prior по одному периоду":"низкая · недостаточно истории",
       method:"Gamma-Poisson posterior predictive · Jeffreys prior"};
   }
   function makeRng(seedText){
