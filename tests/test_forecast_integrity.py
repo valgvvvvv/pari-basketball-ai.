@@ -63,6 +63,16 @@ class ForecastIntegrityTests(unittest.TestCase):
         self.assertEqual(settle_prediction(contract, final)["result"], "push")
         self.assertEqual(settle_prediction(contract, {**final, "period_number": 2})["status"], "disputed")
 
+    def test_daily_release_publisher_never_deletes_previous_release_assets(self):
+        root = Path(__file__).resolve().parents[1]
+        publisher = (root / ".github/scripts/publish_daily_archive.py").read_text(encoding="utf-8")
+        collector = (root / ".github/scripts/collect_live_with_models.cjs").read_text(encoding="utf-8")
+        self.assertIn('strftime("%Y%m%d-%H%M%S")', publisher)
+        self.assertNotIn('/releases/assets/', publisher)
+        self.assertIn("prediction_contracts", collector)
+        self.assertIn("snapshot_id", collector)
+        self.assertIn('status: "unresolved"', collector)
+
     def test_raw_archive_snapshots_are_append_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "archive.sqlite3"
