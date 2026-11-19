@@ -100,3 +100,9 @@
 .live-match-quarter-window{border:2px solid #e5b94f!important;background:linear-gradient(135deg,rgba(229,185,79,.16),rgba(229,185,79,.055))!important;box-shadow:0 0 0 1px rgba(229,185,79,.12),0 5px 20px rgba(229,185,79,.08)}
 .live-match-quarter-window .live-match-title{color:#ffe3a0}
 .quarter-highlight-tag{display:inline-flex;align-self:flex-start;padding:5px 9px;border-radius:6px;background:#e5b94f;color:#211807;font-size:10px;font-weight:900;letter-spacing:.35px}
+
+.model-tool-list{display:grid;gap:8px;margin:12px 0}
+.model-tool-row{display:grid;grid-template-columns:minmax(150px,1fr) auto;gap:4px 12px;padding:9px 11px;border:1px solid var(--border,#e5e7eb);border-radius:10px}
+.model-tool-row b{font-size:13px}
+.model-tool-row span{font-size:12px;font-weight:600;text-align:right}
+.model-tool-row small{grid-column:1/-1;color:var(--muted,#777);font-size:11px;line-height:1.4}
