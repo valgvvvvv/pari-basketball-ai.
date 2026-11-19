@@ -78,6 +78,7 @@ const { chromium } = require("playwright");
               snapshot_id: null,
               target,
               overtime_policy: "not_verified_from_market_rules",
+              outcome: { status: "unresolved", reason: "no independently confirmed final result has been reconciled" },
               source: {
                 provider: "PARI",
                 response_checked_at_utc: data.checked_at_utc || null,
