@@ -211,6 +211,25 @@ vm.runInNewContext(appSource.slice(clockSourceStart,clockSourceEnd)+"; this.even
 assert.match(clockSandbox.eventClock({live_fields:{source_timer_seconds:405}}),/Время получено, длительность периода не подтверждена/);
 assert.match(clockSandbox.eventClock({live_fields:{source_timer_seconds:405}}),/06:45 \(405 с\)/);
 assert.ok(appSource.includes("ev?.live_fields?.timer_semantics_verified"),"timer semantics must be read from PARI live_fields");
+const fallbackStart=appSource.indexOf("function liveMatchRenderFallback(ev)");
+const fallbackEnd=appSource.indexOf("async function refreshLiveMatches()",fallbackStart);
+const fallbackSandbox={
+  escapeHtml:value=>String(value??""),
+  eventScore:()=> "21:17",eventPeriod:()=> "Q1",
+  eventClock:()=> "Время получено, длительность периода не подтверждена",
+  console:{error:()=>{}}
+};
+vm.runInNewContext(appSource.slice(fallbackStart,fallbackEnd)+"; this.renderFallback=liveMatchRenderFallback;",fallbackSandbox);
+const fallbackHtml=fallbackSandbox.renderFallback({
+  id:"x",team1:"A",team2:"B",source_timer_seconds:405,
+  external_statistics:[{name:"2PT",home:4,away:6}],
+  period_statistics:[{period:1,name:"3PT",home:2,away:1}],
+  match_total_candidates:[{pt:165,v:1.9}]
+});
+assert.match(fallbackHtml,/2PT 4:6/,"fallback card must show available match statistics");
+assert.match(fallbackHtml,/Q1 3PT 2:1/,"fallback card must show available quarter statistics");
+assert.match(fallbackHtml,/Тотал 165/,"fallback card must preserve available markets");
+
 
 const recentStart = appSource.indexOf("function recentTempoFromSnapshots");
 const recentEnd = appSource.indexOf("function dynamicScenarioMonteCarlo", recentStart);
