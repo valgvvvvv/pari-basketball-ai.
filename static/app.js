@@ -38,7 +38,7 @@ function parseScore(value){
   return m?[Number(m[1]),Number(m[2])]:null;
 }
 function findLiveScore(ev){
-  if(ev?.score_integrity?.valid===false)return null;
+  if(ev?.score_integrity?.valid===false||ev?.event_freshness_status==="stale_suspected"||ev?.score_clock_freshness==="stale_suspected")return null;
   const objects=collectEventObjects({root:{...(ev.raw||{}), external_live:ev.external_live||{}, live_score:ev.live_score, live_clock:ev.live_clock, live_period:ev.live_period},related:ev.related_events||[],live:ev.live_fields||{}});
   const direct=parseScore(ev.score);if(direct)return direct;
   for(const obj of objects){
@@ -70,6 +70,7 @@ function findLivePeriod(ev){
   return null;
 }
 function findLiveClock(ev){
+  if(ev?.event_freshness_status==="stale_suspected"||ev?.score_clock_freshness==="stale_suspected")return null;
   // Refresh a PARI count-up timer against its source timestamp. The server
   // has already verified period format and period/timer consistency.
   const period=findLivePeriod(ev);
@@ -796,7 +797,7 @@ function showSelectedMatch(ev,options={}){
   $("selectedMatchMeta").textContent=[ev.league||ev.sport_name].filter(Boolean).join(" · ");
   $("selectedMatchInfo").textContent="Счёт "+(score?score.join(" : "):"—")+" · Q"+(period||"—")+" · "+(clock||"—")+
     " · снимок "+(ev.feed_fetched_at_utc?new Date(ev.feed_fetched_at_utc).toLocaleTimeString("ru-RU"):"время снимка неизвестно")+
-    " · свежесть события "+(ev.event_freshness_status==="provider_timestamp_available"?"есть отметка источника":"не подтверждена источником");
+    " · свежесть события "+(ev.event_freshness_status==="stale_suspected"?"таймер/счёт не менялись ≥120 с":ev.event_freshness_status==="provider_timestamp_available"?"есть отметка источника":"не подтверждена источником");
   const lineRows=lines.map(x=>{
     const p=(estimate?.poisson?.probabilities||[]).find(z=>Number(z.line)===Number(x.line));
     return '<tr><td>'+x.line+'</td><td>'+(p?(p.pOver*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pUnder*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pPush*100).toFixed(1)+'%':'—')+'</td><td>'+(p?escapeHtml(p.direction):'—')+'</td><td>'+(x.prices?.length?escapeHtml(x.prices.map(v=>"f"+v.factorId+": "+v.price).join(" · ")):(x.odds?escapeHtml(x.odds):"—"))+'</td></tr>';
