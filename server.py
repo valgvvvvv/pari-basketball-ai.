@@ -9,6 +9,7 @@ from html.parser import HTMLParser
 from html import unescape
 import httpx
 from result_validation import settle_prediction
+from match_identity import match_context_compatible as external_match_context_compatible
 
 app = FastAPI(title="PARI Basketball AI", version="0.1.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -850,87 +851,6 @@ async def _enrich_with_sofascore_live(events):
         direct = min(team_score(a, x), team_score(b, y))
         reverse = min(team_score(a, y), team_score(b, x))
         return max(direct, reverse)
-
-    def identity_timestamp(value):
-        if value is None:
-            return None
-        try:
-            number = float(value)
-            if number > 100000000000:
-                number /= 1000.0
-            if number > 1000000000:
-                return number
-        except (TypeError, ValueError, OverflowError):
-            pass
-        try:
-            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            return parsed.timestamp()
-        except (TypeError, ValueError, OverflowError):
-            return None
-
-    def gender_bucket(*values):
-        text = " ".join(str(value or "") for value in values).casefold()
-        if any(marker in text for marker in ("women", "woman", "female", "ladies", "girls", "wbb", "wnba", "женск", "девуш")):
-            return "women"
-        if any(marker in text for marker in ("men", "mens", "male", "мужск", "мужчин")):
-            return "men"
-        return "unknown"
-
-    def youth_bucket(*values):
-        text = " ".join(str(value or "") for value in values).casefold()
-        match = re.search(r"(?:u|under)[ -]?(17|18|19|20|21|23)", text)
-        if match:
-            return "u" + match.group(1)
-        if any(marker in text for marker in ("junior", "youth", "academy", "молодеж", "молодёж", "юнош")):
-            return "youth"
-        return "senior_or_unknown"
-
-    def competition_key(value):
-        key = norm(repair_team_encoding(value or ""))
-        key = re.sub(r"(basketball|league|championship|tournament|division|conference|cup|men|male|female|season)", "", key)
-        return key
-
-    def match_context_compatible(pari, external):
-        pari_league = pari.get("league") or pari.get("competitionName") or pari.get("sport_name")
-        ext_league = external.get("league") or external.get("competition") or external.get("tournament")
-        pari_gender = gender_bucket(pari.get("team1"), pari.get("team2"), pari_league, pari.get("sport_name"))
-        ext_gender = gender_bucket(external.get("home"), external.get("away"), ext_league, external.get("status"))
-        if pari_gender == "women" or ext_gender == "women":
-            return False
-        if pari_gender != "unknown" and ext_gender != "unknown" and pari_gender != ext_gender:
-            return False
-        pari_youth = youth_bucket(pari_league, pari.get("team1"), pari.get("team2"))
-        ext_youth = youth_bucket(ext_league, external.get("home"), external.get("away"))
-        if pari_youth != ext_youth and (pari_youth != "senior_or_unknown" or ext_youth != "senior_or_unknown"):
-            return False
-        pari_length = pari.get("period_length_seconds") or (pari.get("external_live") or {}).get("period_length_seconds")
-        ext_length = external.get("period_length_seconds")
-        if pari_length and ext_length and int(pari_length) != int(ext_length):
-            return False
-        pari_count = pari.get("period_count") or (pari.get("external_live") or {}).get("period_count")
-        ext_count = external.get("period_count")
-        if pari_count and ext_count and int(pari_count) != int(ext_count):
-            return False
-        pari_ts = identity_timestamp(pari.get("start_time") or pari.get("startTime"))
-        ext_ts = identity_timestamp(external.get("start_time") or external.get("startTimestamp"))
-        same_fixture_window = pari_ts is not None and ext_ts is not None and abs(pari_ts - ext_ts) <= 36 * 3600
-        if pari_ts is not None and ext_ts is not None and not same_fixture_window:
-            return False
-        if pari_league and ext_league:
-            a, b = competition_key(pari_league), competition_key(ext_league)
-            tokens_a = set(re.findall(r"[a-z0-9]{2,}", a))
-            tokens_b = set(re.findall(r"[a-z0-9]{2,}", b))
-            overlap = len(tokens_a & tokens_b) / max(1, min(len(tokens_a), len(tokens_b)))
-            similarity = SequenceMatcher(None, a, b).ratio() if a and b else 0.0
-            same_competition = overlap >= 0.5 or similarity >= 0.45
-        else:
-            same_competition = False
-        # Team names alone never confirm identity: competition or kickoff context is required.
-        if pari_league and ext_league:
-            return same_competition
-        return same_fixture_window
 
     if not events:
         return {"source": "sofascore", "status": "skipped_no_pari_events", "matched": 0}
@@ -1812,7 +1732,7 @@ async def _enrich_with_sofascore_live(events):
                      for row in external_rows),
                     key=lambda x: x[0], reverse=True,
                 )
-                ranked = [candidate for candidate in all_ranked if match_context_compatible(pari, candidate[1])]
+                ranked = [candidate for candidate in all_ranked if external_match_context_compatible(pari, candidate[1], norm, repair_team_encoding)]
                 best = ranked[0] if ranked else (all_ranked[0] if all_ranked else None)
                 diagnostic = {
                     "pari_match": str(pari.get("team1") or "") + " — " + str(pari.get("team2") or ""),
