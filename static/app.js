@@ -1573,7 +1573,11 @@ async function refreshLiveMatches() {
     }
     const liveScoreSource = data.live_score_source || {};
     const enrichmentStatus = liveScoreSource.status || "not_started";
-    const enrichmentText = enrichmentStatus === "cached" ? "дополнительная статистика обновлена из кэша"
+    const enrichmentText = enrichmentStatus === "cached" && Number(liveScoreSource.statistics_matches || 0) > 0
+      ? "внешняя статистика обновлена из кэша (" + liveScoreSource.statistics_matches + " матчей)"
+      : enrichmentStatus === "cached" && liveScoreSource.background_status?.status === "no_live_events"
+        ? "внешний источник ответил, но точные LIVE-совпадения не найдены"
+      : enrichmentStatus === "cached" ? "кэш источников обновлён; новых внешних показателей нет"
       : enrichmentStatus === "background_queued" || enrichmentStatus === "background_running" ? "обогащение статистики выполняется отдельно, список не ожидает его завершения"
       : enrichmentStatus === "no_confident_match" ? "точное соответствие матча не найдено"
       : enrichmentStatus === "no_live_events" ? "внешний LIVE-список не содержит подходящих матчей"
