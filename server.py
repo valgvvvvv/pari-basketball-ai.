@@ -3837,7 +3837,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # the whole PARI "friendlies" category.
                     if period_length_seconds is None and str(event.get("sportId")) == "127834":
                         pair = {
-                            re.sub(r"[^a-z0-9]+", " ", str(event.get(k) or "").casefold()).strip()
+                            re.sub(r"[^a-z0-9а-яё]+", " ", str(event.get(k) or "").casefold()).strip()
                             for k in ("team1", "team2")
                         }
                         if pair in (
