@@ -2505,8 +2505,6 @@ def _pari_infer_period_format_from_timeline(period_number, timer_seconds,
     return None
 
 
-_PARI_TIMER_OBSERVATIONS = {}
-
 def _pari_normalize_timer(event_id, timer_seconds, timer_direction, period_number,
                           period_length_seconds, period_count, timer_paused=False,
                           overtime_detected=False, now_seconds=None):
