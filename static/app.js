@@ -61,11 +61,14 @@ function findLivePeriod(ev){
       if(/^(period|periodNumber|quarter|quarterNumber|gamePart|stageNumber)$/i.test(key))candidates.push(value);
   for(const value of candidates){
     if(value==null)continue;
-    if(typeof value==="number"&&Number.isInteger(value)&&value>=1&&value<=4)return value;
-    const str=String(value).toLowerCase();
-    const m=str.match(/(?:q|quarter|period|период|четверт\w*|\b)([1-4])(?:\b|$)/i)||str.match(/^([1-4])$/);
+    if(typeof value==="number"&&Number.isInteger(value)&&value>=1&&value<=8)return value;
+    const str=String(value).toLowerCase().trim();
+    const m=str.match(/(?:q|quarter|period|период|четверт\\w*|\\b)([1-8])(?:\\b|$)/i)||str.match(/^([1-8])$/);
     if(m)return Number(m[1]);
+    if(/^(?:ot|overtime|extra time|овертайм|дополнительный период)$/i.test(str))return 5;
   }
+  const status=String(ev.status||ev.live_fields?.status||ev.raw?.status||"").toLowerCase();
+  if(/\\b(?:ot|overtime|extra time)\\b|овертайм|дополнительн\\w* период/.test(status))return 5;
   return null;
 }
 function findLiveClock(ev){
@@ -895,7 +898,7 @@ function inferPeriodLengthForForecast(ev) {
   const explicit=findPeriodLengthSeconds(ev);
   const text=[ev.league,ev.sport_name,ev.team1,ev.team2].filter(Boolean).join(" ").toLowerCase();
   const periodCount=Number(ev.external_live?.period_count||0);
-  if(explicit)return {seconds:explicit,periods:periodCount===2?2:4,
+  if(explicit)return {seconds:explicit,periods:(periodCount===2||explicit===1200)?2:4,
     method:ev.external_live?.source==="ESPN"&&periodCount===2
       ?"ESPN NCAA · 2 половины по 20 минут":"длительность периода получена из источника"};
   // NCAA men's basketball uses two 20-minute halves, not four quarters.
@@ -958,6 +961,8 @@ function automaticForecast(ev) {
   const score=findLiveScore(ev), period=findLivePeriod(ev), clock=findLiveClock(ev);
   const lengthInfo=inferPeriodLengthForForecast(ev);
   const periodLength=lengthInfo?.seconds;
+  const regularPeriods=Number(ev?.external_live?.period_count||lengthInfo?.periods||4);
+  if(period&&period>regularPeriods)return {ready:false,reason:"Овертайм: нет подтверждённой модели дополнительного периода и правил рынка по ОТ"};
   if(score&&period&&clock&&periodLength){
     const estimate=estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength}},score,period,clock);
     if(estimate&&estimate.elapsed_seconds>0){
@@ -1140,7 +1145,7 @@ function aiSignalHtml(signal,title){
   return '<div class="ai-model-panel"><b>'+escapeHtml(title)+'</b><div class="ai-model-number">'+signal.projection+'</div>'+
     '<p><b>Направление: '+escapeHtml(direction)+'</b>'+(best?' · ТБ '+(best.pOver*100).toFixed(1)+'% / ТМ '+(best.pUnder*100).toFixed(1)+'%':'')+
     ' · уверенность: '+escapeHtml(signal.confidence)+'</p>'+
-    '<small>'+escapeHtml(signal.drivers.join(" · "))+'</small></div>';
+    '<small>'+escapeHtml(signal.drivers.join(" · "))+'</small><small>Это тот же основной прогноз, а не независимая ИИ-модель.</small></div>';
 }
 function findQuarterClockFromElapsed(ev,period,length){
   if(!Number.isInteger(Number(period))||!Number.isFinite(Number(length))||Number(length)<300)return null;
@@ -1168,6 +1173,7 @@ function automaticQuarterForecast(ev) {
   const clock=directClock||(period&&length?findQuarterClockFromElapsed(ev,period,length):null);
   const recoveredClock=!directClock&&!!clock;
   const periods=Number(ev.external_live?.period_count||info?.periods||4);
+  if(period&&period>periods)return {ready:false,reason:"Овертайм: расчёт тотала периода недоступен без проверенной длительности ОТ"};
   const matchScore=findLiveScore(ev);
   const matchForecast=automaticForecast(ev);
   if(periods===2)return {ready:false,reason:"формат 2×20 минут: четвертей в этом матче нет"};
