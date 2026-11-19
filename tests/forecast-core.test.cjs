@@ -30,6 +30,20 @@ const noPrior = simulateQuarter({
 });
 assert.equal(noPrior.ready, false, "early period without a prior must not fabricate a projection");
 
+const nullPrior = simulateQuarter({
+  current: 0, periodSeconds: 600, elapsedSeconds: 45,
+  priorQuarterTotals: [null], lines: [{line: 40.5}],
+  seed: "null-is-not-zero", simulations: 10000
+});
+assert.equal(nullPrior.ready, false, "a missing previous quarter must not be converted to a zero-score quarter");
+
+const missingCurrent = simulateQuarter({
+  current: null, periodSeconds: 600, elapsedSeconds: 300,
+  priorQuarterTotals: [40], lines: [{line: 40.5}],
+  seed: "null-current", simulations: 10000
+});
+assert.equal(missingCurrent.ready, false, "a missing current score must not be treated as 0:0");
+
 const lateNoPrior = simulateQuarter({
   current: 18, periodSeconds: 600, elapsedSeconds: 300,
   priorQuarterTotals: [], lines: [{line: 40.5}], seed: "late-no-prior", simulations: 10000
