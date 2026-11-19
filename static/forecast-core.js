@@ -8,17 +8,21 @@
     const current=Number(input.current),elapsedSeconds=Number(input.elapsedSeconds),periodLengthSeconds=Number(input.periodLengthSeconds);
     const completed=(Array.isArray(input.completedQuarterTotals)?input.completedQuarterTotals:[])
       .map(Number).filter(x=>Number.isFinite(x)&&x>=0);
+    const aggregatePriorPoints=Number(input.priorPoints),aggregatePriorExposureSeconds=Number(input.priorExposureSeconds);
+    const hasAggregatePrior=Number.isFinite(aggregatePriorPoints)&&aggregatePriorPoints>=0&&
+      Number.isFinite(aggregatePriorExposureSeconds)&&aggregatePriorExposureSeconds>0;
     if(!Number.isFinite(current)||current<0||!Number.isFinite(elapsedSeconds)||!Number.isFinite(periodLengthSeconds)||
        periodLengthSeconds<300||periodLengthSeconds>1200||elapsedSeconds<0||elapsedSeconds>periodLengthSeconds)
       return {ready:false,reason:"некорректный счёт или таймер"};
-    if(elapsedSeconds<180&&completed.length===0)
+    if(elapsedSeconds<180&&completed.length===0&&!hasAggregatePrior)
       return {ready:false,reason:"первые 3 минуты без исторического ориентира — недостаточно данных"};
     const periodMinutes=periodLengthSeconds/60,elapsedMinutes=elapsedSeconds/60,remainingMinutes=(periodLengthSeconds-elapsedSeconds)/60;
     // Jeffreys Gamma(1/2, 0) prior; completed quarters contribute observed points
     // and their exact playing-time exposure. Current-quarter points/time update it.
-    const completedPoints=completed.reduce((sum,x)=>sum+x,0);
+    const completedPoints=hasAggregatePrior?aggregatePriorPoints:completed.reduce((sum,x)=>sum+x,0);
     const priorAlpha=0.5+completedPoints;
-    const priorExposure=completed.length*periodMinutes;
+    const priorExposure=hasAggregatePrior?aggregatePriorExposureSeconds/60:completed.length*periodMinutes;
+    const priorQuarterCount=Number.isInteger(Number(input.priorQuarterCount))?Number(input.priorQuarterCount):completed.length;
     const alpha=priorAlpha+current,beta=priorExposure+elapsedMinutes;
     if(!(alpha>0)||!(beta>0))return {ready:false,reason:"недостаточная экспозиция для оценки темпа"};
     const expectedRemaining=alpha/beta*remainingMinutes;
@@ -28,8 +32,8 @@
     const priorMean=completed.length?completed.reduce((sum,x)=>sum+x,0)/completed.length:null;
     return {ready:true,current,elapsedSeconds,remainingSeconds:periodLengthSeconds-elapsedSeconds,
       alpha,beta,remainingMinutes,expectedRemaining,varianceRemaining,meanUncertaintyVariance,meanUncertaintySd,
-      projection:current+expectedRemaining,priorQuarterCount:completed.length,priorQuarterMean:priorMean,
-      priorAlpha,priorExposure,completedPoints,completedQuarterTotals:completed.slice(),periodMinutes,
+      projection:current+expectedRemaining,priorQuarterCount,priorQuarterMean:priorMean,
+      priorAlpha,priorExposure,completedPoints,completedQuarterTotals:completed.slice(),priorIsAggregate:hasAggregatePrior,periodMinutes,
       quality:completed.length>=2&&elapsedSeconds>=180?"ограниченная · prior по двум и более четвертям":
         completed.length===1?"низкая · prior по одной четверти":"низкая · только текущий темп",
       method:"Gamma-Poisson posterior predictive · Jeffreys prior"};
