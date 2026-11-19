@@ -853,7 +853,7 @@ function showSelectedMatch(ev,options={}){
     const details=hit?.closest("#selectedMatch details");
     const summary=details?.querySelector("summary")?.textContent?.trim()||null;
     const target=details||hit?.closest("#selectedMatch .forecast-main, #selectedMatch .calc-section, #selectedMatch p, #selectedMatch h3")||panel;
-    return {summary,tag:target?.tagName||"SECTION",className:typeof target?.className==="string"?target.className:"",text:target?.textContent?.trim().slice(0,72)||"",top:target?.getBoundingClientRect().top??0,inside:panel.contains(target),node:panel.contains(target)?null:target};
+    return {summary,tag:target?.tagName||"SECTION",className:typeof target?.className==="string"?target.className:"",text:target?.textContent?.trim().slice(0,72)||"",top:target?.getBoundingClientRect().top??0,inside:panel.contains(target),node:target===panel?panel:(panel.contains(target)?null:target)};
   })():null;
   const openSummaries=options.silent?Array.from(panel.querySelectorAll("details[open]")).map(d=>d.querySelector("summary")?.textContent).filter(Boolean):[];
   selectedLiveEventId=String(ev?.id||"");
@@ -951,7 +951,7 @@ function showSelectedMatch(ev,options={}){
     if(!anchor&&scrollAnchor?.summary)anchor=Array.from(panel.querySelectorAll("details")).find(d=>d.querySelector("summary")?.textContent?.trim()===scrollAnchor.summary)||null;
     if(!anchor&&scrollAnchor?.inside&&scrollAnchor?.text)anchor=Array.from(panel.querySelectorAll("summary,p,h3,h4,.forecast-main,.calc-section")).find(el=>el.tagName===scrollAnchor.tag&&el.textContent.trim().startsWith(scrollAnchor.text))||null;
     if(!anchor&&scrollAnchor?.inside)anchor=panel;
-    if(anchor)window.scrollBy(0,anchor.getBoundingClientRect().top-scrollAnchor.top);
+    if(anchor)window.scrollBy({top:anchor.getBoundingClientRect().top-scrollAnchor.top,behavior:"instant"});
   }
 }
 
