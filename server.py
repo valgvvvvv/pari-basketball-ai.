@@ -2157,6 +2157,9 @@ async def _enrich_with_sofascore_live(events):
                         present_metrics.add(metric_key)
                     else:
                         unmapped_stat_names += 1
+                    raw_period = stat.get("period") or group.get("period") or stat.get("periodNumber") or group.get("periodNumber")
+                    period_match = re.fullmatch(r"\\s*(?:Q|quarter|period)?\\s*(\\d+)\\s*", str(raw_period), re.I) if raw_period is not None else None
+                    target_period = int(period_match.group(1)) if period_match else None
                     normalized.append({
                         "group": group_name, "name": name, "metric_key": metric_key,
                         "home": home_value, "away": away_value,
@@ -2167,8 +2170,9 @@ async def _enrich_with_sofascore_live(events):
                         "source_event_id": cache_key,
                         "observed_at_utc": stats_payload.get("updatedAt") or stats_payload.get("updated_at"),
                         "received_at_utc": datetime.now(timezone.utc).isoformat(),
-                        "target": "match",
-                        "target_period": None,
+                        "target": "period" if target_period is not None else "match",
+                        "target_period": target_period,
+                        "period": target_period,
                         "match_status": "exact_event_id_match",
                     })
             if normalized:
@@ -2592,10 +2596,10 @@ def _finalize_live_statistics(events):
                                     float(match.group(2).replace(",", "."))))
             if parsed_pair:
                 for part, index in (("made", 0), ("attempted", 1)):
-                    expanded.append({"group":row.get("group"),"name":str(row.get("name") or metric)+" · "+part,
+                    expanded.append({**row,
+                                     "name":str(row.get("name") or metric)+" · "+part,
                                      "metric_key":suffix+"_"+part,
-                                     "home":parsed_pair[0][index],"away":parsed_pair[1][index],
-                                     "source":row.get("source","unknown")})
+                                     "home":parsed_pair[0][index],"away":parsed_pair[1][index]})
         normalized = expanded
         observed_at = event.get("feed_checked_at_utc") or event.get("checked_at_utc")
         received_at = datetime.now(timezone.utc).isoformat()
