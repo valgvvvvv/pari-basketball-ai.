@@ -1159,14 +1159,11 @@ function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="m
 }
 function classicModelPanelHtml(data,title){
   if(!data)return "";
-  const rows=(data.models||[]).map(m=>'<tr><td>'+escapeHtml(m.name)+'</td><td>'+m.projection+'</td><td>'+(m.line!=null?escapeHtml(m.direction+" "+m.line):"нет линии")+'</td><td>'+(m.probability!=null?m.probability+"%":"—")+'</td></tr>').join("");
-  const best=data.consensus?.strongest;
-  const direction=best?(best.direction==="без преимущества"?"нет перевеса":best.direction+" "+best.line):"линия PARI не получена";
-  const groups=(data.groups||[]).map(g=>g.side?g.size+" моделей: "+g.side+" ("+g.count+")":g.size+" моделей: нет совпадения").join(" · ");
+  const rows=(data.models||[]).map(m=>'<tr><td>'+escapeHtml(m.name)+'</td><td>'+m.projection+'</td><td>'+(m.line!=null?escapeHtml(m.direction+" "+m.line):"нет линии")+'</td></tr>').join("");
   const anomaly=data.anomaly?(data.anomaly.smooth?"Smooth Game: ровная траектория":"Аномалия/неровная траектория")+" · CV "+data.anomaly.cv+"%":"Проверка Smooth Game: мало завершённых четвертей";
   const toolsHtml=(data.tools||[]).map(t=>'<div class="model-tool-row"><b>'+escapeHtml(t.name)+'</b><span>'+escapeHtml(t.status)+'</span><small>'+escapeHtml(t.detail)+'</small></div>').join("");
   return '<section class="classic-model-panel"><div class="calc-section-head"><div><span class="eyebrow">'+escapeHtml(title)+'</span><h3>Альтернативные ориентиры · не голосуют за прогноз</h3></div><span class="calc-live-tag">'+(data.models.length||0)+' сравнений</span></div>'+
-    '<div class="table-scroll"><table class="calc-table"><thead><tr><th>Ориентир</th><th>Тотал</th><th>Центр относительно линии</th><th>Вероятность</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<div class="table-scroll"><table class="calc-table"><thead><tr><th>Ориентир</th><th>Тотал</th><th>Центр относительно линии</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
     '<p class="model-anomaly">'+escapeHtml(anomaly)+'</p><div class="model-tool-list">'+toolsHtml+'</div><p class="muted model-training-note">'+escapeHtml(data.mlStatus)+'</p></section>';
 }
 
