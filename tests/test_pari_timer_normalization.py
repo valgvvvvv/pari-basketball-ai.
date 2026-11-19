@@ -50,13 +50,13 @@ class PariTimerNormalizationTests(unittest.TestCase):
         result = _pari_infer_period_format_from_timeline(2, None, 595, 4)
         self.assertIsNone(result)
 
-    def test_infer_ten_minute_format_at_q3_boundary(self):
+    def test_q3_boundary_value_alone_does_not_confirm_format(self):
         result = _pari_infer_period_format_from_match_boundary(3, 1200, 4)
-        self.assertEqual(result["period_length_seconds"], 600)
+        self.assertIsNone(result)
 
-    def test_infer_twelve_minute_format_at_q4_boundary(self):
+    def test_36_minutes_in_q4_must_not_fabricate_twelve_minute_quarters(self):
         result = _pari_infer_period_format_from_match_boundary(4, 2160, 4)
-        self.assertEqual(result["period_length_seconds"], 720)
+        self.assertIsNone(result)
 
     def test_infer_q2_countdown_uses_only_future_quarters(self):
         # 28:00 remain in the match and 8:00 remain in Q2 => 10-minute quarters.
@@ -99,9 +99,9 @@ class PariTimerNormalizationTests(unittest.TestCase):
         self.assertIsNone(result)
 
 
-    def test_infer_ten_minute_format_when_q2_has_started_before_12_minutes(self):
+    def test_one_timer_does_not_confirm_scope_and_format(self):
         result = _pari_infer_period_format_from_period_timer(2, 667, 4)
-        self.assertEqual(result["period_length_seconds"], 600)
+        self.assertIsNone(result)
 
     def test_do_not_guess_format_when_both_period_lengths_fit(self):
         result = _pari_infer_period_format_from_period_timer(3, 1743, 4)
