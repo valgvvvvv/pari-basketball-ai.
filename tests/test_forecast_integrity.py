@@ -13,6 +13,16 @@ class ForecastIntegrityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             server.parse_clock("08:75")
 
+    def test_manual_quarter_does_not_extrapolate_first_minute(self):
+        req = server.QuarterAnalyzeRequest(
+            quarter=3, score1=1, score2=0, clock="01:03",
+            period_minutes=10, total_line=40.5, simulations=1000
+        )
+        result = server.api_analyze_quarter(req)
+        self.assertFalse(result["ready"])
+        self.assertEqual(result["status"], "insufficient_data")
+        self.assertIn("Первые 3 минуты", result["reason"])
+
     def test_manual_api_supports_two_halves_of_twenty_minutes(self):
         req = server.AnalyzeRequest(
             team1="Home", team2="Away", score1=40, score2=38,
