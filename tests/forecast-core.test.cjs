@@ -130,6 +130,9 @@ const applyPoissonEnd=appSource.indexOf("function normalCdf(",applyPoissonStart)
 const applyPoissonSource=appSource.slice(applyPoissonStart,applyPoissonEnd);
 assert.ok(!applyPoissonSource.includes("dataQuality.rolling_snapshot_count="), "data quality fields must not be written before dataQuality is initialized");
 assert.ok(appSource.includes("priorExposureSeconds:aggregatePriorExposureSeconds"), "missing period splits must use aggregate historical score and exact exposure");
+assert.ok(!appSource.slice(appSource.indexOf("function saveAnalysisHistory("),appSource.indexOf("function clearAnalysisHistory(")).includes("if(!estimate&&!quarter?.ready)return"), "raw snapshot history must persist even when no forecast is available");
+assert.ok(appSource.includes('forecastStatus:estimate||quarter?.ready?"calculated":"not_available"'), "history must distinguish snapshot from forecast availability");
+assert.ok(htmlSource.includes("20261119-integrity-v55"), "history fix must bump frontend cache");
 assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
 assert.ok(htmlSource.includes("20261119-integrity-v54"), "frontend cache must be bumped after display fixes");
 assert.ok(appSource.includes("Ансамбль сценариев") && appSource.includes("не независимый голос"), "scenario mixture must be shown without counting it as an independent model");
