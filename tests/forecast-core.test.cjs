@@ -155,6 +155,7 @@ assert.ok(appSource.includes('forecastStatus:estimate||quarter?.ready?"calculate
 assert.ok(htmlSource.includes("20261119-integrity-v60"), "history fix must bump frontend cache");
 assert.ok(archivePublisherSource.startsWith("import hashlib"), "permanent archive publisher must import hashlib before calculating checksums");
 assert.ok(archiveCollectorSource.includes("contract.snapshot_id = row.snapshot_id") && archiveCollectorSource.includes("contract.contract_id = crypto.createHash"), "all prediction blocks from one source update must share snapshot_id; target identity uses contract_id");
+assert.ok(!archiveCollectorSource.includes("window.automaticForecast") && archiveCollectorSource.includes("typeof automaticForecast === \"function\""), "browser collector must call classic-script lexical functions rather than assume they are window properties");
 assert.ok(archiveCollectorSource.includes("result.source_checked_at_utc || row.captured_at_utc") && archiveCollectorSource.includes("String(row.score || \"\"),"), "archive snapshot IDs must use the same source timestamp, score, period and clock key as the UI");
 assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
 assert.ok(htmlSource.includes("20261119-integrity-v60"), "frontend cache must be bumped after display fixes");
