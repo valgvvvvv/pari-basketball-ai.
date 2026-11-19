@@ -183,7 +183,7 @@ assert.equal(mcResult.momentum,20);
 assert.equal(mcResult.research_scheme,true);
 assert.ok(htmlSource.indexOf("forecast-core.js") < htmlSource.indexOf("app.js"),
   "the tested forecast core must load before the UI code");
-assert.ok(htmlSource.includes("20261119-forecast-core-v2"), "forecast core cache must be refreshed with model changes");
+assert.ok(htmlSource.includes("20261119-forecast-core-v3"), "forecast core cache must be refreshed with model changes");
 assert.ok(appSource.includes("market.prices.push"), "quarter market prices must preserve both factor IDs");
 assert.ok(appSource.includes('outcomeStatus:"unresolved"'), "unconfirmed history outcomes must not be shown as settled");
 assert.ok(appSource.includes('overtime_policy:"not_included_market_rule_unverified"'), "regulation-only forecasts must not imply overtime inclusion");
