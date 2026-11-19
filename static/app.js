@@ -1313,16 +1313,14 @@ function aiSignalHtml(signal,title){
     '<small>'+escapeHtml(signal.drivers.join(" · "))+'</small><small>Это тот же основной прогноз, а не независимая ИИ-модель.</small></div>';
 }
 function findQuarterClockFromElapsed(ev,period,length){
-  if(ev?.timer_semantics_verified!==true&&ev?.live_fields?.timer_semantics_verified!==true)return null;
+  const verified=ev?.timer_semantics_verified===true||ev?.live_fields?.timer_semantics_verified===true;
+  if(!verified)return null;
   if(!Number.isInteger(Number(period))||!Number.isFinite(Number(length))||Number(length)<300)return null;
-  const candidates=[ev?.match_elapsed_seconds,ev?.external_live?.match_elapsed_seconds,
-    ev?.live_fields?.timerSeconds,ev?.live_fields?.timer_seconds,
-    ev?.raw?.timerSeconds,ev?.raw?.timer_seconds];
-  const raw=candidates.find(value=>value!=null&&value!=="");
-  const elapsedMatch=Number(raw);
-  if(!Number.isFinite(elapsedMatch)||elapsedMatch<0||elapsedMatch>4*Number(length))return null;
-  const elapsedInQuarter=elapsedMatch-(Number(period)-1)*Number(length);
-  if(elapsedInQuarter<0||elapsedInQuarter>Number(length))return null;
+  const periodElapsed=Number(ev?.period_elapsed_seconds??ev?.live_fields?.period_elapsed_seconds);
+  const matchElapsed=Number(ev?.match_elapsed_seconds??ev?.live_fields?.match_elapsed_seconds);
+  const elapsedInQuarter=Number.isFinite(periodElapsed)?periodElapsed:
+    Number.isFinite(matchElapsed)?matchElapsed-(Number(period)-1)*Number(length):NaN;
+  if(!Number.isFinite(elapsedInQuarter)||elapsedInQuarter<0||elapsedInQuarter>Number(length))return null;
   const remaining=Math.max(0,Math.round(Number(length)-elapsedInQuarter));
   return String(Math.floor(remaining/60)).padStart(2,"0")+":"+String(remaining%60).padStart(2,"0");
 }
@@ -1621,6 +1619,12 @@ async function refreshLiveMatches() {
                   }).join(" | ")
                 : "ориентир "+estimate.projection+" · диапазон "+estimate.low+"–"+estimate.high;
               if(forecast.kind==="period_range")lineText+=" · без точного таймера, предварительно";
+              if(forecast.kind==="live_tempo"&&ev?.timer_semantics_verified===true&&
+                 Number.isFinite(Number(ev?.match_elapsed_seconds))&&
+                 Math.abs(Number(estimate.elapsed_seconds)-Number(ev.match_elapsed_seconds))<=2)
+                lineText+=" · таймер PARI использован: "+Math.round(Number(ev.match_elapsed_seconds))+" с от начала матча";
+              else if(ev?.source_timer_seconds!=null)
+                lineText+=" · таймер PARI не использован: "+String(ev?.timer_block_reason||"семантика не подтверждена");
               if(estimate.preliminary)lineText+=" · ранняя оценка, низкая уверенность";
               lineText+=" · модельная вероятность не калибрована · ОТ не включён, правило PARI не подтверждено";
             }
