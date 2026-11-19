@@ -2251,9 +2251,26 @@ def _stat_value_for_ui(value):
 # diagnostic-only; their meaning is never inferred from a matching label.
 # Competition IDs are populated only from the live PARI catalogue and official
 # competition rulebooks. Empty until a specific ID/rules version is verified.
-PARI_COMPETITION_FORMATS = {}
+PARI_COMPETITION_FORMATS = {
+    # PARI sportId is the leaf competition/category ID in the live catalogue.
+    # The IDs below were read from live PARI snapshots on 2026-11-19.
+    "59836": {
+        "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "KBL 2026-2027 official game rules, Article 8.1 and 8.7",
+        "rules_version": "KBL 2026-2027",
+        "source_url": "https://kbl.or.kr/upfiles/ebook/2027_rules.pdf",
+    },
+    "13791": {
+        "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "FIBA Official Basketball Rules 2026, Article 8.1 and 8.7; NBL27 uses FIBA rules",
+        "rules_version": "FIBA OBR 2026 v1.1 / NBL27",
+        "source_url": "https://assets.fiba.basketball/image/upload/documents-corporate-fiba-official-rules-2026-v1-1.pdf",
+    },
+}
 
-PARI_PERIOD_SCORE_KIND_IDS = {"100401": 1}
+PARI_PERIOD_SCORE_KIND_IDS = {
+    "100401": 1, "100402": 2, "100403": 3, "100404": 4,
+}
 PARI_STATISTIC_KIND_IDS = {
     "420300": "two_pointers_made", "30300401": "two_pointers_made",
     "420400": "three_pointers_made", "30400401": "three_pointers_made",
