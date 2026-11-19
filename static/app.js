@@ -217,7 +217,7 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
   const variance=outcomes.reduce((sum,x)=>sum+(x-sampleMean)**2,0)/n;
   const scenarioMean=scenarioMeans.reduce((sum,x)=>sum+x,0)/n;
   const meanUncertaintyVariance=scenarioMeans.reduce((sum,x)=>sum+(x-scenarioMean)**2,0)/n;
-  return {simulations:n,mu:Math.round(mu*100)/100,mean:sampleMean,variance,meanUncertaintyVariance,meanUncertaintySd:Math.sqrt(meanUncertaintyVariance),low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),momentum:Math.round(momentum*1000)/10,method:"Динамическая смесь сценариев · темп четвертей · ускорение/замедление"};
+  return {simulations:n,mu:Math.round(mu*100)/100,mean:sampleMean,variance,meanUncertaintyVariance,meanUncertaintySd:Math.sqrt(meanUncertaintyVariance),low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),momentum:Math.round(momentum*1000)/10,method:"Экспериментальная смесь сценариев · не калибрована",research_scheme:true,calibration_status:"not_calibrated",scenario_weight_rule:"pFast=0.25+0.55×momentum; pSlow=0.25−0.25×momentum; normalization to preserve mean"};
 }
 function poissonMonteCarlo(current, mu, lines=[], seedText="") {
   const n=100000;
