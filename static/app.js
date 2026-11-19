@@ -320,7 +320,7 @@ function applyGameContext(estimate,ev,period,clock){
   // Quarter tempo/momentum is consumed once by dynamicScenarioMonteCarlo.
   // Do not also move the forecast mean here; that would double-count the same signal.
   const score=findLiveScore(ev);
-  if(Number(period)===4&&score&&remaining>0){
+  if(Number(period)===count&&score&&remaining>0){
     const margin=Math.abs(Number(score[0])-Number(score[1]));
     let delta=1;
     if(remaining<=180&&margin<=8)delta=1.08;
@@ -453,9 +453,10 @@ function advancedMatchCalculations(ev,estimate,period,clock,possession,quarterFo
     const avg=completed.reduce((a,b)=>a+b,0)/completed.length;
     const variance=completed.reduce((a,b)=>a+(b-avg)**2,0)/completed.length;
     const sd=Math.sqrt(variance),cv=avg>0?sd/avg*100:null;
-    out.push({name:"Средний тотал Q",value:fmt(avg),detail:"σ "+fmt(sd)+" · разброс "+fmt(cv,1)+"%"});
+    const periodUnit=Number(ev?.external_live?.period_count||inferPeriodLengthForForecast(ev)?.periods||4)===2?"половины":"Q";
+    out.push({name:periodUnit==="Q"?"Средний тотал Q":"Средний тотал половины",value:fmt(avg),detail:"σ "+fmt(sd)+" · разброс "+fmt(cv,1)+"%"});
     const prior=completed.slice(0,-1),priorAvg=prior.reduce((a,b)=>a+b,0)/prior.length,last=completed[completed.length-1];
-    if(priorAvg>0)out.push({name:"Динамика последней Q",value:(last>=priorAvg?"+":"")+fmt((last/priorAvg-1)*100,1)+"%",detail:fmt(last)+" оч. · до этого "+fmt(priorAvg)+" оч./Q"});
+    if(priorAvg>0)out.push({name:periodUnit==="Q"?"Динамика последней Q":"Динамика последней половины",value:(last>=priorAvg?"+":"")+fmt((last/priorAvg-1)*100,1)+"%",detail:fmt(last)+" оч. · до этого "+fmt(priorAvg)+" оч./"+periodUnit});
   }
   const matchElapsed=Number(estimate?.elapsed_seconds||0),matchCurrent=Number(estimate?.current||0);
   const matchRate=matchElapsed>0?matchCurrent/(matchElapsed/60):null;
@@ -972,7 +973,7 @@ function automaticForecast(ev) {
   if(score&&period&&clock&&periodLength){
     const estimate=estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength,period_count:ev.external_live?.period_count||lengthInfo.periods}},score,period,clock);
     if(estimate&&estimate.elapsed_seconds>0){
-      const early=estimate.elapsed_seconds<12*60;
+      const early=period<(Number(ev.external_live?.period_count||lengthInfo?.periods||4)===2?2:3)||estimate.elapsed_seconds<12*60;
       const formatUnverified=String(lengthInfo?.method||"").includes("предварительно");
       const preliminary=early||formatUnverified;
       const modeled=applyPoissonModel(estimate,lines,String(ev.id||"")+"|"+score.join(":")+"|"+clock,ev,period,clock);
@@ -1070,7 +1071,7 @@ function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="m
   if(recent!=null&&length>0&&elapsed>0){
     const rate=recent/(length/60),global=current/(elapsed/60);
     dynamic=linear*0.72+(current+rate*(remaining/60))*0.28;
-    add("Динамический темп",dynamic,safeSigma*1.05,"72% общий темп + 28% темп последней четверти",1.05);
+    add("Динамический темп",dynamic,safeSigma*1.05,"72% общий темп + 28% темп последнего завершённого периода",1.05);
   } else if(isQuarter&&Number.isFinite(Number(forecast.projection))){
     dynamic=projection;
     add("Динамика четверти",dynamic,safeSigma,"Текущий темп четверти с поправкой на доступный таймер",1);
@@ -1082,7 +1083,7 @@ function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="m
   }
   // Legacy Bayesian blend mixed a full-game projection with a one-quarter average; excluded pending validation.
   // The former regression averaged correlated pace estimates without trained coefficients; excluded.
-  if(!isQuarter&&Number(period)===4&&Number.isFinite(remaining)){
+  if(!isQuarter&&Number(period)===(Number(ev?.external_live?.period_count||info?.periods||4))&&Number.isFinite(remaining)){
     const score=findLiveScore(ev),margin=score?Math.abs(score[0]-score[1]):null;
     let endgame=projection,detail="Базовый прогноз без неподтверждённых поправок";
     if(margin!=null&&remaining<=360){
