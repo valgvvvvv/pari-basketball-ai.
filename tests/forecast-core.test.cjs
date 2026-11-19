@@ -86,6 +86,7 @@ assert.ok(appSource.includes('kind:"period_range",preliminary:true'), "timerless
 assert.ok(appSource.includes("const mu=possMu*secondaryAdjustment,mc=dynamicScenarioMonteCarlo"), "tempo momentum must not shift the mean and the scenario distribution twice");
 assert.ok(!appSource.includes("possMu*secondaryAdjustment*tempoFactor"), "duplicate tempo multiplier must stay out of the primary mean");
 assert.ok(appSource.includes("Импульс MC"), "tempo momentum must be visible as a distribution-scenario effect");
+assert.ok(appSource.includes("research_scheme:true") && appSource.includes("calibration_status:\"not_calibrated\""), "scenario mixture must be explicitly labeled experimental and uncalibrated");
 const clockStart = appSource.indexOf("function findLiveClock(ev){");
 const clockEnd = appSource.indexOf("function estimateLiveTotal(ev", clockStart);
 assert.ok(clockStart >= 0 && clockEnd > clockStart);
