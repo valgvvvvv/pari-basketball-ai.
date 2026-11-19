@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import server
+from result_validation import settle_prediction
 
 
 class ForecastIntegrityTests(unittest.TestCase):
@@ -37,6 +38,30 @@ class ForecastIntegrityTests(unittest.TestCase):
         self.assertAlmostEqual(
             result["p_over_mc"] + result["p_under_mc"] + result["p_push_mc"], 100.0, places=1
         )
+
+    def test_settlement_requires_confirmed_identity_and_overtime_rule(self):
+        contract = {"event_id": "game-1", "snapshot_id": "snap-1", "target": {"type": "match"}}
+        base = {
+            "event_id": "game-1", "final_status": "finished", "confirmed": True,
+            "identity_verified": True, "source": "independent-final-feed",
+            "regulation_total": 200, "total_with_overtime": 210, "line": 205,
+            "includes_overtime": True
+        }
+        self.assertEqual(settle_prediction(contract, base)["result"], "over_won")
+        self.assertEqual(settle_prediction(contract, {**base, "includes_overtime": False})["result"], "under_won")
+        self.assertEqual(settle_prediction(contract, {**base, "total_with_overtime": 205})["result"], "push")
+        self.assertEqual(settle_prediction(contract, {**base, "includes_overtime": None})["status"], "unresolved")
+        self.assertEqual(settle_prediction(contract, {**base, "identity_verified": False})["status"], "unresolved")
+        self.assertEqual(settle_prediction(contract, {**base, "event_id": "different"})["status"], "disputed")
+
+    def test_period_settlement_requires_exact_period(self):
+        contract = {"event_id": "game-2", "snapshot_id": "snap-2",
+                    "target": {"type": "period", "number": 3}}
+        final = {"event_id": "game-2", "final_status": "finished", "confirmed": True,
+                 "identity_verified": True, "source": "official-feed",
+                 "period_number": 3, "period_total": 42, "line": 42}
+        self.assertEqual(settle_prediction(contract, final)["result"], "push")
+        self.assertEqual(settle_prediction(contract, {**final, "period_number": 2})["status"], "disputed")
 
     def test_raw_archive_snapshots_are_append_only(self):
         with tempfile.TemporaryDirectory() as tmp:
