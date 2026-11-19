@@ -195,7 +195,15 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
   for(let i=0;i<n;i++){const u=random(),sc=u<pSlow?scenarios[0]:(u<pSlow+pBase?scenarios[1]:scenarios[2]);outcomes[i]=Math.max(current,current+poisson(Math.max(0,mu*sc.factor/norm)));}
   outcomes.sort((a,b)=>a-b);
   const quantile=q=>outcomes[Math.min(n-1,Math.max(0,Math.ceil(q*n)-1))];
-  const probabilities=(lines||[]).filter(x=>Number.isFinite(Number(x.line))).map(x=>{const line=Number(x.line),over=outcomes.reduce((sum,total)=>sum+(total>line?1:0),0)/n;return {...x,pOver:over,pUnder:1-over,direction:over>=0.57?"ТБ":over<=0.43?"ТМ":"без выраженного преимущества",edge:Math.max(over,1-over)-0.5};});
+  const probabilities=(lines||[]).filter(x=>Number.isFinite(Number(x.line))).map(x=>{
+    const line=Number(x.line);let over=0,under=0,push=0;
+    for(const total of outcomes){if(total>line)over++;else if(total<line)under++;else push++;}
+    const pOver=over/n,pUnder=under/n,pPush=push/n,resolved=pOver+pUnder;
+    const conditionalOver=resolved>0?pOver/resolved:null;
+    return {...x,pOver,pUnder,pPush,conditionalOver,
+      direction:conditionalOver==null?"возврат":conditionalOver>=0.57?"ТБ":conditionalOver<=0.43?"ТМ":"без выраженного преимущества",
+      edge:conditionalOver==null?0:Math.max(conditionalOver,1-conditionalOver)-0.5};
+  });
   return {simulations:n,mu:Math.round(mu*100)/100,low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),momentum:Math.round(momentum*1000)/10,method:"Динамическая смесь сценариев · темп четвертей · ускорение/замедление"};
 }
 function poissonMonteCarlo(current, mu, lines=[], seedText="") {
@@ -212,11 +220,13 @@ function poissonMonteCarlo(current, mu, lines=[], seedText="") {
   outcomes.sort((a,b)=>a-b);
   const quantile=q=>outcomes[Math.min(n-1,Math.max(0,Math.ceil(q*n)-1))];
   const probs=(lines||[]).map(x=>{
-    const line=Number(x.line),wins=outcomes.reduce((sum,total)=>sum+(total>line?1:0),0);
-    const over=wins/n;
-    return {...x,pOver:over,pUnder:1-over,
-      direction:over>=0.57?"ТБ":(over<=0.43?"ТМ":"без выраженного преимущества"),
-      edge:Math.max(over,1-over)-0.5};
+    const line=Number(x.line);let over=0,under=0,push=0;
+    for(const total of outcomes){if(total>line)over++;else if(total<line)under++;else push++;}
+    const pOver=over/n,pUnder=under/n,pPush=push/n,resolved=pOver+pUnder;
+    const conditionalOver=resolved>0?pOver/resolved:null;
+    return {...x,pOver,pUnder,pPush,conditionalOver,
+      direction:conditionalOver==null?"возврат":conditionalOver>=0.57?"ТБ":(conditionalOver<=0.43?"ТМ":"без выраженного преимущества"),
+      edge:conditionalOver==null?0:Math.max(conditionalOver,1-conditionalOver)-0.5};
   });
   return {simulations:n,mu:Math.round(mu*100)/100,low80:quantile(.10),high80:quantile(.90),
     low95:quantile(.025),high95:quantile(.975),probabilities:probs};
@@ -1129,22 +1139,16 @@ function classicModelPanelHtml(data,title){
   const groups=(data.groups||[]).map(g=>g.side?g.size+" моделей: "+g.side+" ("+g.count+")":g.size+" моделей: нет совпадения").join(" · ");
   const anomaly=data.anomaly?(data.anomaly.smooth?"Smooth Game: ровная траектория":"Аномалия/неровная траектория")+" · CV "+data.anomaly.cv+"%":"Проверка Smooth Game: мало завершённых четвертей";
   const toolsHtml=(data.tools||[]).map(t=>'<div class="model-tool-row"><b>'+escapeHtml(t.name)+'</b><span>'+escapeHtml(t.status)+'</span><small>'+escapeHtml(t.detail)+'</small></div>').join("");
-  return '<section class="classic-model-panel"><div class="calc-section-head"><div><span class="eyebrow">'+escapeHtml(title)+'</span><h3>Модели расчёта матча</h3></div><span class="calc-live-tag">'+(data.models.length||0)+' активны</span></div>'+
-    (data.consensus?'<div class="classic-consensus"><b>AI Consensus</b><strong>'+data.consensus.projection+'</strong><span>Направление: '+escapeHtml(direction)+(best?' · ТБ '+(best.pOver*100).toFixed(1)+'% / ТМ '+(best.pUnder*100).toFixed(1)+'%':'')+' · уверенность '+escapeHtml(data.consensus.confidence)+'</span></div>':'')+
-    '<div class="table-scroll"><table class="calc-table"><thead><tr><th>Модель</th><th>Тотал</th><th>Направление</th><th>Вероятность</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
-    '<p class="model-consensus-groups">'+escapeHtml(groups)+'</p><p class="model-anomaly">'+escapeHtml(anomaly)+'</p><div class="model-tool-list">'+toolsHtml+'</div><p class="muted model-training-note">'+escapeHtml(data.mlStatus)+'</p></section>';
+  return '<section class="classic-model-panel"><div class="calc-section-head"><div><span class="eyebrow">'+escapeHtml(title)+'</span><h3>Альтернативные ориентиры · не голосуют за прогноз</h3></div><span class="calc-live-tag">'+(data.models.length||0)+' сравнений</span></div>'+
+    '<div class="table-scroll"><table class="calc-table"><thead><tr><th>Ориентир</th><th>Тотал</th><th>Центр относительно линии</th><th>Вероятность</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<p class="model-anomaly">'+escapeHtml(anomaly)+'</p><div class="model-tool-list">'+toolsHtml+'</div><p class="muted model-training-note">'+escapeHtml(data.mlStatus)+'</p></section>';
 }
 
 function aiSignalHtml(signal,title){
-  if(!signal)return '<p class="muted">ИИ-анализ: недостаточно подтверждённых данных</p>';
-  const best=signal.strongest;
-  const direction=best
-    ?(best.direction==="без преимущества"?"Нет перевеса":best.direction)+" относительно линии "+best.line
-    :"Линия PARI не получена — направление не определяется";
-  return '<div class="ai-model-panel"><b>'+escapeHtml(title)+'</b><div class="ai-model-number">'+signal.projection+'</div>'+
-    '<p><b>Направление: '+escapeHtml(direction)+'</b>'+(best?' · ТБ '+(best.pOver*100).toFixed(1)+'% / ТМ '+(best.pUnder*100).toFixed(1)+'%':'')+
-    ' · уверенность: '+escapeHtml(signal.confidence)+'</p>'+
-    '<small>'+escapeHtml(signal.drivers.join(" · "))+'</small></div>';
+  if(!signal)return '<p class="muted">Эвристические факторы: недостаточно подтверждённых данных.</p>';
+  return '<div class="ai-model-panel"><b>'+escapeHtml(title)+' · диагностические факторы</b>'+
+    '<p>Это не отдельный прогноз и не независимая вероятность. Основные числа берутся из единого расчётного результата выше.</p>'+
+    '<small>'+escapeHtml((signal.drivers||[]).join(" · "))+'</small></div>';
 }
 function findQuarterClockFromElapsed(ev,period,length){
   if(!Number.isInteger(Number(period))||!Number.isFinite(Number(length))||Number(length)<300)return null;
