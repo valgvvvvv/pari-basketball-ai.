@@ -2515,7 +2515,9 @@ def _pari_normalize_timer(event_id, timer_seconds, timer_direction, period_numbe
                 match_elapsed = int(period_length_seconds) * period_count + (period_number - period_count - 1) * overtime_length + int(round(raw))
                 period_elapsed = int(round(raw))
                 return {"timer_semantics_verified": True, "timer_interpretation_status": "verified_count_up_overtime",
-                        "timer_observed_direction": observed_direction, "match_elapsed_seconds": match_elapsed,
+                        "timer_observed_direction": observed_direction,
+                        "timer_direction_semantics_verified": timer_direction is not None,
+                        "match_elapsed_seconds": match_elapsed,
                         "period_elapsed_seconds": period_elapsed, "period_remaining_seconds": max(0, overtime_length-period_elapsed),
                         "timer_state": "overtime", "timer_block_reason": None, "timer_snapshot_count": len(history)}
             if match_elapsed_raw > period_length_seconds * period_count:
