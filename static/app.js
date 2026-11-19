@@ -75,8 +75,10 @@ function findLiveClock(ev){
   // Refresh a PARI count-up timer against its source timestamp. The server
   // has already verified period format and period/timer consistency.
   const period=findLivePeriod(ev);
+  // Do not call inferPeriodLengthForForecast here: its provisional-format
+  // branch reads findLiveClock. Only explicit/server-normalized duration is safe.
   const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||
-    findPeriodLengthSeconds(ev)||inferPeriodLengthForForecast(ev)?.seconds||0);
+    findPeriodLengthSeconds(ev)||0);
   const elapsedRaw=ev?.match_elapsed_seconds??ev?.external_live?.match_elapsed_seconds;
   const elapsedBase=Number(elapsedRaw);
   if(ev?.clock_source==="PARI_timer_and_period_consistency"&&
