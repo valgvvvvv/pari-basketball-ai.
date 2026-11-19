@@ -1,5 +1,6 @@
 import datetime as dt
 import io
+import gzip
 import json
 import os
 import urllib.error
@@ -84,7 +85,7 @@ def main():
         return
 
     tag = "pari-archive-" + NOW.strftime("%Y%m%d")
-    filename = "pari-basketball-archive-" + NOW.strftime("%Y%m%d") + ".zip"
+    filename = "pari-basketball-archive-" + NOW.strftime("%Y%m%d-%H%M%S") + ".zip"
     output = io.BytesIO()
     manifest = {
         "format": "pari-basketball-daily-archive",
@@ -97,15 +98,51 @@ def main():
         "contents": "Each snapshots/*.json.gz file is a compressed JSON snapshot containing the complete normalized event records returned by the project's PARI adapter.",
     }
 
+    unique_events = set()
+    forecast_count = 0
+    prediction_contract_count = 0
+    forecast_error_count = 0
+    snapshot_file_count = 0
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as daily:
-        daily.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
         for index, artifact in enumerate(sorted(artifacts, key=lambda x: x["created_at"])):
             blob = download_artifact(artifact["url"])
             with zipfile.ZipFile(io.BytesIO(blob), "r") as source:
                 candidates = [name for name in source.namelist() if name.endswith(".json.gz")]
+                if not candidates:
+                    raise RuntimeError("Collector artifact contains no compressed JSON snapshots: " + artifact["name"])
                 for member in candidates:
-                    daily.writestr(f"snapshots/{artifact['created_at'].replace(':', '').replace('-', '')}-{index:04d}.json.gz",
-                                   source.read(member))
+                    compressed = source.read(member)
+                    try:
+                        payload = json.loads(gzip.decompress(compressed).decode("utf-8"))
+                    except Exception as exc:
+                        raise RuntimeError("Invalid collector snapshot " + member + ": " + str(exc))
+                    unique_events.update(str(row.get("id")) for row in payload.get("events", [])
+                                         if isinstance(row, dict) and row.get("id") is not None)
+                    forecasts = payload.get("forecasts", [])
+                    forecast_count += len(forecasts)
+                    prediction_contract_count += sum(
+                        len(row.get("prediction_contracts", []))
+                        for row in forecasts if isinstance(row, dict)
+                    )
+                    forecast_error_count += sum(
+                        len(row.get("errors", []))
+                        for row in forecasts if isinstance(row, dict)
+                    )
+                    daily.writestr(
+                        f"snapshots/{artifact['created_at'].replace(':', '').replace('-', '')}-{index:04d}-{snapshot_file_count:04d}.json.gz",
+                        compressed
+                    )
+                    snapshot_file_count += 1
+        manifest.update({
+            "version": 2,
+            "snapshot_files": snapshot_file_count,
+            "unique_event_ids_in_window": len(unique_events),
+            "forecast_records": forecast_count,
+            "immutable_prediction_contracts": prediction_contract_count,
+            "forecast_errors": forecast_error_count,
+            "contents": "Each snapshots/*.json.gz file contains normalized source events, timestamped forecast snapshots and immutable versioned prediction contracts. Final outcomes remain unresolved unless independently confirmed."
+        })
+        daily.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
 
     zip_bytes = output.getvalue()
     if len(zip_bytes) < 100:
@@ -124,10 +161,7 @@ def main():
             "prerelease": False,
         })
 
-    # Replace the same day's asset safely when the workflow is re-run.
-    for asset in release.get("assets", []):
-        if asset.get("name") == filename:
-            api_json(f"/repos/{REPO}/releases/assets/{asset['id']}", method="DELETE")
+    # Keep every previously published archive. Each run gets a unique timestamped asset name.
     upload_base = release["upload_url"].split("{", 1)[0]
     upload_url = upload_base + "?" + urllib.parse.urlencode({"name": filename})
     req = urllib.request.Request(upload_url, data=zip_bytes, headers={
@@ -147,7 +181,12 @@ def main():
         "published": True,
         "tag": tag,
         "asset": uploaded.get("browser_download_url"),
-        "snapshots": len(artifacts),
+        "snapshot_artifacts": len(artifacts),
+        "snapshot_files": snapshot_file_count,
+        "unique_event_ids": len(unique_events),
+        "forecasts": forecast_count,
+        "prediction_contracts": prediction_contract_count,
+        "forecast_errors": forecast_error_count,
         "temporary_artifacts_deleted": deleted,
         "archive_bytes": len(zip_bytes),
     }, ensure_ascii=False))
