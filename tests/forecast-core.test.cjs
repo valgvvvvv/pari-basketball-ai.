@@ -25,6 +25,29 @@ const zeroAtStart = core.quarterPosterior({
 assert.equal(zeroAtStart.ready, true);
 assert.ok(zeroAtStart.projection >= 40 && zeroAtStart.projection <= 46);
 
+const riverportQ2 = core.quarterPosterior({
+  current: 4, elapsedSeconds: 37, periodLengthSeconds: 600,
+  completedQuarterTotals: [44]
+});
+assert.equal(riverportQ2.ready, true);
+assert.equal(riverportQ2.alpha, 48.5);
+assert.ok(Math.abs(riverportQ2.beta - (10 + 37/60)) < 1e-9);
+assert.ok(Math.abs(riverportQ2.expectedRemaining - 42.85) < 0.03);
+assert.ok(Math.abs(riverportQ2.projection - 46.85) < 0.03,
+  "Riverport Q2 must use the Q1 prior, not current tempo × remaining time");
+
+const illawarraQ3 = core.quarterPosterior({
+  current: 11, elapsedSeconds: 149, periodLengthSeconds: 600,
+  completedQuarterTotals: [49, 46]
+});
+assert.equal(illawarraQ3.ready, true);
+assert.equal(illawarraQ3.priorQuarterCount, 2);
+assert.equal(illawarraQ3.completedPoints, 95);
+assert.equal(illawarraQ3.priorAlpha, 95.5);
+assert.ok(illawarraQ3.beta > 22.48 && illawarraQ3.beta < 22.49);
+assert.ok(illawarraQ3.expectedRemaining > 35 && illawarraQ3.expectedRemaining < 36,
+  "Illawarra Q3 must include Q1 and Q2 history in its posterior");
+
 const noPriorEarly = core.quarterPosterior({
   current: 1, elapsedSeconds: 63, periodLengthSeconds: 600,
   completedQuarterTotals: []
