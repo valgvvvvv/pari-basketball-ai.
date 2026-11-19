@@ -939,7 +939,7 @@ function showSelectedMatch(ev,options={}){
       '<p>Снимок API: '+(Number.isFinite(Date.parse(ev.feed_checked_at_utc||""))?Math.round((Date.now()-Date.parse(ev.feed_checked_at_utc))/1000)+" сек. назад":"время обновления неизвестно")+'</p></details>');
   if(options.silent&&openSummaries.length){for(const d of panel.querySelectorAll("details"))if(openSummaries.includes(d.querySelector("summary")?.textContent))d.open=true;}
   saveAnalysisHistory(ev,score,period,clock,estimate,quarter);
-  if(!options.silent)panel.scrollIntoView({behavior:"smooth",block:"start"});else window.scrollTo(0,previousScrollY);
+  if(!options.silent)panel.scrollIntoView({behavior:"smooth",block:"start"});else window.scrollTo({top:previousScrollY,behavior:"instant"});
 }
 
 // Direct PARI event feed: refresh on page open and every 30 seconds.
