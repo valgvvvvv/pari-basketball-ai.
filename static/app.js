@@ -1140,8 +1140,9 @@ function prioritySignals(ev,forecast,quarterForecast){
   });
 }
 function priorityLabel(signal){
+  const probability=signal.probability>=0.999?"≥99.9":(signal.probability*100).toFixed(1);
   return (signal.target==="quarter"?"Четверть Q"+signal.period:"Матч · основное время")+
-    " · "+signal.direction+" "+signal.line+" · "+(signal.probability*100).toFixed(1)+"% по модели";
+    " · "+signal.direction+" "+signal.line+" · "+probability+"% по модели";
 }
 let prioritySignalsExpiresAt=0;
 function expirePrioritySignals(){
