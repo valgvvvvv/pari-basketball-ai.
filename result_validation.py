@@ -61,11 +61,18 @@ def settle_prediction(contract: dict[str, Any], final_record: dict[str, Any] | N
                 "event_id": event_id, "snapshot_id": snapshot_id}
     market = contract.get("market") if isinstance(contract.get("market"), dict) else {}
     market_lines = market.get("lines") if isinstance(market.get("lines"), list) else []
-    if not any(isinstance(row, dict) and row.get("line") is not None and
-               abs(float(row["line"]) - line) < 1e-9 for row in market_lines):
+    captured_lines = []
+    for row in market_lines:
+        if not isinstance(row, dict) or row.get("line") is None:
+            continue
+        try:
+            captured_lines.append(float(row["line"]))
+        except (TypeError, ValueError):
+            continue
+    if not any(abs(captured - line) < 1e-9 for captured in captured_lines):
         return {"status": "unresolved", "reason": "settlement line was not captured in this prediction snapshot",
                 "event_id": event_id, "snapshot_id": snapshot_id}
-    if total < 0 or line < 0:
+    if total < 0 or line < 0 or not total.is_integer():
         return {"status": "disputed", "reason": "negative total or line is invalid",
                 "event_id": event_id, "snapshot_id": snapshot_id}
     if total > line:
