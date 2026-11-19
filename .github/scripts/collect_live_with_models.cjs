@@ -27,11 +27,62 @@ const { chromium } = require("playwright");
       }
 
       const forecasts = [];
+      const predictionContracts = [];
+      const captureTime = new Date().toISOString();
+      const makeContract = (ev, target, forecast, period, clock) => {
+        if (!forecast || !forecast.ready) return null;
+        const estimate = target === "match" ? forecast.estimate : forecast;
+        if (!estimate || !Number.isFinite(Number(estimate.projection))) return null;
+        const distribution = target === "match" ? estimate.poisson : forecast.poisson;
+        const contract = {
+          contract_version: "pari-prediction-contract-v1",
+          event_id: String(ev.id || ""),
+          snapshot_id: [String(ev.id || ""), captureTime, target, period || ""].join("|"),
+          target: target === "match" ? { type: "match_total" } : { type: "period_total", period: Number(period) },
+          captured_at_utc: captureTime,
+          source_timestamp_utc: ev.source_timestamp_utc || ev.external_live?.updated_at || null,
+          source_fetched_at_utc: data.checked_at_utc || null,
+          score: ev.score || null,
+          period: period ?? null,
+          clock: clock || null,
+          period_length_seconds: ev.period_length_seconds || ev.external_live?.period_length_seconds || null,
+          overtime_included: target === "match" ? null : false,
+          overtime_scope_status: target === "match" ? "not_confirmed_by_market" : "not_applicable_to_period",
+          model: target === "match" ? "live-tempo-possession-scenario" : (forecast.distribution || "quarter-model"),
+          model_version: target === "match" ? "match-live-v1" : (forecast.model_version || "unknown"),
+          current_points: estimate.current ?? null,
+          expected_remaining_points: target === "match" ? distribution?.mu ?? null : forecast.expected_remaining ?? null,
+          projected_total: estimate.projection,
+          distribution: distribution ? {
+            type: distribution.method || forecast.distribution || "not_specified",
+            simulations: distribution.simulations || forecast.simulations || null,
+            low80: distribution.low80 ?? forecast.low80 ?? null,
+            high80: distribution.high80 ?? forecast.high80 ?? null,
+            low95: distribution.low95 ?? forecast.low95 ?? null,
+            high95: distribution.high95 ?? forecast.high95 ?? null,
+            probabilities: distribution.probabilities || forecast.lines || [],
+            posterior: forecast.posterior || null,
+            prior: forecast.prior || null
+          } : null,
+          lines: target === "match" ? (forecast.lines || []) : (forecast.lines || []),
+          data_quality: ev.statistics_quality || null,
+          score_source: ev.score_source || null,
+          clock_source: ev.clock_source || null,
+          calibration_status: target === "match"
+            ? "not_calibrated_no_verified_final_outcomes"
+            : (forecast.calibration_status || "not_calibrated"),
+          limitations: [
+            "Source timestamp is null unless the provider supplies one.",
+            "Market price side and overtime settlement scope are not inferred when absent."
+          ]
+        };
+        return contract;
+      };
       for (const ev of data.events) {
         const row = {
           event_id: String(ev.id || ""),
           teams: String((ev.team1 || "Команда 1") + " — " + (ev.team2 || "Команда 2")),
-          captured_at_utc: new Date().toISOString(),
+          captured_at_utc: captureTime,
           score: ev.score ?? null,
           period: ev.period ?? null,
           clock: ev.clock ?? null,
@@ -63,6 +114,10 @@ const { chromium } = require("playwright");
             match.ready && match.kind !== "market_reference" ? match.estimate.possession_model : null,
             quarter
           );
+          const matchContract = makeContract(ev, "match", match, window.findLivePeriod(ev), window.findLiveClock(ev));
+          const quarterContract = makeContract(ev, "quarter", quarter, window.findLivePeriod(ev), window.findLiveClock(ev));
+          row.prediction_contracts = [matchContract, quarterContract].filter(Boolean);
+          predictionContracts.push(...row.prediction_contracts);
         } catch (error) {
           row.errors.push(String(error && (error.stack || error.message) || error).slice(0, 1200));
         }
@@ -71,12 +126,15 @@ const { chromium } = require("playwright");
 
       return {
         format: "pari-live-and-model-forecast-v1",
-        captured_at_utc: new Date().toISOString(),
+        captured_at_utc: captureTime,
+        source_fetched_at_utc: data.checked_at_utc || null,
         source: "PARI live adapter + the same browser calculation functions used by the site",
         event_count: data.events.length,
         forecast_count: forecasts.length,
+        prediction_contract_count: predictionContracts.length,
         events: data.events,
-        forecasts
+        forecasts,
+        prediction_contracts: predictionContracts
       };
     });
 
