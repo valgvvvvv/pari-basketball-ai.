@@ -3,6 +3,7 @@ const core = require("../static/forecast-core.js");
 const fs = require("node:fs");
 const vm = require("node:vm");
 const appSource = fs.readFileSync(require("node:path").join(__dirname, "../static/app.js"), "utf8");
+const htmlSource = fs.readFileSync(require("node:path").join(__dirname, "../static/index.html"), "utf8");
 
 const earlyQ3 = core.quarterPosterior({
   current: 1, elapsedSeconds: 63, periodLengthSeconds: 600,
@@ -71,6 +72,11 @@ assert.deepEqual(Array.from(market[0].prices, x=>x.factorId), ["930","931"]);
 assert.ok(!appSource.includes('const bayes=linear*0.68+prior*0.32'),
   "legacy Bayesian calculation that mixed full-game and quarter totals must stay removed");
 assert.ok(appSource.includes("One canonical forecast drives every headline block"));
+assert.ok(appSource.includes("Date.now()-feedChecked>120000"), "stale API snapshots must be rejected");
+assert.ok(appSource.includes("validateScoreTimeline"), "period sums must be checked against the match score");
+assert.ok(appSource.includes("providerEventTimestampAvailable"), "provider event freshness must be distinguished from API response age");
+assert.ok(htmlSource.indexOf("forecast-core.js") < htmlSource.indexOf("app.js"),
+  "the tested forecast core must load before the UI code");
 
 
 const scoreStart = appSource.indexOf("function validateScoreTimeline(ev,matchScore,period){");
