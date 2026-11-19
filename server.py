@@ -2311,7 +2311,7 @@ def _pari_period_score_records(source_row):
                 "field_goals_made", "field_goals_attempted",
             }:
                 continue
-            match = re.search(r"(?:^|\\D)([1-4])\\s*[-–.]?\\s*(?:я|ая|й)?\\s*(?:четверт|quarter|period)", label.casefold())
+            match = re.search(r"(?:^|\D)([1-4])\s*[-–.]?\s*(?:я|ая|й)?\s*(?:четверт|quarter|period)", label.casefold())
             pair = _pari_score_pair_from_row(item)
             if pair is not None and match and not kind_id:
                 records.append({"period": int(match.group(1)), "score": pair, "kind_id": None,
@@ -3125,7 +3125,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             return None
                         if isinstance(value, (int, float)) and int(value) == value and 1 <= int(value) <= 4:
                             return int(value)
-                        match = re.search(r"(?:q|quarter|period|период|четверт\\w*)\\s*([1-4])|([1-4])\\s*(?:(?:st|nd|rd|th)|(?:-?я|-?ая))?\\s*(?:quarter|period|четверт\\w*)", str(value), re.I)
+                        match = re.search(r"(?:q|quarter|period|период|четверт\w*)\s*([1-4])|([1-4])\s*(?:(?:st|nd|rd|th)|(?:-?я|-?ая))?\s*(?:quarter|period|четверт\w*)", str(value), re.I)
                         if match:
                             return int(match.group(1) or match.group(2))
                         if str(value).strip() in ("1", "2", "3", "4"):
@@ -3145,15 +3145,15 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     timer_state_text = " ".join(str(row.get(key) or "") for row in
                                                 (event, event_misc, live_info)
                                                 for key in ("comment", "scoreComment", "scoreCommentTail", "st3")).casefold()
-                    overtime_detected = bool(re.search(r"\\bot\\b|overtime|овертайм|от\\s*[:(]|дополнительн\\w*\\s+врем", timer_state_text))
+                    overtime_detected = bool(re.search(r"\bot\b|overtime|овертайм|от\s*[:(]|дополнительн\w*\s+врем", timer_state_text))
                     timer_paused = bool(re.search(r"timeout|time\\s*out|break|halftime|перерыв|тайм-аут|таймаут", timer_state_text))
 
                     if clock_value is not None:
                         clock_text = str(clock_value).strip()
-                        clock_match = re.fullmatch(r"(\\d{1,2}):([0-5]\\d)", clock_text)
+                        clock_match = re.fullmatch(r"(\d{1,2}):([0-5]\d)", clock_text)
                         if clock_match and int(clock_match.group(1)) * 60 + int(clock_match.group(2)) <= 1200:
                             clock_value = clock_match.group(1).zfill(2) + ":" + clock_match.group(2)
-                        elif re.fullmatch(r"\\d{1,4}", clock_text) and 0 <= int(clock_text) <= 1200:
+                        elif re.fullmatch(r"\d{1,4}", clock_text) and 0 <= int(clock_text) <= 1200:
                             seconds = int(clock_text)
                             clock_value = f"{seconds // 60:02d}:{seconds % 60:02d}"
                         else:
@@ -3251,7 +3251,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             and clock_value is not None
                         ) else ("PARI_explicit_countdown" if clock_value is not None else None),
                         "period_length_seconds": period_length_seconds,
-                        "period_count": period_count,\n                        "period_format_source": period_format_source,
+                        "period_count": period_count,
+                        "period_format_source": period_format_source,
                         "match_elapsed_seconds": timer_seconds,
                         "timer_direction": timer_direction,
                         "timer_timestamp_msec": timer_timestamp_msec,
