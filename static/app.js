@@ -1457,6 +1457,34 @@ window.addEventListener("keydown",event=>{
 });
 let liveRefreshInFlight = false;
 let nextLiveRefreshDelay = 30000;
+function quarterForecastMarkup(quarterForecast, ev) {
+  if (!quarterForecast?.ready) {
+    return '<span class="live-match-meta forecast-pending">Прогноз четверти: '+escapeHtml(quarterForecast?.reason||"расчёт недоступен")+'</span>';
+  }
+  const qLines=(quarterForecast.lines?.length
+    ? quarterForecast.lines.map(x => x.direction+" "+x.line+" · ТБ "+(x.pOver*100).toFixed(1)+"% / ТМ "+(x.pUnder*100).toFixed(1)+"%").join(" | ")
+    : "линия четверти пока не найдена")+" · модельная вероятность не калибрована";
+  return '<span class="live-match-meta forecast-live">Прогноз Q'+escapeHtml(quarterForecast.period||findLivePeriod(ev)||"?")+': '+escapeHtml(quarterForecast.projection)+' очков за четверть · '+escapeHtml(qLines)+(quarterForecast.preliminary?' · предварительно':'')+'</span>';
+}
+function liveMatchRenderFallback(ev) {
+  const safe = value => escapeHtml(String(value ?? ""));
+  const safePart = (fn, fallback) => { try { return fn() || fallback; } catch (error) {
+    console.error("LIVE_MATCH_FIELD_RENDER_ERROR", ev?.id, error); return fallback;
+  }};
+  const title = [ev?.team1 || "Команда 1", ev?.team2 || "Команда 2"].map(safe).join(" — ");
+  const scoreText = safePart(() => eventScore(ev), "Счёт пока не подтверждён");
+  const periodText = safePart(() => eventPeriod(ev), "Период не определён");
+  const clockText = safePart(() => eventClock(ev), (ev?.timer_seconds??ev?.match_elapsed_seconds) != null
+    ? "Время получено, длительность периода не подтверждена" : "Таймер пока не получен");
+  const stats = Array.isArray(ev?.external_statistics) ? ev.external_statistics : [];
+  const statsText = stats.length ? "Статистика: "+stats.length+" показателей"+(ev?.statistics_quality
+    ? " · покрытие "+ev.statistics_quality.available_count+"/"+ev.statistics_quality.expected_count : "")
+    : "Статистика: подтверждённых значений пока нет";
+  const markets = (ev?.match_total_candidates || []).map(f =>
+    f?.pt ? "Тотал "+f.pt+" · "+(f.v ?? "коэффициент не указан") : null).filter(Boolean);
+  const details = [scoreText,periodText,clockText,statsText,...markets].filter(Boolean).map(safe).join(" · ");
+  return '<button type="button" class="live-match" data-event-id="' + safe(ev?.id) + '><span class="live-match-title">' + title + '</span><span class="live-match-meta">' + details + '</span><span class="live-match-meta forecast-pending">Прогноз недоступен: ошибка одного из расчётных блоков. Подробности — в диагностике.</span></button>';
+}
 async function refreshLiveMatches() {
   nextLiveRefreshDelay = 30000;
   if (liveRefreshInFlight) return;
@@ -1577,14 +1605,7 @@ async function refreshLiveMatches() {
           } else {
             forecastHtml = '<span class="live-match-meta forecast-pending">Прогноз матча ожидает данные: ' + escapeHtml(forecast.reason) + '</span>';
           }
-          if (quarterForecast.ready) {
-            const qLines=(quarterForecast.lines.length
-              ? quarterForecast.lines.map(x => x.direction+" "+x.line+" · ТБ "+(x.pOver*100).toFixed(1)+"% / ТМ "+(x.pUnder*100).toFixed(1)+"%").join(" | ")
-              : "линия четверти пока не найдена")+" · модельная вероятность не калибрована";
-            forecastHtml += '<span class="live-match-meta forecast-live">Прогноз Q'+escapeHtml(quarterForecast.period||findLivePeriod(ev)||"?")+': '+escapeHtml(quarterForecast.projection)+' очков за четверть · '+escapeHtml(qLines)+(quarterForecast.preliminary?' · предварительно':'')+'</span>';
-          } else {
-            forecastHtml += '<span class="live-match-meta forecast-pending">Прогноз четверти: '+escapeHtml(quarterForecast.reason)+'</span>';
-          }
+          forecastHtml += quarterForecastMarkup(quarterForecast,ev);
           const quarterHighlight=quarterHighlightInfo(ev);
           const highlightTag=quarterHighlight?'<span class="quarter-highlight-tag">★ ВЫДЕЛЕН: '+quarterHighlight.minute+'–8 мин Q'+quarterHighlight.period+'</span>':"";
           return '<button type="button" class="live-match'+(quarterHighlight?' live-match-quarter-window':'')+'" data-event-id="' + escapeHtml(ev.id) + '">' +
@@ -1594,24 +1615,7 @@ async function refreshLiveMatches() {
           // A failed forecast/AI submodel must not hide source facts from the card.
           // Keep the full exception in the browser diagnostic console.
           console.error("LIVE_MATCH_RENDER_ERROR", ev?.id, renderError);
-          const safe = value => escapeHtml(String(value ?? ""));
-          const safePart = (fn, fallback) => { try { return fn() || fallback; } catch (error) {
-            console.error("LIVE_MATCH_FIELD_RENDER_ERROR", ev?.id, error); return fallback;
-          }};
-          const title = [ev?.team1 || "Команда 1", ev?.team2 || "Команда 2"].map(safe).join(" — ");
-          const scoreText = safePart(() => eventScore(ev), "Счёт пока не подтверждён");
-          const periodText = safePart(() => eventPeriod(ev), "Период не определён");
-          const clockText = safePart(() => eventClock(ev), (ev?.timer_seconds??ev?.match_elapsed_seconds) != null
-            ? "Время получено, длительность периода не подтверждена" : "Таймер пока не получен");
-          const stats = Array.isArray(ev?.external_statistics) ? ev.external_statistics : [];
-          const statsText = stats.length
-            ? "Статистика: "+stats.length+" показателей"+(ev?.statistics_quality
-              ? " · покрытие "+ev.statistics_quality.available_count+"/"+ev.statistics_quality.expected_count : "")
-            : "Статистика: подтверждённых значений пока нет";
-          const markets = (ev?.match_total_candidates || []).map(f =>
-            f?.pt ? "Тотал "+f.pt+" · "+(f.v ?? "коэффициент не указан") : null).filter(Boolean);
-          const details = [scoreText,periodText,clockText,statsText,...markets].filter(Boolean).map(safe).join(" · ");
-          return '<button type="button" class="live-match" data-event-id="' + safe(ev?.id) + '><span class="live-match-title">' + title + '</span><span class="live-match-meta">' + details + '</span><span class="live-match-meta forecast-pending">Прогноз недоступен: ошибка одного из расчётных блоков. Подробности — в диагностике.</span></button>';
+          return liveMatchRenderFallback(ev);
         }
       }).join("") : '<p class="muted">В текущем ответе нет подтверждённых баскетбольных LIVE-матчей.</p>';
       liveList.querySelectorAll(".live-match").forEach(el => el.addEventListener("click", () => {
