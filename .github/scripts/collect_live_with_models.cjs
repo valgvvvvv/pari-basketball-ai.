@@ -211,8 +211,12 @@ const { chromium } = require("playwright");
     const appScriptUrl = await page.evaluate(() =>
       Array.from(document.scripts).map(script => script.src).find(src => src.includes("/static/app.js")) || ""
     );
-    result.ui_smoke = { status: "skipped_old_deployment", app_script: appScriptUrl, expected_bundle: "20261119-integrity-v59" };
-    if (appScriptUrl.includes("20261119-integrity-v59")) {
+    const stylesheetUrl = await page.evaluate(() =>
+      Array.from(document.styleSheets).map(sheet => sheet.href || "").find(href => href.includes("/static/styles.css")) || ""
+    );
+    result.ui_smoke = { status: "skipped_old_deployment", app_script: appScriptUrl, stylesheet: stylesheetUrl,
+      expected_bundle: "20261119-integrity-v59", expected_stylesheet: "20261119-ui-v6" };
+    if (appScriptUrl.includes("20261119-integrity-v59") && stylesheetUrl.includes("20261119-ui-v6")) {
       const smokeRow = result.forecasts.find(row => row.event_id);
       if (smokeRow) {
         const uiPayload = {
@@ -336,6 +340,7 @@ const { chromium } = require("playwright");
         result.ui_smoke = {
           status: "passed", app_script: appScriptUrl,
           deployed_app_version: appScriptUrl.split("integrity-v").pop() || "unknown",
+          deployed_stylesheet_version: stylesheetUrl.split("ui-v").pop() || "unknown",
           viewport_checks: viewportChecks,
           tool_rows: toolRows,
           selection_fallback: selectionFallback,
