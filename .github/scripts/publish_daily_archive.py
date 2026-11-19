@@ -85,7 +85,7 @@ def main():
         return
 
     tag = "pari-archive-" + NOW.strftime("%Y%m%d")
-    filename = "pari-basketball-archive-" + NOW.strftime("%Y%m%d-%H%M%S") + ".zip"
+    filename = "pari-basketball-archive-" + NOW.strftime("%Y%m%d-%H%M%S") + "-" + os.getenv("GITHUB_RUN_ID", str(int(NOW.timestamp()))) + ".zip"
     output = io.BytesIO()
     manifest = {
         "format": "pari-basketball-daily-archive",
