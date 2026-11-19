@@ -848,7 +848,13 @@ function clearAnalysisHistory(){
 let selectedLiveEventId = null;
 function showSelectedMatch(ev,options={}){
   const panel=$("selectedMatch");
-  const previousScrollY=options.silent?window.scrollY:0;
+  const scrollAnchor=options.silent?(()=>{
+    const hit=document.elementFromPoint(window.innerWidth/2,Math.min(140,window.innerHeight/2));
+    const details=hit?.closest("#selectedMatch details");
+    const summary=details?.querySelector("summary")?.textContent?.trim()||null;
+    const target=details||hit?.closest("#selectedMatch .forecast-main, #selectedMatch .calc-section, #selectedMatch p, #selectedMatch h3")||panel;
+    return {summary,tag:target?.tagName||"SECTION",className:typeof target?.className==="string"?target.className:"",text:target?.textContent?.trim().slice(0,72)||"",top:target?.getBoundingClientRect().top??0,inside:panel.contains(target),node:panel.contains(target)?null:target};
+  })():null;
   const openSummaries=options.silent?Array.from(panel.querySelectorAll("details[open]")).map(d=>d.querySelector("summary")?.textContent).filter(Boolean):[];
   selectedLiveEventId=String(ev?.id||"");
   ev.snapshot_id=String(ev.snapshot_id||[selectedLiveEventId,String(ev.feed_checked_at_utc||""),String(findLiveScore(ev)||""),String(findLivePeriod(ev)||""),String(findLiveClock(ev)||"")].join("|"));
@@ -939,7 +945,13 @@ function showSelectedMatch(ev,options={}){
       '<p>Снимок API: '+(Number.isFinite(Date.parse(ev.feed_checked_at_utc||""))?Math.round((Date.now()-Date.parse(ev.feed_checked_at_utc))/1000)+" сек. назад":"время обновления неизвестно")+'</p></details>');
   if(options.silent&&openSummaries.length){for(const d of panel.querySelectorAll("details"))if(openSummaries.includes(d.querySelector("summary")?.textContent))d.open=true;}
   saveAnalysisHistory(ev,score,period,clock,estimate,quarter);
-  if(!options.silent)panel.scrollIntoView({behavior:"smooth",block:"start"});else window.scrollTo({top:previousScrollY,behavior:"instant"});
+  if(!options.silent)panel.scrollIntoView({behavior:"smooth",block:"start"});
+  else{
+    let anchor=scrollAnchor?.node?.isConnected?scrollAnchor.node:null;
+    if(!anchor&&scrollAnchor?.summary)anchor=Array.from(panel.querySelectorAll("details")).find(d=>d.querySelector("summary")?.textContent?.trim()===scrollAnchor.summary)||null;
+    if(!anchor&&scrollAnchor?.inside&&scrollAnchor?.text)anchor=Array.from(panel.querySelectorAll("summary,p,h3,h4,.forecast-main,.calc-section")).find(el=>el.tagName===scrollAnchor.tag&&el.textContent.trim().startsWith(scrollAnchor.text))||null;
+    if(anchor)window.scrollBy(0,anchor.getBoundingClientRect().top-scrollAnchor.top);
+  }
 }
 
 // Direct PARI event feed: refresh on page open and every 30 seconds.
