@@ -779,7 +779,7 @@ function calculationStepsHtml(options){
     body='<p><b>Модель:</b> Gamma–Poisson, апостериорное предиктивное распределение.</p>'+
       '<p><b>История:</b> '+escapeHtml(history)+' · сумма '+f(posterior.completedPoints,0)+' оч. за '+f(posterior.priorExposure,1)+' мин.</p>'+
       '<p><b>Prior:</b> Jeffreys Gamma(0,5; 0). α₀ = '+f(posterior.priorAlpha,2)+', β₀ = '+f(posterior.priorExposure,3)+' мин.</p>'+
-      '<p><b>Обновление:</b> α = '+f(posterior.priorAlpha,2)+' + '+f(now,0)+' = '+f(posterior.alpha,2); β = '+f(posterior.priorExposure,3)+' + '+f(posterior.elapsedSeconds/60,4)+' = '+f(posterior.beta,4)+' мин.</p>'+
+      '<p><b>Обновление:</b> α = '+f(posterior.priorAlpha,2)+' + '+f(now,0)+' = '+f(posterior.alpha,2)+'; β = '+f(posterior.priorExposure,3)+' + '+f(posterior.elapsedSeconds/60,4)+' = '+f(posterior.beta,4)+' мин.</p>'+
       '<p><b>Остаток:</b> ('+f(posterior.alpha,2)+' / '+f(posterior.beta,4)+') × '+f(posterior.remainingMinutes,4)+' мин. = '+f(posterior.expectedRemaining,2)+' оч.</p>'+
       '<p><b>Итог:</b> '+f(now,0)+' + '+f(posterior.expectedRemaining,2)+' = '+f(total,1)+' оч. (округление до 0,1).</p>'+
       '<p class="muted">Вероятности получены отдельной симуляцией Gamma–Poisson; это не линейное умножение текущего темпа.</p>';
