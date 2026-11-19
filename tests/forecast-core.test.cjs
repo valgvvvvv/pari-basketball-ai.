@@ -159,6 +159,7 @@ assert.ok(archiveCollectorSource.includes("contract.snapshot_id = row.snapshot_i
 assert.ok(archiveCollectorSource.includes('registryText.includes("Недоступны / отключены:")'), "browser acceptance must verify disabled tools remain accessible in the shared registry");
 assert.ok(!archiveCollectorSource.includes("window.automaticForecast") && archiveCollectorSource.includes("typeof automaticForecast === \"function\""), "browser collector must call classic-script lexical functions rather than assume they are window properties");
 assert.ok(archiveCollectorSource.includes("result.source_checked_at_utc || row.captured_at_utc") && archiveCollectorSource.includes("String(row.score || \"\"),"), "archive snapshot IDs must use the same source timestamp, score, period and clock key as the UI");
+assert.ok(archiveCollectorSource.includes("source_event_snapshot: JSON.parse(JSON.stringify(rawEvent))") && archiveCollectorSource.includes("model_versions:"), "archive must preserve immutable raw source event and method versions separately from forecasts");
 assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
 assert.ok(htmlSource.includes("20261119-integrity-v62"), "frontend cache must be bumped after display fixes");
 assert.ok(appSource.includes("Ансамбль сценариев") && appSource.includes("не независимый голос"), "scenario mixture must be shown without counting it as an independent model");
