@@ -849,7 +849,6 @@ let selectedLiveEventId = null;
 function showSelectedMatch(ev,options={}){
   const panel=$("selectedMatch");
   const previousPanelHeight=options.silent?panel.getBoundingClientRect().height:0;
-  const previousDocumentHeight=options.silent?Math.max(document.documentElement.scrollHeight,document.body.scrollHeight):0;
   if(!options.silent){
     panel.style.minHeight="";
     const oldSpacer=document.getElementById("liveRefreshScrollSpacer");
@@ -956,27 +955,6 @@ function showSelectedMatch(ev,options={}){
   else{
     const currentFloor=Number.parseFloat(panel.style.minHeight)||0;
     panel.style.minHeight=Math.max(currentFloor,previousPanelHeight,panel.getBoundingClientRect().height)+"px";
-    let spacer=document.getElementById("liveRefreshScrollSpacer");
-    if(!spacer){spacer=document.createElement("div");spacer.id="liveRefreshScrollSpacer";spacer.setAttribute("aria-hidden","true");spacer.style.cssText="width:100%;pointer-events:none;";}
-    if(!spacer.isConnected)document.body.appendChild(spacer);
-    const oldSpacerHeight=Number.parseFloat(spacer.style.height)||0;
-    const currentDocumentHeight=Math.max(document.documentElement.scrollHeight,document.body.scrollHeight);
-    const contentHeightWithoutSpacer=currentDocumentHeight-oldSpacerHeight;
-    spacer.style.height=Math.max(0,previousDocumentHeight-contentHeightWithoutSpacer)+"px";
-    let anchor=scrollAnchor?.node?.isConnected?scrollAnchor.node:null;
-    if(!anchor&&scrollAnchor?.summary)anchor=Array.from(panel.querySelectorAll("details")).find(d=>d.querySelector("summary")?.textContent?.trim()===scrollAnchor.summary)||null;
-    if(!anchor&&scrollAnchor?.inside&&scrollAnchor?.text)anchor=Array.from(panel.querySelectorAll("summary,p,h3,h4,.forecast-main,.calc-section")).find(el=>el.tagName===scrollAnchor.tag&&el.textContent.trim().startsWith(scrollAnchor.text))||null;
-    if(!anchor&&scrollAnchor?.inside)anchor=panel;
-    if(anchor){
-      const restoreReadingAnchor=()=>{
-        if(!anchor.isConnected)return;
-        const root=document.documentElement,prior=root.style.scrollBehavior;
-        root.style.scrollBehavior="auto";
-        window.scrollBy(0,anchor.getBoundingClientRect().top-scrollAnchor.top);
-        root.style.scrollBehavior=prior;
-      };
-      requestAnimationFrame(()=>requestAnimationFrame(restoreReadingAnchor));
-    }
   }
 }
 
@@ -1505,6 +1483,9 @@ async function refreshLiveMatches() {
   liveRefreshInFlight = true;
   const button = $("refreshLiveMatches");
   if (button) button.disabled = true;
+  const refreshScrollRoot=document.scrollingElement||document.documentElement;
+  const previousOverflowAnchor=refreshScrollRoot.style.overflowAnchor;
+  let refreshReadingAnchor=null;
   if (liveMessage && !liveList.children.length) liveMessage.textContent = "Запрашиваем events/list у серверов PARI…";
   let pariFeedFailure = null;
   try {
@@ -1548,6 +1529,11 @@ async function refreshLiveMatches() {
       }catch(_recentError){
         // Rolling tempo is optional; never block the current live feed on an empty cache.
       }finally{clearTimeout(recentTimeout);}
+    }
+    const selectedPanelBeforeRefresh=selectedLiveEventId?$("selectedMatch"):null;
+    if(selectedPanelBeforeRefresh&&!selectedPanelBeforeRefresh.hidden){
+      refreshReadingAnchor={element:selectedPanelBeforeRefresh,top:selectedPanelBeforeRefresh.getBoundingClientRect().top};
+      refreshScrollRoot.style.overflowAnchor="none";
     }
     window.pariLiveEvents = (data.events || []).map(ev=>({...ev,
       feed_checked_at_utc:data.checked_at_utc||null,
@@ -1631,6 +1617,13 @@ async function refreshLiveMatches() {
         if (ev) showSelectedMatch(ev);
       }));
     }
+    if(refreshReadingAnchor?.element?.isConnected){
+      const delta=refreshReadingAnchor.element.getBoundingClientRect().top-refreshReadingAnchor.top;
+      const previousBehavior=refreshScrollRoot.style.scrollBehavior;
+      refreshScrollRoot.style.scrollBehavior="auto";
+      refreshScrollRoot.scrollTop=refreshScrollRoot.scrollTop+delta;
+      refreshScrollRoot.style.scrollBehavior=previousBehavior;
+    }
     $("feedStatus").textContent = count ? "PARI LIVE: найдено " + count + " матчей" : "PARI API отвечает; матчи не распознаны";
   } catch (error) {
     const sourceStatus = $("liveSourceStatus");
@@ -1653,6 +1646,7 @@ async function refreshLiveMatches() {
     if (liveUpdated) liveUpdated.textContent = "Ошибка первого ответа: " + (error.message || "сбой запроса");
     $("feedStatus").textContent = "PARI LIVE: подключение не подтверждено";
   } finally {
+    refreshScrollRoot.style.overflowAnchor=previousOverflowAnchor;
     liveRefreshInFlight = false;
     if (button) button.disabled = false;
     // Schedule the next poll only after this request has finished; never stack requests.
