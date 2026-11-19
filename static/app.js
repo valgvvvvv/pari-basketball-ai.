@@ -277,7 +277,7 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
   const variance=outcomes.reduce((sum,x)=>sum+(x-sampleMean)**2,0)/n;
   const scenarioMean=scenarioMeans.reduce((sum,x)=>sum+x,0)/n;
   const meanUncertaintyVariance=scenarioMeans.reduce((sum,x)=>sum+(x-scenarioMean)**2,0)/n;
-  return {simulations:n,mu:Math.round(mu*100)/100,mean:sampleMean,variance,meanUncertaintyVariance,meanUncertaintySd:Math.sqrt(meanUncertaintyVariance),low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),momentum:Math.round(momentum*1000)/10,momentum_source:recentTempo.applied?"rolling_3_5_min":"period_history_fallback",recent_tempo:recentTempo.applied?recentTempo:null,method:"Экспериментальная смесь сценариев · не калибрована",research_scheme:true,calibration_status:"not_calibrated",momentum_rule:recentTempo.applied?"actual score/clock delta over a 3–5 game-minute window vs pre-window match pace; no blended period weights":"fallback: 55% last-period-vs-prior-average + 25% last-period-vs-earlier-average + 20% current-period-vs-baseline; clamp ±25%; experimental weights",scenario_weight_rule:"pFast=clamp(0.25+0.55×momentum,0.12,0.40); pSlow=clamp(0.25−0.25×momentum,0.16,0.34); pBase=1−pFast−pSlow; normalize scenario multipliers to preserve mean"};
+  return {simulations:n,mu:Math.round(mu*100)/100,mean:sampleMean,variance,meanUncertaintyVariance,meanUncertaintySd:Math.sqrt(meanUncertaintyVariance),low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:x.probability*100,multiplier:x.factor/norm})),momentum:Math.round(momentum*1000)/10,momentum_source:recentTempo.applied?"rolling_3_5_min":"period_history_fallback",recent_tempo:recentTempo.applied?recentTempo:null,method:"Экспериментальная смесь сценариев · не калибрована",research_scheme:true,calibration_status:"not_calibrated",momentum_rule:recentTempo.applied?"actual score/clock delta over a 3–5 game-minute window vs pre-window match pace; no blended period weights":"fallback: 55% last-period-vs-prior-average + 25% last-period-vs-earlier-average + 20% current-period-vs-baseline; clamp ±25%; experimental weights",scenario_weight_rule:"pFast=clamp(0.25+0.55×momentum,0.12,0.40); pSlow=clamp(0.25−0.25×momentum,0.16,0.34); pBase=1−pFast−pSlow; normalize scenario multipliers to preserve mean"};
 }
 function poissonMonteCarlo(current, mu, lines=[], seedText="") {
   const n=100000;
@@ -652,6 +652,7 @@ function possessionModelContext(ev,estimate,period,clock){
   const baseline=Math.max(1,Number(estimate?.projection)-current),confidence=qualityNotes.length?"средняя":(direct.home>0&&direct.away>0&&metricCoverage>=8?"высокая":metricCoverage>=5?"средняя":"ограниченная");
   return {applied:true,model:"Possession Engine v2",method,confidence,qualityNotes,metrics,metric_coverage:metricCoverage,
     home:Math.round(home*10)/10,away:Math.round(away*10)/10,average:Math.round(possessions*10)/10,imbalance_percent:Math.round(imbalance*100),
+     projectionExact:projected,expectedRemainingPossessionsExact:possPerMinute*(remaining/60),pointsPerPossessionExact:pointsPerPossession,
     pointsPerPossession:Math.round(pointsPerPossession*1000)/1000,homePointsPerPossession:Math.round(teamPppHome*1000)/1000,awayPointsPerPossession:Math.round(teamPppAway*1000)/1000,
     possPerMinute:Math.round(possPerMinute*100)/100,expectedRemainingPossessions:Math.round(possPerMinute*(remaining/60)*10)/10,
     expectedRemainingPoints:Math.round((projected-current)*10)/10,projection:Math.round(projected*10)/10,remaining_minutes:Math.round(remaining/60*100)/100,
@@ -708,7 +709,7 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   // Possession pace × points per possession is the lead forecast.
   // Other signals are secondary and damped to avoid double-counting.
   const baseMu=Math.max(0,adjusted.projection-adjusted.current);
-  const possMu=possession.applied?Math.max(0,possession.projection-adjusted.current):baseMu;
+  const possMu=possession.applied?Math.max(0,(possession.projectionExact??possession.projection)-adjusted.current):baseMu;
   const secondaryAdjustment=possession.applied?clampForecast(1+(statsContext.adjustment-1)*0.35,0.985,1.015):statsContext.adjustment;
   const tempoDynamics=liveTempoDynamics(ev||{},adjusted,period,clock,"match");
   dataQuality.rolling_snapshot_count=Array.isArray(ev?.recent_snapshots)?ev.recent_snapshots.length:0;
@@ -751,8 +752,8 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   }
   return {...adjusted,context_factors:factors,context_adjustment:context.adjustment,statistics_adjustment:secondaryAdjustment,
     calculation:{kind:possession.applied?"possession":"scenario_mixture",baseRemaining:baseMu,possessionRemaining:possMu,
-      secondaryAdjustment,expectedRemaining:mu,expectedRemainingPossessions:possession.expectedRemainingPossessions??null,
-      pointsPerPossession:possession.pointsPerPossession??null,scenarios:mc.scenarios||[]},
+      secondaryAdjustment,expectedRemaining:mu,expectedRemainingPossessions:possession.expectedRemainingPossessionsExact??possession.expectedRemainingPossessions??null,
+      pointsPerPossession:possession.pointsPerPossessionExact??possession.pointsPerPossession??null,scenarios:mc.scenarios||[]},
     statistics_quality:statsContext.quality,data_quality:dataQuality,shooting_efg:statsContext.efg??null,possession_model:possession,
     poisson:mc,tempo_dynamics:tempoDynamics,overtime_policy:"not_included_market_rule_unverified",low:mc.low80,high:mc.high80,sigma:Math.sqrt(Math.max(mc.variance??mu,0)),projection:Math.round((adjusted.current+mu)*10)/10};
 }
@@ -785,14 +786,14 @@ function calculationStepsHtml(options){
       '<p class="muted">Вероятности получены отдельной симуляцией Gamma–Poisson; это не линейное умножение текущего темпа.</p>';
   }else if(calculation?.kind==="possession"){
     body='<p><b>Модель:</b> владения × очки за владение (PPP).</p>'+
-      '<p>Ожидаемые владения до конца: '+f(calculation.expectedRemainingPossessions,2)+' × PPP '+f(calculation.pointsPerPossession,4)+' = '+f(calculation.possessionRemaining,2)+' оч.</p>'+
-      '<p>Поправка статистики: '+f(calculation.possessionRemaining,2)+' × '+f(calculation.secondaryAdjustment,4)+' = '+f(calculation.expectedRemaining,2)+' оч.</p>'+
+      '<p>Ожидаемые владения до конца: '+f(calculation.expectedRemainingPossessions,2)+' × PPP '+f(calculation.pointsPerPossession,6)+' = '+f(calculation.possessionRemaining,2)+' оч.</p>'+
+      '<p>Поправка статистики: '+f(calculation.possessionRemaining,2)+' × '+f(calculation.secondaryAdjustment,6)+' = '+f(calculation.expectedRemaining,2)+' оч.</p>'+
       '<p>Итог: '+f(now,0)+' + '+f(calculation.expectedRemaining,2)+' = '+f(total,1)+' оч.</p>';
   }else if(calculation?.kind==="scenario_mixture"){
     const scenarios=calculation.scenarios||[];
     body='<p><b>Модель:</b> базовая оценка остатка с поправкой статистики; смесь сценариев формирует распределение Монте‑Карло.</p>'+
       '<p>Базовый остаток: '+f(calculation.baseRemaining,2)+' × поправка '+f(calculation.secondaryAdjustment,4)+' = '+f(calculation.expectedRemaining,2)+' оч.</p>'+
-      (scenarios.length?'<p><b>Сценарии (100 000 симуляций):</b> '+scenarios.map(x=>escapeHtml(x.name)+' '+f(x.probability,0)+'% · λ × '+f(x.multiplier,4)).join(' · ')+'.</p>':'')+
+      (scenarios.length?'<p><b>Сценарии (100 000 симуляций):</b> '+scenarios.map(x=>escapeHtml(x.name)+' '+f(x.probability,1)+'% · λ × '+f(x.multiplier,6)).join(' · ')+'.</p>':'')+
       '<p>Каждая симуляция выбирает сценарий по весу и генерирует пуассоновский остаток. Множители нормированы для сохранения среднего.</p>'+
       '<p>Итоговый центр: '+f(now,0)+' + '+f(calculation.expectedRemaining,2)+' = '+f(total,1)+' оч.</p>'+
       '<p class="muted">Смесь сценариев экспериментальная и не калибрована; Монте‑Карло — способ получить распределение, а не независимый голос.</p>';
