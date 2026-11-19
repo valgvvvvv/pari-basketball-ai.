@@ -2527,18 +2527,30 @@ def _pari_normalize_timer(event_id, timer_seconds, timer_direction, period_numbe
         informative = [v for v in last_two if v in ("up", "down", "inconsistent")]
         if len(informative) >= 2 and informative[-1] == informative[-2] and informative[-1] in ("up", "down"):
             observed = informative[-1]
+    evidence_pairs = []
+    for a, b in zip(history, history[1:]):
+        if a["period"] != b["period"]:
+            continue
+        dt = b["at"] - a["at"]
+        delta = b["value"] - a["value"]
+        if 8 <= dt <= 240 and abs(abs(delta) - dt) <= max(5.0, dt * 0.35):
+            evidence_pairs.append((a["at"], b["at"]))
+    evidence_key = tuple(evidence_pairs[-2:]) if len(evidence_pairs) >= 2 else None
 
     confirmed = state.get("direction")
-    if confirmed and observed and observed != confirmed:
+    if confirmed and observed and observed != confirmed and evidence_key != state.get("last_direction_evidence"):
         state["contradiction_count"] = int(state.get("contradiction_count", 0)) + 1
+        state["last_direction_evidence"] = evidence_key
         if state["contradiction_count"] >= 2:
             state["direction"] = None
             state["contradiction_count"] = 0
             confirmed = None
     elif confirmed and observed == confirmed:
         state["contradiction_count"] = 0
+        state["last_direction_evidence"] = evidence_key
     elif not confirmed and observed:
         state["direction"] = observed
+        state["last_direction_evidence"] = evidence_key
         confirmed = observed
 
     if not confirmed:
