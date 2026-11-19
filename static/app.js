@@ -797,7 +797,7 @@ function showSelectedMatch(ev,options={}){
   $("matchForecast").innerHTML=estimate
     ? '<div class="forecast-main"><b>Тотал матча</b><div class="forecast-number">'+estimate.projection+'</div><p>Сейчас '+estimate.current+' · прошло '+estimate.elapsed_minutes+' мин · осталось '+estimate.remaining_minutes+' мин</p><p>Качество: '+escapeHtml(estimate.data_quality?.label||"ограниченное")+(estimate.data_quality?.apiResponseAgeSeconds!=null?" · ответ API "+estimate.data_quality.apiResponseAgeSeconds+" сек. назад":" · время ответа API неизвестно")+(estimate.data_quality?.providerEventTimestampAvailable?" · обновление события получено":" · время обновления события источник не передаёт")+'</p><p>80%: '+(estimate.poisson?.low80??estimate.low)+'–'+(estimate.poisson?.high80??estimate.high)+' · 95%: '+(estimate.poisson?.low95??"—")+'–'+(estimate.poisson?.high95??"—")+'</p></div>'+
       '<h3>Показатели</h3><div class="calc-grid"><div class="calc-card"><span>Очков/мин</span><b>'+estimate.pace_per_min+'</b></div><div class="calc-card"><span>Остаток, оч.</span><b>'+(estimate.poisson?.mu??(estimate.projection-estimate.current))+'</b></div><div class="calc-card"><span>σ</span><b>'+(estimate.sigma??"—")+'</b></div><div class="calc-card"><span>Поправка</span><b>'+((Number(estimate.context_adjustment||1)-1)*100).toFixed(1)+'%</b></div></div>'+
-      '<h3>Вероятности · PARI</h3>'+(lineRows?'<table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Направление</th><th>Возврат</th><th>Цены PARI · ID фактора</th></tr></thead><tbody>'+lineRows+'</tbody></table>':'<p class="muted">Линия не получена</p>')+
+      '<h3>Вероятности · PARI</h3>'+(lineRows?'<table class="calc-table"><thead><tr><th>Линия</th><th>Модель ТБ</th><th>Модель ТМ</th><th>Направление</th><th>Возврат</th><th>Цены PARI · ID фактора</th></tr></thead><tbody>'+lineRows+'</tbody></table>':'<p class="muted">Линия не получена</p>')+
       '<h3>Владения</h3>'+(possession.applied?'<div class="calc-grid"><div class="calc-card"><span>Команда 1</span><b>'+possession.home+'</b></div><div class="calc-card"><span>Команда 2</span><b>'+possession.away+'</b></div><div class="calc-card"><span>Среднее</span><b>'+possession.average+'</b></div><div class="calc-card"><span>Влад./мин</span><b>'+possession.possPerMinute+'</b></div><div class="calc-card"><span>PPP</span><b>'+possession.pointsPerPossession+'</b></div><div class="calc-card"><span>Разница</span><b>'+possession.imbalance_percent+'%</b></div><div class="calc-card"><span>Покрытие</span><b>'+possession.metric_coverage+'/17</b></div></div>':'<p class="muted">Нет данных владений</p>')+
       '<p>eFG '+(shooting.efg!=null?(shooting.efg*100).toFixed(1)+'%':'—')+' · поправка '+((shooting.adjustment-1)*100).toFixed(1)+'%</p>'+
       (advancedMatchCalculations(ev,estimate,period,clock,possession,quarter).length?'<h3>Дополнительные расчёты</h3><div class="calc-grid">'+advancedMatchCalculations(ev,estimate,period,clock,possession,quarter).map(x=>'<div class="calc-card"><span>'+escapeHtml(x.name)+'</span><b>'+escapeHtml(x.value)+'</b><small>'+escapeHtml(x.detail)+'</small></div>').join("")+'</div>':'')+
@@ -1225,10 +1225,15 @@ function automaticQuarterForecast(ev) {
       (explicit===period||(!Number.isInteger(explicit)&&quarterPatterns.some(rx=>rx.test(label))));
     if(["930","931"].includes(String(node.f))&&isTargetPeriod){
       const line=node.pt!=null?Number(node.pt):NaN;
-      if(Number.isFinite(line)&&line>=20&&line<100&&
-         Math.abs(line*2-Math.round(line*2))<=1e-8&&
-         !quarterLines.some(x=>x.line===line))
-        quarterLines.push({line,odds:node.v==null?null:String(node.v),source:"PARI"});
+      if(Number.isFinite(line)&&line>=20&&line<100&&Math.abs(line*2-Math.round(line*2))<=1e-8){
+        let market=quarterLines.find(x=>x.line===line);
+        if(!market){market={line,odds:null,factorId:null,prices:[],source:"PARI"};quarterLines.push(market);}
+        if(node.v!=null){
+          market.prices.push({factorId:String(node.f),odds:String(node.v),
+            label:node.name||node.kindName||node.marketName||null});
+          if(market.odds==null){market.odds=String(node.v);market.factorId=String(node.f);}
+        }
+      }
       return;
     }
     for(const [key,child] of Object.entries(node)){
