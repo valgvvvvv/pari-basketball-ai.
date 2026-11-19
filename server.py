@@ -2246,6 +2246,14 @@ def _stat_value_for_ui(value):
     return value
 
 
+def _pari_score_function_is_basketball(value):
+    """Reject an explicitly non-basketball sport function; unknown stays governed by catalogue."""
+    text = re.sub(r"[^a-zа-яё]+", "", str(value or "").casefold().replace("ё", "е"))
+    if not text:
+        return True
+    return "basketball" in text or "баскетбол" in text
+
+
 def _pari_stat_metric(label):
     text = re.sub(r"[^a-zа-яё0-9]+", "", str(label or "").casefold().replace("ё", "е"))
     patterns = (
@@ -2762,6 +2770,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     "sport_id_in_basketball_catalogue": 0,
                     "excluded_by_name": 0,
                     "excluded_by_hierarchy": 0,
+                    "excluded_by_score_function": 0,
                     "not_live": 0,
                     "accepted_live_roots": 0,
                 }
@@ -2870,6 +2879,10 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     if any(marker in pari_state for marker in
                            ("notstarted", "не начался", "не началась", "ожидает начала")):
                         filter_counts["not_live"] += 1
+                        continue
+                    score_function = live_info.get("scoreFunction") or event_misc.get("scoreFunction")
+                    if not _pari_score_function_is_basketball(score_function):
+                        filter_counts["excluded_by_score_function"] += 1
                         continue
                     pari_gender_text = " ".join(
                         repair_team_encoding(event.get(key) or "")
