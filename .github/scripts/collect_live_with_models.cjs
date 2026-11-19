@@ -95,6 +95,7 @@ const { chromium } = require("playwright");
                 period_count: ev.external_live?.period_count || null
               },
               model: { name: "PARI primary forecast", version: "gamma-poisson-quarter-v1 / dynamic-match-v1" },
+              calibration_status: "not_calibrated_no_independent_labeled_test",
               expected_remaining_points: distribution?.mu ?? estimate.expected_remaining_points ?? null,
               center: Number(estimate.projection),
               distribution: distribution ? {
