@@ -106,6 +106,34 @@ vm.runInNewContext(runtimeSource, runtimeSandbox);
 assert.equal(runtimeSandbox.findLiveClock({period:3,clock:"08:57"}), "08:57");
 assert.equal(runtimeSandbox.inferPeriodLengthForForecast({period:3,league:"Unknown league",clock:"08:57"}).seconds, 600);
 assert.equal(runtimeSandbox.inferPeriodLengthForForecast({period:2,period_length_seconds:1200,external_live:{period_count:2},clock:"15:00"}).periods, 2);
+const recentStart = appSource.indexOf("function recentTempoFromSnapshots");
+const recentEnd = appSource.indexOf("function dynamicScenarioMonteCarlo", recentStart);
+const recentSource = appSource.slice(recentStart, recentEnd) +
+  "; this.recentTempoFromSnapshots=recentTempoFromSnapshots;";
+const recentSandbox = {
+  inferPeriodLengthForForecast:()=>({method:"verified",seconds:600}),
+  findLivePeriod:()=>3,
+  findLiveScore:event=>event.score
+};
+vm.runInNewContext(recentSource, recentSandbox);
+const now = Date.now();
+const rollingEvent = {
+  period_length_seconds:600, score:[52,43],
+  feed_checked_at_utc:new Date(now).toISOString(),
+  recent_snapshots:[{period:3,captured_at:new Date(now-240000).toISOString(),clock:"05:00",score:[40,35]}]
+};
+const rolling = recentSandbox.recentTempoFromSnapshots(rollingEvent,3,"01:00",600);
+assert.equal(rolling.applied,true);
+assert.equal(rolling.score_delta,20);
+assert.equal(rolling.home_delta,12);
+assert.equal(rolling.away_delta,8);
+assert.ok(rolling.rawChange>60);
+const corrected = recentSandbox.recentTempoFromSnapshots({...rollingEvent,score:[39,35]},3,"01:00",600);
+assert.equal(corrected.applied,false, "score corrections must invalidate rolling tempo");
+const insufficient = recentSandbox.recentTempoFromSnapshots({...rollingEvent,recent_snapshots:[
+  {period:3,captured_at:new Date(now-90000).toISOString(),clock:"02:30",score:[45,40]}
+]},3,"01:00",600);
+assert.equal(insufficient.applied,false, "less than three minutes of snapshots is not a rolling signal");
 assert.ok(htmlSource.indexOf("forecast-core.js") < htmlSource.indexOf("app.js"),
   "the tested forecast core must load before the UI code");
 assert.ok(htmlSource.includes("20261119-forecast-core-v2"), "forecast core cache must be refreshed with model changes");
