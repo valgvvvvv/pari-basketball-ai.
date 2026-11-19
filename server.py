@@ -2311,6 +2311,12 @@ PARI_COMPETITION_FORMATS = {
         "rules_version": "CDBL event-format cross-check",
         "source_url": "https://en.sportsand.me/basketball/china/cdbl/wuhan-lightnings-jinan-cyclones-108849",
     },
+    "126305": {
+        "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "BETER's BSKT CUP competition description specifies four 10-minute quarters",
+        "rules_version": "BSKT CUP 5x5 format",
+        "source_url": "https://europeangaming.eu/portal/latest-news/2023/05/24/136146/beter-expands-basketball-portfolio-with-bskt-cup/",
+    },
 }
 
 PARI_PERIOD_SCORE_KIND_IDS = {
