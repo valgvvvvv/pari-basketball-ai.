@@ -2639,25 +2639,38 @@ def _finalize_live_statistics(events):
                     stat_row["freshness_status"] = "timestamp_unparseable"
             else:
                 stat_row["freshness_status"] = "source_timestamp_unavailable"
+        def source_rank(row):
+            source = str(row.get("source") or "").casefold()
+            source_priority = {"pari": 4, "sofascore": 3, "sportscore": 2, "derived": 1}.get(source, 0)
+            freshness = {"fresh": 3, "source_timestamp_unavailable": 1, "timestamp_unparseable": 0, "stale": 0}.get(row.get("freshness_status"), 1)
+            match_quality = {"pari_event_id": 3, "exact_event_id_match": 3, "matched_external_event": 2, "not_confirmed": 0}.get(row.get("match_status"), 1)
+            return (freshness, match_quality, source_priority)
         by_key = {}
         for row in normalized:
-            if row.get("metric_key") and row["metric_key"] not in by_key:
-                by_key[row["metric_key"]] = row
+            metric = row.get("metric_key")
+            if not metric:
+                continue
+            bucket = (metric, row.get("target") or "match", row.get("target_period"))
+            current = by_key.get(bucket)
+            if current is None or source_rank(row) > source_rank(current):
+                by_key[bucket] = row
         def derive(target, left, right, label):
-            if target in by_key or left not in by_key or right not in by_key:
+            bucket = (target, "match", None)
+            left_bucket, right_bucket = (left, "match", None), (right, "match", None)
+            if bucket in by_key or left_bucket not in by_key or right_bucket not in by_key:
                 return
             try:
                 vals = []
                 for side in ("home", "away"):
-                    a = float(str(by_key[left][side]).replace(",", "."))
-                    b = float(str(by_key[right][side]).replace(",", "."))
+                    a = float(str(by_key[left_bucket][side]).replace(",", "."))
+                    b = float(str(by_key[right_bucket][side]).replace(",", "."))
                     if not (math.isfinite(a) and math.isfinite(b)):
                         return
                     vals.append(int(a+b) if (a+b).is_integer() else a+b)
                 item = {"group":"Расчёт по компонентам","name":label,"metric_key":target,
                         "home":vals[0],"away":vals[1],"source":"derived"}
                 normalized.append(item)
-                by_key[target] = item
+                by_key[bucket] = item
             except (TypeError, ValueError, OverflowError):
                 return
         derive("field_goals_made","two_pointers_made","three_pointers_made","Попадания с игры = 2PT + 3PT")
@@ -2672,10 +2685,16 @@ def _finalize_live_statistics(events):
             if metric and row.get("source") != "derived":
                 grouped.setdefault(metric, []).append(row)
         for metric, rows in grouped.items():
-            values = {(str(row.get("home")), str(row.get("away"))) for row in rows}
-            if len(values) > 1:
-                conflicts.append({"metric":metric,"sources":list(dict.fromkeys(str(x.get("source")) for x in rows)),
-                                  "values":[{"source":x.get("source"),"home":x.get("home"),"away":x.get("away")} for x in rows]})
+            by_target = {}
+            for row in rows:
+                target_key = (row.get("target") or "match", row.get("target_period"))
+                by_target.setdefault(target_key, []).append(row)
+            for (target, target_period), target_rows in by_target.items():
+                values = {(str(row.get("home")), str(row.get("away"))) for row in target_rows}
+                if len(values) > 1:
+                    conflicts.append({"metric":metric,"target":target,"target_period":target_period,
+                                      "sources":list(dict.fromkeys(str(x.get("source")) for x in target_rows)),
+                                      "values":[{"source":x.get("source"),"home":x.get("home"),"away":x.get("away")} for x in target_rows]})
         sources = list(dict.fromkeys(str(row.get("source") or "unknown") for row in normalized))
         event["statistics_source"] = " + ".join(sources) if sources else None
         source_diag = event.get("statistics_source_diagnostics") or {}
