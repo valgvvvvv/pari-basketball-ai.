@@ -1486,6 +1486,7 @@ async function refreshLiveMatches() {
                 : "ориентир "+estimate.projection+" · диапазон "+estimate.low+"–"+estimate.high;
               if(forecast.kind==="period_range")lineText+=" · без точного таймера, предварительно";
               if(estimate.preliminary)lineText+=" · ранняя оценка, низкая уверенность";
+              lineText+=" · модельная вероятность не калибрована · ОТ не включён, правило PARI не подтверждено";
             }
             forecastHtml = '<span class="live-match-meta forecast-live">Прогноз матча: ' + escapeHtml(lineText) + '</span>';
           } else {
@@ -1495,6 +1496,7 @@ async function refreshLiveMatches() {
             const qLines=quarterForecast.lines.length
               ? quarterForecast.lines.map(x => x.direction+" "+x.line+" · ТБ "+(x.pOver*100).toFixed(0)+"% / ТМ "+(x.pUnder*100).toFixed(0)+"%").join(" | ")
               : "линия четверти пока не найдена";
+            if(quarterForecast.ready)qLines+=" · модельная вероятность не калибрована";
             forecastHtml += '<span class="live-match-meta forecast-live">Прогноз Q'+escapeHtml(quarterForecast.period||findLivePeriod(ev)||"?")+': '+escapeHtml(quarterForecast.projection)+' очков за четверть · '+escapeHtml(qLines)+(quarterForecast.preliminary?' · предварительно':'')+'</span>';
           } else {
             forecastHtml += '<span class="live-match-meta forecast-pending">Прогноз четверти: '+escapeHtml(quarterForecast.reason)+'</span>';
