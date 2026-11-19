@@ -204,7 +204,7 @@ const { chromium } = require("playwright");
     const appScriptUrl = await page.evaluate(() =>
       Array.from(document.scripts).map(script => script.src).find(src => src.includes("/static/app.js")) || ""
     );
-    result.ui_smoke = { status: "skipped_old_deployment", app_script: appScriptUrl };
+    result.ui_smoke = { status: "skipped_old_deployment", app_script: appScriptUrl, expected_bundle: "20261119-integrity-v56" };
     if (appScriptUrl.includes("20261119-integrity-v56")) {
       const smokeRow = result.forecasts.find(row => row.event_id);
       if (smokeRow) {
@@ -309,6 +309,7 @@ const { chromium } = require("playwright");
         }
         result.ui_smoke = {
           status: "passed", app_script: appScriptUrl,
+          deployed_app_version: appScriptUrl.split("integrity-v").pop() || "unknown",
           viewport_checks: viewportChecks,
           tool_rows: toolRows,
           selected_event_id: smokeRow.event_id,
