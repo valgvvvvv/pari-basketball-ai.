@@ -74,5 +74,42 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
         self.assertFalse(event["statistics_quality"]["complete"])
 
 
+    def test_quarter_score_kind_id_is_not_overwritten_by_shot_statistics(self):
+        source = {"subscores": [
+            {"kindId": "100401", "kindName": "1-я четверть", "c1": "21", "c2": "17"},
+            {"kindId": "420300", "kindName": "двухочковые попадания", "c1": "4", "c2": "6"},
+            {"kindId": "30300401", "kindName": "двухочковые попадания за Q1", "c1": "4", "c2": "6"},
+            {"kindId": "420400", "kindName": "трёхочковые попадания", "c1": "2", "c2": "1"},
+            {"kindId": "30400401", "kindName": "трёхочковые попадания за Q1", "c1": "2", "c2": "1"},
+        ]}
+        self.assertEqual(server._pari_period_scores(source), [[21, 17]])
+        records = server._pari_period_score_records(source)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["kind_id"], "100401")
+        self.assertEqual(records[0]["source"], "PARI.subscores")
+
+    def test_unknown_period_kind_is_not_guessed(self):
+        source = {"subscores": [
+            {"kindId": "999001", "kindName": "1-я четверть", "c1": "21", "c2": "17"}
+        ]}
+        self.assertEqual(server._pari_period_scores(source), [])
+        self.assertEqual(server._pari_period_score_records(source), [])
+
+    def test_sport_hierarchy_requires_basketball_ancestor_not_competition_name(self):
+        catalogue = {
+            "10": {"id": "10", "name": "UAAP", "kind": "segment"},
+            "20": {"id": "20", "name": "Basketball", "kind": "sport"},
+            "21": {"id": "21", "name": "UAAP", "kind": "segment", "parentId": "20"},
+        }
+        self.assertFalse(server._pari_sport_hierarchy_is_basketball("10", catalogue))
+        self.assertTrue(server._pari_sport_hierarchy_is_basketball("21", catalogue))
+
+    def test_explicit_football_score_function_is_not_basketball(self):
+        self.assertFalse(server._pari_score_function_is_basketball("Football"))
+        self.assertFalse(server._pari_score_function_is_basketball(None))
+        self.assertTrue(server._pari_score_function_is_basketball("Basketball"))
+
+
+
 if __name__ == "__main__":
     unittest.main()
