@@ -1595,7 +1595,7 @@ async function refreshLiveMatches() {
           const statCount = (ev.external_statistics || []).length;
           const quality = ev.statistics_quality || {};
           const coverage = quality.expected_count ? (" · покрытие " + quality.available_count + "/" + quality.expected_count) : "";
-          const statusLabels = {field_absent_from_returned_sources:"поле отсутствует в полученных данных",format_unrecognized:"формат ответа не определён",unknown_metric_code:"неизвестен код показателя",no_exact_match:"не найдено точное соответствие матча",source_unavailable:"источник недоступен",timeout:"превышен тайм-аут источника",stale:"данные устарели",parse_error:"ошибка разбора",conflict:"данные противоречивы"};
+          const statusLabels = {field_absent_from_returned_sources:"поле отсутствует в полученных данных",format_unrecognized:"формат ответа не определён",unknown_metric_code:"неизвестен код показателя",no_exact_match:"не найдено точное соответствие матча",source_unavailable:"источник недоступен",source_no_live_events:"у внешнего источника нет LIVE-событий",timeout:"превышен тайм-аут источника",stale:"данные устарели",parse_error:"ошибка разбора",conflict:"данные противоречивы"};
           const missingStatuses = Object.values(quality.missing_status || {});
           const missingReason = missingStatuses.length ? (statusLabels[missingStatuses[0]] || missingStatuses[0]) : "показатели пока не получены";
           const conflictText = quality.conflicts?.length ? " · противоречивые значения: " + quality.conflicts.length : "";
