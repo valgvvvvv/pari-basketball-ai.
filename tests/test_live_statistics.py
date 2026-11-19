@@ -214,7 +214,6 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
         self.assertNotIn("assists", event["statistics_quality"]["available_metrics"])
 
 
-
     def test_statistics_rows_keep_source_and_event_provenance(self):
         event = {"id": "pari-123", "feed_checked_at_utc": "2026-11-19T10:00:00+00:00",
                  "external_statistics": [
@@ -233,7 +232,6 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
         self.assertEqual(row["observation_basis"], "pari_feed_snapshot_proxy")
         self.assertEqual(row["freshness_status"], "source_timestamp_unavailable")
         self.assertTrue(row["received_at_utc"])
-
 
 
     def test_background_enrichment_preserves_partial_success_when_other_metric_times_out(self):
@@ -266,7 +264,6 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
         self.assertEqual(cached["signature"], ("home", "away"))
 
 
-
     def test_unmatched_external_source_is_diagnosed_separately_from_missing_field(self):
         event = {"id": "pari-no-match", "external_statistics": [],
                  "statistics_source_diagnostics": {"match_status": "no_exact_match"}}
@@ -276,17 +273,34 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
 
 
 
-
     def test_confirmed_pari_value_wins_and_conflicting_external_value_is_preserved(self):
         event = {"id": "conflict-fixture", "external_statistics": [
-            {"name": "Assists", "metric_key": "assists", "home": 5, "away": 6, "source": "PARI"},
-            {"name": "Assists", "metric_key": "assists", "home": 7, "away": 6, "source": "SofaScore"}
+            {"name": "Assists", "metric_key": "assists", "home": 7, "away": 6, "source": "SofaScore",
+             "freshness_status": "source_timestamp_unavailable", "match_status": "exact_event_id_match"},
+            {"name": "Assists", "metric_key": "assists", "home": 5, "away": 6, "source": "PARI",
+             "freshness_status": "fresh", "match_status": "pari_event_id"}
         ]}
         server._finalize_live_statistics([event])
         assists = next(row for row in event["external_statistics"] if row.get("metric_key") == "assists")
         self.assertEqual(assists["home"], 5)
         conflict = next(row for row in event["statistics_quality"]["conflicts"] if row["metric"] == "assists")
         self.assertEqual({item["source"] for item in conflict["values"]}, {"PARI", "SofaScore"})
+
+
+    def test_period_statistics_are_not_merged_into_match_or_each_other(self):
+        event = {"id": "period-fixture", "external_statistics": [
+            {"name": "Assists Q1", "metric_key": "assists", "home": 2, "away": 3,
+             "source": "SofaScore", "target": "period", "target_period": 1, "period": 1,
+             "match_status": "exact_event_id_match"},
+            {"name": "Assists Q2", "metric_key": "assists", "home": 4, "away": 5,
+             "source": "SofaScore", "target": "period", "target_period": 2, "period": 2,
+             "match_status": "exact_event_id_match"}
+        ]}
+        server._finalize_live_statistics([event])
+        rows = [r for r in event["external_statistics"] if r.get("metric_key") == "assists"]
+        self.assertEqual({(r.get("target"), r.get("target_period")) for r in rows},
+                         {("period", 1), ("period", 2)})
+        self.assertEqual(event["statistics_quality"]["conflicts"], [])
 
 
 
