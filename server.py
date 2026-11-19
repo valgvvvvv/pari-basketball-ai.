@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional
-import math, random, os, hashlib, re, asyncio, json, sqlite3, zlib, io, zipfile, pathlib
+import math, random, os, hashlib, re, asyncio, json, sqlite3, zlib, io, zipfile, pathlib, traceback
 from datetime import datetime, timezone, timedelta
 from html.parser import HTMLParser
 from html import unescape
@@ -1875,7 +1875,9 @@ async def _enrich_with_sofascore_live(events):
             sportscore_diagnostics = {
                 "source": "SportScore (fallback)", "status": "unavailable",
                 "matched": 0, "errors": errors[:4],
-                "sportscore_errors": sportscore_errors[:5]
+                "sportscore_errors": sportscore_errors[:5],
+                "error_detail": str(exc)[:500],
+                "traceback": traceback.format_exc()[-4000:],
             }
 
     live_rows = []
