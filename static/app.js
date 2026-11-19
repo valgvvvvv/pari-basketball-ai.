@@ -968,35 +968,35 @@ function eventPeriod(ev) {
   return period ? "Q"+period : null;
 }
 function eventClock(ev) {
-  return findLiveClock(ev);
+  const clock=findLiveClock(ev);
+  if(clock)return clock;
+  const raw=ev?.match_elapsed_seconds??ev?.external_live?.match_elapsed_seconds;
+  if(raw!=null&&raw!==""){
+    return findPeriodLengthSeconds(ev)
+      ? "Время получено, направление часов не подтверждено"
+      : "Время получено, длительность периода не подтверждена";
+  }
+  return null;
 }
 
 function findPeriodLengthSeconds(ev) {
-  const raw = ev.raw || {};
-  const candidates = [ev.external_live?.period_length_seconds, ev.period_length_seconds,
-    raw.periodLength, raw.period_length, raw.periodDuration, raw.period_duration,
-    ev.live_fields?.periodLength, ev.live_fields?.period_length];
-  for (const value of candidates) {
-    if (value == null) continue;
-    if (typeof value === "string" && /^\d{1,2}:[0-5]\d$/.test(value.trim())) {
-      const [m,s] = value.trim().split(":").map(Number);
-      const seconds = m*60+s;
-      if (seconds >= 300 && seconds <= 1200) return seconds;
+  const raw=ev?.raw||{};
+  const candidates=[ev?.period_length_seconds,ev?.external_live?.period_length_seconds,
+    raw.periodLength,raw.period_length,raw.periodDuration,raw.period_duration,
+    ev?.live_fields?.periodLength,ev?.live_fields?.period_length];
+  for(const value of candidates){
+    if(value==null||value==="")continue;
+    if(typeof value==="string"&&/^\\d{1,2}:[0-5]\\d$/.test(value.trim())){
+      const [m,s]=value.trim().split(":").map(Number),seconds=m*60+s;
+      if(seconds>=300&&seconds<=1200)return seconds;
     }
-    const n = Number(value);
-    if (Number.isFinite(n) && n > 0) {
-      const seconds = n > 100000 ? Math.round(n/1000) : Math.round(n);
-      if (seconds >= 300 && seconds <= 1200) return seconds;
+    const n=Number(value);
+    if(Number.isFinite(n)&&n>0){
+      const seconds=n>100000?Math.round(n/1000):Math.round(n);
+      if(seconds>=300&&seconds<=1200)return seconds;
     }
   }
-  // Fallback to PARI's competition label when the API omits period duration.
-  // Do not apply a generic 10-minute assumption to unknown competitions.
-  const competition = [ev.league, ev.sport_name, raw.name, raw.competitionName]
-    .filter(Boolean).join(" ").toLowerCase();
-  if (/\bc\s*dbl\b|chinese basketball development league|\bnba\b|g[- ]?лига|g[- ]?league/.test(competition)) return 720;
-  if (/bskt\s*cup|cup\s*bskt|кубок\s*bskt|philippines.*ncaa|ncaa.*philippines|филиппин.*ncaa/.test(competition)) return 600;
-  if (!/\bncaa\b|college|university|студент|колледж/.test(competition) &&
-      /adriatic|адриат|аба\s*лига|plk|польша|израил|израиль|super\s*league|суперлиг|bosnia|босни|герцеговин|greece|греци|italy|итал|cyprus|кипр|morocco|марокко|montenegro|черногор|serbia|серби|croatia|хорват|fiba|euroleague|eurocup|eurobasket|vtb|basketball champions league/.test(competition)) return 600;
+  // Competition names and timer magnitude are not format evidence.
   return null;
 }
 
@@ -1032,36 +1032,12 @@ function getMatchTotalLines(ev) {
 }
 function inferPeriodLengthForForecast(ev) {
   const explicit=findPeriodLengthSeconds(ev);
-  const text=[ev.league,ev.sport_name,ev.team1,ev.team2].filter(Boolean).join(" ").toLowerCase();
-  const periodCount=Number(ev.external_live?.period_count||0);
-  if(explicit)return {seconds:explicit,periods:(periodCount===2||explicit===1200)?2:4,
-    method:ev.external_live?.source==="ESPN"&&periodCount===2
-      ?"ESPN NCAA · 2 половины по 20 минут":"длительность периода получена из источника"};
-  // NCAA men's basketball uses two 20-minute halves, not four quarters.
-  if(/ncaa|college|university|студент|студ\b|колледж|march madness/.test(text))return null;
-  // Verified competition-specific period lengths.
-  if(/\bc\s*dbl\b|chinese basketball development league/.test(text))
-    return {seconds:720,periods:4,method:"China CDBL · 4×12 минут"};
-  if(/bskt\s*cup/.test(text))
-    return {seconds:600,periods:4,method:"BSKT Cup · 4×10 минут"};
-  if(/\bnba\b|g league|баскетбол nba/.test(text))
-    return {seconds:720,periods:4,method:"формат NBA · 12 минут"};
-  // Apply the 10-minute FIBA format to identified competitions.
-  if(/adriatic|адриат|аба\s*лига|plk|польша|израил|израиль|super\s*league|суперлиг|bosnia|босни|герцеговин|greece|греци|italy|итал|cyprus|кипр|morocco|марокко|montenegro|черногор|serbia|серби|croatia|хорват|fiba|euroleague|eurocup|eurobasket|vtb|basketball champions league/.test(text))
-    return {seconds:600,periods:4,method:"формат FIBA · 10 минут (по типу турнира)"};
-  // If PARI supplies the countdown but not the period length, use >10:00
-  // as evidence of a 12-minute period. Otherwise provide a clearly marked
-  // provisional 4×10-minute estimate for quarter-based basketball.
-  const clock=findLiveClock(ev);
-  const clockMatch=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
-  const remaining=clockMatch?Number(clockMatch[1])*60+Number(clockMatch[2]):null;
-  if(remaining!=null&&remaining>600&&remaining<=720)
-    return {seconds:720,periods:4,method:"предварительно 4×12 минут · таймер больше 10:00"};
-  const currentPeriod=findLivePeriod(ev);
-  if(Number.isInteger(currentPeriod)&&currentPeriod>=1&&currentPeriod<=4)
-    return {seconds:600,periods:4,method:"предварительно 4×10 минут · формат турнира не передан"};
-  return null;
+  const periodCount=Number(ev?.period_count||ev?.external_live?.period_count||0);
+  if(!explicit||![2,4].includes(periodCount))return null;
+  return {seconds:explicit,periods:periodCount,
+    method:ev?.period_format_source?.source||"подтверждённый формат по ID соревнования"};
 }
+
 function estimateLiveTotalFromPeriod(ev,score,period,lengthInfo) {
   if(!score||!period||period<2||!lengthInfo)return null;
   const total=Number(score[0])+Number(score[1]), length=lengthInfo.seconds, periods=Number(lengthInfo.periods||4);
@@ -1325,6 +1301,7 @@ function aiSignalHtml(signal,title){
     '<small>'+escapeHtml(signal.drivers.join(" · "))+'</small><small>Это тот же основной прогноз, а не независимая ИИ-модель.</small></div>';
 }
 function findQuarterClockFromElapsed(ev,period,length){
+  if(ev?.timer_semantics_verified!==true)return null;
   if(!Number.isInteger(Number(period))||!Number.isFinite(Number(length))||Number(length)<300)return null;
   const candidates=[ev?.match_elapsed_seconds,ev?.external_live?.match_elapsed_seconds,
     ev?.live_fields?.timerSeconds,ev?.live_fields?.timer_seconds,
