@@ -3166,6 +3166,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                            ("notstarted", "не начался", "не началась", "ожидает начала")):
                         filter_counts["not_live"] += 1
                         continue
+                    related_rows = collect_related_event_rows(event_id)
                     score_function_rows = (event, live_info, event_misc, *event_block_rows, *related_rows)
                     explicit_score_functions = [
                         row.get("scoreFunction") for row in score_function_rows
@@ -3189,7 +3190,6 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         for key, value in source_row.items():
                             if value is not None and (score_source.get(key) is None or key not in score_source):
                                 score_source[key] = value
-                    related_rows = collect_related_event_rows(event_id)
                     repaired_raw = repair_nested_encoding(event)
                     repaired_related_rows = repair_nested_encoding(related_rows)
                     period_value = next((row.get(key) for row in
@@ -3551,12 +3551,16 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # Stage 1: apply only a recent enrichment snapshot for this exact PARI event.
                     # The event ID and ordered team signature prevent cross-match cache reuse.
                     now_ts = datetime.now(timezone.utc).timestamp()
+                    cache_applied = 0
+                    needs_enrichment = False
                     for event in basketball:
                         event_id = str(event.get("id") or "")
                         cached = _LIVE_ENRICHMENT_CACHE.get(event_id, {})
                         if (cached.get("expires", 0) <= now_ts or
                                 cached.get("signature") != _live_event_signature(event)):
+                            needs_enrichment = True
                             continue
+                        cache_applied += 1
                         cached_stats = cached.get("external_statistics") or []
                         if cached_stats:
                             existing = list(event.get("external_statistics") or [])
@@ -3585,16 +3589,18 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # a small semaphore bound background work without cancelling
                     # successful providers when a neighbour fails.
                     global _LIVE_ENRICHMENT_TASK, _LIVE_ENRICHMENT_LAST_STATUS
-                    if _LIVE_ENRICHMENT_TASK is None or _LIVE_ENRICHMENT_TASK.done():
+                    if needs_enrichment and (_LIVE_ENRICHMENT_TASK is None or _LIVE_ENRICHMENT_TASK.done()):
                         _LIVE_ENRICHMENT_TASK = asyncio.create_task(
                             _refresh_live_enrichment_background(copy.deepcopy(basketball))
                         )
                         enrichment_status = "background_queued"
-                    else:
+                    elif _LIVE_ENRICHMENT_TASK is not None and not _LIVE_ENRICHMENT_TASK.done():
                         enrichment_status = "background_running"
+                    else:
+                        enrichment_status = "cached" if cache_applied else "not_required"
                     live_enrichment = {
                         "source": "SofaScore + SportScore",
-                        "status": "cached" if any(e.get("external_statistics") for e in basketball) else enrichment_status,
+                        "status": enrichment_status,
                         "background_status": _LIVE_ENRICHMENT_LAST_STATUS,
                         "matched": sum(1 for e in basketball if e.get("external_live")),
                         "statistics_matches": sum(1 for e in basketball if e.get("external_statistics")),
