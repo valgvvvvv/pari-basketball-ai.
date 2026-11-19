@@ -66,7 +66,7 @@ class QuarterAnalyzeRequest(BaseModel):
     score1: int = Field(ge=0, le=100)
     score2: int = Field(ge=0, le=100)
     clock: str
-    period_minutes: int = Field(default=10, ge=5, le=15)
+    period_minutes: int = Field(default=10, ge=5, le=20)
     total_line: float
     simulations: int = Field(default=100000, ge=1000, le=100000)
 
@@ -76,8 +76,9 @@ class AnalyzeRequest(BaseModel):
     score1: int = Field(ge=0, le=300)
     score2: int = Field(ge=0, le=300)
     period: int = Field(ge=1, le=4)
+    period_count: int = Field(default=4, ge=2, le=4)
     clock: str
-    period_minutes: int = Field(ge=5, le=15)
+    period_minutes: int = Field(ge=5, le=20)
     total_line: float
     over_odds: Optional[float] = None
     under_odds: Optional[float] = None
@@ -109,19 +110,22 @@ def poisson_tail(mu: float, threshold: int) -> float:
 
 def analyze(req: AnalyzeRequest):
     period_sec = req.period_minutes * 60
-    remaining_in_period = period_sec - parse_clock(req.clock)
-    if remaining_in_period < 0:
-        raise ValueError("Время четверти превышает её продолжительность")
-    periods_left = 4 - req.period
+    elapsed_in_period = parse_clock(req.clock)
+    if elapsed_in_period > period_sec:
+        raise ValueError("Прошедшее время превышает длительность периода")
+    if req.period > req.period_count:
+        raise ValueError("Номер периода превышает количество периодов в формате")
+    remaining_in_period = period_sec - elapsed_in_period
+    periods_left = req.period_count - req.period
     remaining_sec = remaining_in_period + periods_left * period_sec
-    elapsed_sec = 4 * period_sec - remaining_sec
+    elapsed_sec = period_sec * req.period_count - remaining_sec
     if elapsed_sec <= 0:
         raise ValueError("Для LIVE-анализа нужно ненулевое прошедшее время")
     current = req.score1 + req.score2
     pace = current / (elapsed_sec / 60.0)
     # Explicit transparent adjustments; do not infer a foul rate without data.
     close_game = abs(req.score1 - req.score2) <= 6
-    late_game = req.period == 4 and remaining_in_period <= 300
+    late_game = req.period == req.period_count and remaining_in_period <= 300
     endgame_factor = 1.0
     if late_game and close_game:
         endgame_factor += 0.035
@@ -137,16 +141,20 @@ def analyze(req: AnalyzeRequest):
     # Monte Carlo: Gaussian approximation to overdispersed remaining points,
     # clipped at zero. This is intentionally labelled approximate.
     rng = random.Random()
-    over = 0
+    over = under = push = 0
     totals = []
     n = req.simulations
     for _ in range(n):
-        rem = max(0, rng.gauss(mu_remaining, sigma))
+        # Basketball totals are integer-valued; continuous samples erase whole-line pushes.
+        rem = max(0, int(round(rng.gauss(mu_remaining, sigma))))
         total = current + rem
         totals.append(total)
         if total > req.total_line: over += 1
+        elif total < req.total_line: under += 1
+        else: push += 1
     p_over_mc = over / n
-    p_under_mc = 1 - p_over_mc
+    p_under_mc = under / n
+    p_push_mc = push / n
     totals.sort()
     def quantile(q):
         return round(totals[min(n-1, max(0, int(q*(n-1))))], 1)
@@ -155,8 +163,13 @@ def analyze(req: AnalyzeRequest):
     if req.over_odds and req.under_odds and req.over_odds > 1 and req.under_odds > 1:
         po, pu = 1/req.over_odds, 1/req.under_odds
         market = round(po/(po+pu)*100, 1)
-    chosen = "ТБ" if p_over_mc >= 0.5 else "ТМ"
-    probability = max(p_over_mc, p_under_mc)
+    decisive = p_over_mc + p_under_mc
+    chosen = "ТБ" if (p_over_mc / decisive if decisive else 0.5) >= 0.5 else "ТМ"
+    probability = max(p_over_mc, p_under_mc) / decisive if decisive else 0.0
+    push_k = int(round(req.total_line - current)) if abs(req.total_line - round(req.total_line)) < 1e-9 else -1
+    p_push_poisson = (math.exp(-mu_remaining) * (mu_remaining ** push_k) / math.factorial(push_k)
+                      if push_k >= 0 and mu_remaining >= 0 else 0.0)
+    p_under_poisson = max(0.0, 1.0 - p_over_pois - p_push_poisson)
     # Conservative signal grading based on model probability and distance to line.
     edge = abs(expected - req.total_line)
     grade = "A" if probability >= .72 and edge >= 4 else ("B" if probability >= .62 and edge >= 2 else "C")
@@ -165,8 +178,9 @@ def analyze(req: AnalyzeRequest):
         "remaining_minutes": round(remaining_sec/60, 2), "pace_per_min": round(pace, 3),
         "mu_remaining": round(mu_remaining, 2), "expected_total": round(expected, 1),
         "line": req.total_line, "direction": chosen,
-        "p_over_poisson": round(p_over_pois*100, 1),
-        "p_over_mc": round(p_over_mc*100, 1), "p_under_mc": round(p_under_mc*100, 1),
+        "p_over_poisson": round(p_over_pois*100, 1), "p_under_poisson": round(p_under_poisson*100, 1), "p_push_poisson": round(p_push_poisson*100, 1),
+        "p_over_mc": round(p_over_mc*100, 1), "p_under_mc": round(p_under_mc*100, 1), "p_push_mc": round(p_push_mc*100, 1),
+        "period_count": req.period_count, "overtime_policy": "not_modelled",
         "market_over_devig": market, "range80": [quantile(.10), quantile(.90)],
         "range95": [quantile(.025), quantile(.975)], "grade": grade,
         "simulations": n, "sigma_remaining": round(sigma, 2),
@@ -220,12 +234,16 @@ def api_analyze_quarter(req: QuarterAnalyzeRequest):
     rng = random.Random()
     n = req.simulations
     totals = []
-    over = 0
+    over = under = push = 0
     for _ in range(n):
-        total = current + max(0.0, rng.gauss(mu, sigma))
+        total = current + max(0, int(round(rng.gauss(mu, sigma))))
         totals.append(total)
-        if total > req.total_line:
-            over += 1
+        if total > req.total_line: over += 1
+        elif total < req.total_line: under += 1
+        else: push += 1
+    p_over = over / n
+    p_under = under / n
+    p_push = push / n
     totals.sort()
     def qtile(q):
         return round(totals[min(n - 1, max(0, int(q * (n - 1))))], 1)
@@ -237,7 +255,7 @@ def api_analyze_quarter(req: QuarterAnalyzeRequest):
         "pace_per_min": round(pace, 3), "expected_total": round(expected, 1),
         "line": req.total_line, "direction": "ТБ" if p_over >= 0.5 else "ТМ",
         "p_over_mc": round(p_over * 100, 1),
-        "p_under_mc": round((1 - p_over) * 100, 1),
+        "p_under_mc": round(p_under * 100, 1), "p_push_mc": round(p_push * 100, 1),
         "range80": [qtile(.10), qtile(.90)],
         "range95": [qtile(.025), qtile(.975)],
         "grade": "A" if max(p_over, 1-p_over) >= .72 and abs(expected-req.total_line) >= 3 else ("B" if max(p_over,1-p_over) >= .62 else "C"),
