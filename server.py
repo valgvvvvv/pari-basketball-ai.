@@ -3913,6 +3913,45 @@ def archive_status():
             "github_archive":{"interval_seconds":300,"format":"timestamped daily ZIP release assets","append_only":True,"contains_prediction_contracts":True,"final_outcomes":"unresolved unless an independent final result is confirmed"},
             "prediction_capture":"GitHub archive includes normalized source snapshots, immutable event/snapshot IDs, primary match and period forecasts, model version, expected remaining points, predictive distribution parameters, intervals, market factor prices, source timestamps and quality restrictions. The local Render SQLite database stores raw source snapshots only."}
 
+@app.get("/api/archive/recent")
+def archive_recent(minutes: int = 10, event_ids: str = ""):
+    """Return recent score/clock snapshots for rolling live-tempo diagnostics."""
+    minutes = max(1, min(15, int(minutes)))
+    ids = [value.strip() for value in str(event_ids or "").split(",") if value.strip()][:100]
+    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    conn = _archive_connect()
+    try:
+        sql = "SELECT event_id,captured_at,quarter,clock,score FROM snapshots WHERE captured_at>=?"
+        params = [since]
+        if ids:
+            sql += " AND event_id IN (" + ",".join("?" for _ in ids) + ")"
+            params.extend(ids)
+        sql += " ORDER BY event_id,captured_at LIMIT 5000"
+        rows = conn.execute(sql, params).fetchall()
+    finally:
+        conn.close()
+    grouped = {}
+    for row in rows:
+        try:
+            score = json.loads(row["score"]) if row["score"] is not None else None
+        except (TypeError, ValueError):
+            score = None
+        grouped.setdefault(str(row["event_id"]), []).append({
+            "captured_at": row["captured_at"],
+            "period": row["quarter"],
+            "clock": row["clock"],
+            "score": score
+        })
+    return {
+        "ok": True,
+        "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+        "minutes": minutes,
+        "snapshot_count": len(rows),
+        "events": grouped,
+        "history_source": "Render-local rolling snapshot cache; unavailable after an ephemeral disk reset"
+    }
+
+
 @app.get("/api/archive/export")
 def archive_export():
     conn=_archive_connect()
