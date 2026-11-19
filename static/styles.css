@@ -139,3 +139,9 @@ html,body{max-width:100%;overflow-x:clip}
 .unified-tools-panel,.unified-tools-table{min-width:0;max-width:100%}
 .unified-tools-table td,.unified-tools-table th{overflow-wrap:anywhere;word-break:normal}
 @media(max-width:390px){.unified-tools-table th,.unified-tools-table td{font-size:8px;padding:4px 2px}.unified-tools-table th:nth-child(1){width:23%}.unified-tools-table th:nth-child(2){width:22%}.unified-tools-table th:nth-child(3),.unified-tools-table th:nth-child(4){width:27.5%}}
+
+/* Prevent grid items from expanding the page to the min-content width of nested diagnostics. */
+.shell,.shell main,.shell main>*,#selectedMatch,.two-panels,.two-panels>*,.classic-model-panel,.unified-tools-panel{min-width:0;max-width:100%}
+#selectedMatch{width:100%;overflow-wrap:anywhere}
+#selectedMatch :where(p,span,b,strong,small,summary,td,th){overflow-wrap:anywhere;word-break:break-word}
+#selectedMatch :where(table){max-width:100%;table-layout:fixed}
