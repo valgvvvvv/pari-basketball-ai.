@@ -106,3 +106,18 @@
 .model-tool-row b{font-size:13px}
 .model-tool-row span{font-size:12px;font-weight:600;text-align:right}
 .model-tool-row small{grid-column:1/-1;color:var(--muted,#777);font-size:11px;line-height:1.4}
+
+.calculation-steps,.technical-details{margin:10px 0;border:1px solid var(--line);border-radius:9px;padding:10px 12px;background:#0b1421}
+.calculation-steps>summary,.technical-details>summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--cyan)}
+.calc-explanation{padding-top:7px}
+.calc-explanation p,.technical-details p{font-size:11px;line-height:1.55;margin:6px 0;color:var(--muted);overflow-wrap:anywhere}
+.calc-explanation b{color:var(--text)}
+.forecast-main{margin:8px 0;padding:12px}.forecast-main p{font-size:11px;margin:5px 0}
+.classic-model-panel{margin:10px 0;padding:10px 12px}.classic-model-panel h3{font-size:14px}
+.classic-model-panel .calc-table{min-width:0;table-layout:fixed;width:100%}
+.classic-model-panel .calc-table th,.classic-model-panel .calc-table td{font-size:10px;padding:6px 5px;overflow-wrap:anywhere;white-space:normal}
+.classic-model-panel .calc-table th:first-child,.classic-model-panel .calc-table td:first-child{width:35%}
+.classic-model-panel details{margin-top:8px}.classic-model-panel details>summary{font-size:11px;cursor:pointer;color:var(--muted)}
+.two-panels{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}.two-panels>.panel{min-width:0;padding:14px}
+#selectedMatchInfo{font-size:12px;line-height:1.5;margin:8px 0 12px;overflow-wrap:anywhere}
+@media(max-width:650px){.two-panels{grid-template-columns:1fr}.two-panels>.panel{padding:12px}.classic-model-panel{padding:9px}.classic-model-panel .calc-table th,.classic-model-panel .calc-table td{font-size:9px;padding:5px 3px}.classic-model-panel .calc-table th:first-child,.classic-model-panel .calc-table td:first-child{width:34%}}
