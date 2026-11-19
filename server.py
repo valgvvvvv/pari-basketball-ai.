@@ -2356,6 +2356,34 @@ def _pari_period_score_records(source_row):
                                     "source_index": index})
     return records
 
+def _pari_filter_unstarted_zero_periods(records, current_period):
+    """Do not present explicit 0:0 placeholders for future, not-yet-started periods."""
+    try:
+        current = int(current_period)
+    except (TypeError, ValueError, OverflowError):
+        return list(records or []), []
+    if not 1 <= current <= 4:
+        return list(records or []), []
+    accepted, unstarted = [], []
+    for record in records or []:
+        if not isinstance(record, dict):
+            continue
+        try:
+            number = int(record.get("period"))
+        except (TypeError, ValueError, OverflowError):
+            accepted.append(record)
+            continue
+        score = record.get("score")
+        if number > current and isinstance(score, (list, tuple)) and list(score[:2]) == [0, 0]:
+            unstarted.append({
+                **record,
+                "reason": "Источник передал 0:0 для будущего периода; период ещё не начался",
+            })
+        else:
+            accepted.append(record)
+    return accepted, unstarted
+
+
 def _pari_period_score_unmapped_records(source_row):
     """Expose unknown subscores in diagnostics without assigning them a meaning."""
     if not isinstance(source_row, dict) or not isinstance(source_row.get("subscores"), (list, tuple)):
@@ -3245,6 +3273,9 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         period_score_records.extend({**record, "source_object": source_name} for record in candidate_records)
                         period_score_unmapped.extend({**record, "source_object": source_name}
                                                       for record in _pari_period_score_unmapped_records(score_source_row))
+                    period_score_records, period_score_unstarted = _pari_filter_unstarted_zero_periods(
+                        period_score_records, explicit_period
+                    )
                     period_score_by_number = {}
                     period_score_conflicts = []
                     for record in period_score_records:
@@ -3328,6 +3359,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "period_score_sources": list(period_score_by_number.values()),
                         "period_score_conflicts": period_score_conflicts,
                         "period_score_unmapped": period_score_unmapped[:40],
+                        "period_score_unstarted": period_score_unstarted[:20],
                         "match_timeline": [
                             {"period": index + 1, "home": pair[0], "away": pair[1],
                              "total": pair[0] + pair[1],
