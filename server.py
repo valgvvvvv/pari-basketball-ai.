@@ -3391,8 +3391,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         external = live_event.get("external_live") if isinstance(live_event.get("external_live"), dict) else {}
                         live_event["feed_fetched_at_utc"] = feed_fetched_at
                         live_event["event_source_timestamp_utc"] = (
-                            live_event.get("updated_at") or external.get("updated_at") or
-                            live_event.get("statistics_checked_at")
+                            live_event.get("updated_at") or external.get("updated_at")
                         )
                         live_event["event_freshness_status"] = (
                             "provider_timestamp_available" if live_event["event_source_timestamp_utc"]
