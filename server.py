@@ -2356,6 +2356,33 @@ def _pari_period_score_unmapped_records(source_row):
     return result
 
 
+def _pari_timer_metadata(timer_seconds, timer_direction, timer_timestamp_msec,
+                          period_length_seconds=None, period_format_source=None,
+                          timer_paused=False, overtime_detected=False):
+    """Preserve source clock fields without inventing elapsed/remaining semantics."""
+    has_timer = timer_seconds is not None
+    return {
+        "source_timer_seconds": timer_seconds,
+        "match_elapsed_seconds": None,
+        "period_elapsed_seconds": None,
+        "period_remaining_seconds": None,
+        "timer_direction": timer_direction,
+        "timer_timestamp_msec": timer_timestamp_msec,
+        "timer_paused": bool(timer_paused),
+        "overtime_detected": bool(overtime_detected),
+        "overtime_length_seconds": 300 if period_format_source else None,
+        "timer_state": ("overtime" if overtime_detected else
+                        "stoppage" if timer_paused else
+                        "source_status_unconfirmed" if has_timer else "not_received"),
+        "timer_interpretation_status": (
+            "received_period_format_unconfirmed"
+            if has_timer and period_length_seconds is None
+            else "received_timer_semantics_unverified" if has_timer
+            else "timer_not_received"
+        ),
+    }
+
+
 def _pari_period_scores(source_row):
     """Sparse quarter scores; unknown periods remain None, never fabricated as zero."""
     records = _pari_period_score_records(source_row)
@@ -3270,21 +3297,12 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "period_length_seconds": period_length_seconds,
                         "period_count": period_count,
                         "period_format_source": period_format_source,
-                        # Keep source timer value separate from verified elapsed/remaining clocks.
-                        "source_timer_seconds": timer_seconds,
-                        "match_elapsed_seconds": None,
-                        "period_elapsed_seconds": None,
-                        "period_remaining_seconds": None,
-                        "timer_direction": timer_direction,
-                        "timer_timestamp_msec": timer_timestamp_msec,
-                        "timer_paused": timer_paused,
-                        "overtime_detected": overtime_detected,
-                        "overtime_length_seconds": 300 if period_format_source else None,
-                        "timer_state": ("overtime" if overtime_detected else
-                                        "stoppage" if timer_paused else
-                                        "source_status_unconfirmed" if timer_seconds is not None else "not_received"),
+                        **_pari_timer_metadata(
+                            timer_seconds, timer_direction, timer_timestamp_msec,
+                            period_length_seconds, period_format_source,
+                            timer_paused, overtime_detected
+                        ),
                         "timer_semantics_verified": timer_semantics_verified,
-                        "timer_interpretation_status": timer_interpretation_status,
                         "period_scores": period_scores,
                         "period_score_sources": list(period_score_by_number.values()),
                         "period_score_conflicts": period_score_conflicts,
