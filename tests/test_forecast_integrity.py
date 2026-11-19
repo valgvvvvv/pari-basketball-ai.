@@ -13,6 +13,21 @@ class ForecastIntegrityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             server.parse_clock("08:75")
 
+    def test_manual_api_supports_two_halves_of_twenty_minutes(self):
+        req = server.AnalyzeRequest(
+            team1="Home", team2="Away", score1=40, score2=38,
+            period=2, period_count=2, clock="01:00",
+            period_minutes=20, total_line=150, simulations=1000
+        )
+        result = server.analyze(req)
+        self.assertEqual(result["elapsed_minutes"], 21.0)
+        self.assertEqual(result["remaining_minutes"], 19.0)
+        self.assertEqual(result["period_count"], 2)
+        self.assertEqual(result["overtime_policy"], "not_modelled")
+        self.assertAlmostEqual(
+            result["p_over_mc"] + result["p_under_mc"] + result["p_push_mc"], 100.0, places=1
+        )
+
     def test_raw_archive_snapshots_are_append_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "archive.sqlite3"
