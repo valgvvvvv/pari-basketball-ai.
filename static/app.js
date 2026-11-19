@@ -1101,10 +1101,10 @@ function automaticForecast(ev) {
         message:preliminary?"Предварительная оценка: формат или стадия матча не подтверждены":"Единый основной прогноз · Монте-Карло — способ построения распределения, не отдельная модель"};
     }
   }
-  if(score&&period&&lengthInfo){
-    const estimate=estimateLiveTotalFromPeriod(ev,score,period,lengthInfo);
-    if(estimate){const modeled=applyPoissonModel(estimate,lines,String(ev.id||"")+"|"+score.join(":")+"|Q"+period,ev,period,clock);return {ready:true,kind:"period_range",preliminary:true,estimate:{...modeled,preliminary:true,confidence:"низкая · нет подтверждённого таймера"},lines,message:"Предварительный диапазон по периоду без точного таймера"};}
-  }
+  // A period-only extrapolation is not a LIVE forecast: every model below
+  // must consume a verified normalized timer or an explicit trusted countdown.
+  // Missing optional box-score statistics do not affect this base calculation.
+
   const market=marketReferenceForecast(lines);
   if(market){
     const missing=[];
