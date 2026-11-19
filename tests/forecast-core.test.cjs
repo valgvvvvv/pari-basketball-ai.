@@ -14,6 +14,9 @@ assert.ok(earlyQ3.projection > 30 && earlyQ3.projection < 50,
   "Q3 1:0 after 63 seconds must not extrapolate 1 point to a 9.5-point quarter");
 assert.ok(earlyQ3.varianceRemaining > earlyQ3.expectedRemaining,
   "posterior predictive variance must include rate uncertainty");
+assert.ok(earlyQ3.meanUncertaintyVariance > 0 && earlyQ3.meanUncertaintySd > 0);
+assert.ok(Math.abs(earlyQ3.varianceRemaining - earlyQ3.expectedRemaining - earlyQ3.meanUncertaintyVariance) < 1e-9,
+  "predictive variance must separate point-process variance from posterior mean uncertainty");
 
 const zeroAtStart = core.quarterPosterior({
   current: 0, elapsedSeconds: 0, periodLengthSeconds: 600,
@@ -30,6 +33,7 @@ assert.equal(noPriorEarly.ready, false);
 
 const integerLine = core.simulateQuarter(earlyQ3, [{line:40}], "integer-line-regression", 100000);
 assert.ok(integerLine.probabilities[0].pPush > 0, "integer totals must have an explicit push probability");
+assert.ok(integerLine.meanUncertaintySd > 0, "scenario/parameter mean uncertainty must be exposed separately");
 const halfLine = core.simulateQuarter(earlyQ3, [{line:40.5}], "half-line-regression", 100000);
 assert.equal(halfLine.probabilities[0].pPush, 0, "half-point lines cannot push");
 for (const row of [...integerLine.probabilities, ...halfLine.probabilities]) {
