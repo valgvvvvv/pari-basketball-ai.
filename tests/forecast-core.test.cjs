@@ -198,6 +198,20 @@ vm.runInNewContext(runtimeSource, runtimeSandbox);
 assert.equal(runtimeSandbox.findLiveClock({period:3,clock:"08:57"}), "08:57");
 assert.equal(runtimeSandbox.inferPeriodLengthForForecast({period:3,league:"Unknown league",clock:"08:57"}), null, "unknown format must not be guessed from period or clock");
 assert.equal(runtimeSandbox.inferPeriodLengthForForecast({period:2,period_length_seconds:1200,external_live:{period_count:2},clock:"15:00"}).periods, 2);
+assert.equal(runtimeSandbox.inferPeriodLengthForForecast({
+  period:3,live_fields:{period_length_seconds:600,period_count:4,period_format_source:{source:"KBL official rules"}}
+}).seconds,600,"PARI live_fields must supply the verified competition format");
+assert.equal(runtimeSandbox.inferPeriodLengthForForecast({
+  period:3,live_fields:{period_length_seconds:600,period_count:4}
+}).periods,4);
+const clockSourceStart=appSource.indexOf("function eventClock(ev)");
+const clockSourceEnd=appSource.indexOf("function findPeriodLengthSeconds(ev)",clockSourceStart);
+const clockSandbox={findLiveClock:()=>null,findPeriodLengthSeconds:()=>null};
+vm.runInNewContext(appSource.slice(clockSourceStart,clockSourceEnd)+"; this.eventClock=eventClock;",clockSandbox);
+assert.match(clockSandbox.eventClock({live_fields:{source_timer_seconds:405}}),/Время получено, длительность периода не подтверждена/);
+assert.match(clockSandbox.eventClock({live_fields:{source_timer_seconds:405}}),/405 с/);
+assert.ok(appSource.includes("ev?.live_fields?.timer_semantics_verified"),"timer semantics must be read from PARI live_fields");
+
 const recentStart = appSource.indexOf("function recentTempoFromSnapshots");
 const recentEnd = appSource.indexOf("function dynamicScenarioMonteCarlo", recentStart);
 const recentSource = appSource.slice(recentStart, recentEnd) +
