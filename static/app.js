@@ -854,13 +854,6 @@ function showSelectedMatch(ev,options={}){
     const oldSpacer=document.getElementById("liveRefreshScrollSpacer");
     if(oldSpacer)oldSpacer.style.height="0px";
   }
-  const scrollAnchor=options.silent?(()=>{
-    const hit=document.elementFromPoint(window.innerWidth/2,Math.min(140,window.innerHeight/2));
-    const details=hit?.closest("#selectedMatch details");
-    const summary=details?.querySelector("summary")?.textContent?.trim()||null;
-    const target=details||hit?.closest("#selectedMatch .forecast-main, #selectedMatch .calc-section, #selectedMatch p, #selectedMatch h3")||panel;
-    return {summary,tag:target?.tagName||"SECTION",className:typeof target?.className==="string"?target.className:"",text:target?.textContent?.trim().slice(0,72)||"",top:target?.getBoundingClientRect().top??0,inside:panel.contains(target),node:target===panel?panel:(panel.contains(target)?null:target)};
-  })():null;
   const openSummaries=options.silent?Array.from(panel.querySelectorAll("details[open]")).map(d=>d.querySelector("summary")?.textContent).filter(Boolean):[];
   selectedLiveEventId=String(ev?.id||"");
   ev.snapshot_id=String(ev.snapshot_id||[selectedLiveEventId,String(ev.feed_checked_at_utc||""),String(findLiveScore(ev)||""),String(findLivePeriod(ev)||""),String(findLiveClock(ev)||"")].join("|"));
@@ -1492,9 +1485,6 @@ async function refreshLiveMatches() {
   const scrollIntentAtStart = userScrollIntentVersion;
   const button = $("refreshLiveMatches");
   if (button) button.disabled = true;
-  const refreshScrollRoot=document.scrollingElement||document.documentElement;
-  const previousOverflowAnchor=refreshScrollRoot.style.overflowAnchor;
-  let refreshReadingAnchor=null;
   if (liveMessage && !liveList.children.length) liveMessage.textContent = "Запрашиваем events/list у серверов PARI…";
   let pariFeedFailure = null;
   try {
@@ -1538,11 +1528,6 @@ async function refreshLiveMatches() {
       }catch(_recentError){
         // Rolling tempo is optional; never block the current live feed on an empty cache.
       }finally{clearTimeout(recentTimeout);}
-    }
-    const selectedPanelBeforeRefresh=selectedLiveEventId?$("selectedMatch"):null;
-    if(selectedPanelBeforeRefresh&&!selectedPanelBeforeRefresh.hidden){
-      refreshReadingAnchor={element:selectedPanelBeforeRefresh,top:selectedPanelBeforeRefresh.getBoundingClientRect().top};
-      refreshScrollRoot.style.overflowAnchor="none";
     }
     window.pariLiveEvents = (data.events || []).map(ev=>({...ev,
       feed_checked_at_utc:data.checked_at_utc||null,
@@ -1626,18 +1611,12 @@ async function refreshLiveMatches() {
         if (ev) showSelectedMatch(ev);
       }));
     }
-    if(refreshReadingAnchor?.element?.isConnected){
-      const delta=refreshReadingAnchor.element.getBoundingClientRect().top-refreshReadingAnchor.top;
-      const previousBehavior=refreshScrollRoot.style.scrollBehavior;
-      refreshScrollRoot.style.scrollBehavior="auto";
-      refreshScrollRoot.scrollTop=refreshScrollRoot.scrollTop+delta;
-      refreshScrollRoot.style.scrollBehavior=previousBehavior;
-    }
     $("feedStatus").textContent = count ? "PARI LIVE: найдено " + count + " матчей" : "PARI API отвечает; матчи не распознаны";
     if (userScrollIntentVersion === scrollIntentAtStart) {
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        if (userScrollIntentVersion === scrollIntentAtStart) window.scrollTo({top:refreshScrollY,behavior:"instant"});
-      }));
+      const root=document.documentElement,previousBehavior=root.style.scrollBehavior;
+      root.style.scrollBehavior="auto";
+      window.scrollTo(0,refreshScrollY);
+      root.style.scrollBehavior=previousBehavior;
     }
   } catch (error) {
     const sourceStatus = $("liveSourceStatus");
@@ -1660,7 +1639,6 @@ async function refreshLiveMatches() {
     if (liveUpdated) liveUpdated.textContent = "Ошибка первого ответа: " + (error.message || "сбой запроса");
     $("feedStatus").textContent = "PARI LIVE: подключение не подтверждено";
   } finally {
-    refreshScrollRoot.style.overflowAnchor=previousOverflowAnchor;
     liveRefreshInFlight = false;
     if (button) button.disabled = false;
     // Schedule the next poll only after this request has finished; never stack requests.
