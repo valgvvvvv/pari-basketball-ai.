@@ -23,9 +23,9 @@ def restore_archive(archive_path: Path, output_dir: Path) -> int:
             if member.is_dir() or not member.filename.startswith("snapshots/"):
                 continue
             relative = PurePosixPath(member.filename)
-            if relative.is_absolute() or ".." in relative.parts or len(relative.parts) != 2:
+            if "\\" in member.filename or relative.is_absolute() or ".." in relative.parts or len(relative.parts) != 2:
                 raise ValueError("Unsafe archive member path")
-            if not relative.name.endswith(".json.gz"):
+            if not relative.name.endswith(".json.gz") or not relative.name.replace(".json.gz", "").replace("-", "").replace("_", "").replace(".", "").isalnum():
                 continue
             payload = archive.read(member)
             try:
