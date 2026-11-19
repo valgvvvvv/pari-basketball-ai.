@@ -2322,6 +2322,27 @@ def _pari_period_scores(source_row):
         indexed.setdefault(record["period"], record["score"])
     return [indexed.get(n) for n in range(1, max(indexed, default=0) + 1)]
 
+def _pari_sport_hierarchy_is_basketball(sport_id, sports_by_id):
+    """Require a Basketball sport node in the actual parent chain; league names are insufficient."""
+    current = sports_by_id.get(str(sport_id)) if isinstance(sports_by_id, dict) else None
+    seen = set()
+    for _ in range(12):
+        if not isinstance(current, dict):
+            return False
+        current_id = str(current.get("id", ""))
+        if current_id in seen:
+            return False
+        seen.add(current_id)
+        name = re.sub(r"[^a-zа-яё]+", "", str(current.get("name") or "").casefold().replace("ё", "е"))
+        if "basketball" in name or "баскетбол" in name:
+            return True
+        parent = next((current.get(k) for k in ("parentId", "parent_id", "parentSportId", "parent") if current.get(k) is not None), None)
+        if isinstance(parent, dict):
+            parent = parent.get("id")
+        current = sports_by_id.get(str(parent)) if parent is not None else None
+    return False
+
+
 def _pari_score_function_is_basketball(value):
     """Return True only for an explicit basketball scoring function."""
     text = re.sub(r"[^a-zа-яё]+", "", str(value or "").casefold().replace("ё", "е"))
@@ -2825,8 +2846,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     chain = sport_chain_text(row)
                     direct_name = str(row.get("name", "")).lower()
                     # Competition names (e.g. UAAP) do not classify the sport.
-                    # Require a Basketball node in the actual sport hierarchy.
-                    if any(marker in chain for marker in basketball_markers):
+                    if _pari_sport_hierarchy_is_basketball(sid, sports_by_id):
                         basketball_ids.add(sid)
                         sport_names[sid] = str(row.get("name", ""))
                 # Retain the two IDs already verified from actual basketball root events.
@@ -3166,7 +3186,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # suppress this stale row instead of presenting it as a live game.
                     if (timer_seconds is not None and period_length_seconds
                             and timer_seconds >= 4 * period_length_seconds
-                            and len(period_scores) == 4):
+                            and len(period_scores) == 4 and all(pair is not None for pair in period_scores)):
                         pari_score_check = (_extract_pari_score(event)
                                             or _extract_pari_score(event_misc)
                                             or _extract_pari_score(live_info))
