@@ -3,6 +3,7 @@ import unittest
 from server import (_PARI_TIMER_OBSERVATIONS, _pari_normalize_timer,
                     _pari_infer_period_format_from_timeline,
                     _pari_infer_period_format_from_match_boundary,
+                    _pari_infer_period_format_from_period_timer,
                     _pari_period_from_match_timer,
                     _pari_normalize_match_timer_against_period)
 
@@ -89,6 +90,15 @@ class PariTimerNormalizationTests(unittest.TestCase):
 
     def test_match_clock_conflicting_with_quarter_timeline_is_not_verified(self):
         result = _pari_normalize_match_timer_against_period(1149, 4, 600, 4)
+        self.assertIsNone(result)
+
+
+    def test_infer_ten_minute_format_when_q2_has_started_before_12_minutes(self):
+        result = _pari_infer_period_format_from_period_timer(2, 667, 4)
+        self.assertEqual(result["period_length_seconds"], 600)
+
+    def test_do_not_guess_format_when_both_period_lengths_fit(self):
+        result = _pari_infer_period_format_from_period_timer(3, 1743, 4)
         self.assertIsNone(result)
 
     def test_count_up_verified_after_one_clean_interval(self):
