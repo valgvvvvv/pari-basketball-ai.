@@ -79,6 +79,8 @@ assert.ok(appSource.includes("One canonical forecast drives every headline block
 assert.ok(appSource.includes("Date.now()-feedChecked>120000"), "stale API snapshots must be rejected");
 assert.ok(appSource.includes("validateScoreTimeline"), "period sums must be checked against the match score");
 assert.ok(appSource.includes("providerEventTimestampAvailable"), "provider event freshness must be distinguished from API response age");
+assert.ok(appSource.includes("full_play_by_play") && appSource.includes("score_clock_period_results") && appSource.includes("score_clock_only"), "data coverage modes must be explicit");
+assert.ok(appSource.includes("scoreSource") && appSource.includes("clockSource") && appSource.includes("statisticsSource"), "source provenance must be tracked by layer");
 const clockStart = appSource.indexOf("function findLiveClock(ev){");
 const clockEnd = appSource.indexOf("function estimateLiveTotal(ev", clockStart);
 assert.ok(clockStart >= 0 && clockEnd > clockStart);
