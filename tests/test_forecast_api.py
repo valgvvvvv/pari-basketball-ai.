@@ -57,7 +57,7 @@ class ForecastApiRegressionTests(unittest.TestCase):
         result = server.analyze(req)
         self.assertEqual(result["elapsed_minutes"], 39.0)
         self.assertEqual(result["remaining_minutes"], 1.0)
-        self.assertEqual(result["remaining_minutes"], 19.0)
+        self.assertEqual(result["remaining_minutes"], 1.0)
 
 
 class ArchiveSnapshotImmutabilityTests(unittest.TestCase):
