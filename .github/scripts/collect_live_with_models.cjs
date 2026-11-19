@@ -202,7 +202,7 @@ const { chromium } = require("playwright");
       Array.from(document.scripts).map(script => script.src).find(src => src.includes("/static/app.js")) || ""
     );
     result.ui_smoke = { status: "skipped_old_deployment", app_script: appScriptUrl };
-    if (appScriptUrl.includes("20261119-integrity-v46")) {
+    if (appScriptUrl.includes("20261119-integrity-v54")) {
       const smokeRow = result.forecasts.find(row =>
         row.quarter || (row.match && row.match.kind !== "market_reference")
       );
@@ -232,6 +232,42 @@ const { chromium } = require("playwright");
         const historyBefore = Number(await page.locator("#historyCount").innerText());
         const historyText = await page.locator("#historyList").innerText();
         if (!historyText.includes(smokeRow.teams)) throw new Error("Selected match was not saved in forecast history");
+        const toolRows = await page.locator("#toolsRegistry .unified-tools-table tbody tr").count();
+        if (toolRows < 1) throw new Error("Unified calculation tool registry is empty");
+        for (const selector of ["#matchForecast", "#quarterForecast"]) {
+          const headlineCount = await page.locator(selector + " .forecast-main").count();
+          if (headlineCount > 1) throw new Error("Duplicate primary forecast in " + selector);
+        }
+        const snapshotText = await page.locator("#selectedMatchInfo").innerText();
+        if (!snapshotText.includes("snapshot")) throw new Error("Selected match snapshot ID is not visible");
+        fs.mkdirSync("archive-snapshot", { recursive: true });
+        const viewportChecks = [];
+        for (const width of [360, 390, 768, 1280]) {
+          await page.setViewportSize({ width, height: 900 });
+          const dimensions = await page.evaluate(() => ({
+            viewport: window.innerWidth,
+            document: document.documentElement.scrollWidth,
+            body: document.body.scrollWidth,
+            selected: Math.round(document.querySelector("#selectedMatch").getBoundingClientRect().width)
+          }));
+          if (dimensions.document > dimensions.viewport + 1 || dimensions.body > dimensions.viewport + 1) {
+            throw new Error("Page-level horizontal overflow at " + width + "px: " + JSON.stringify(dimensions));
+          }
+          if (dimensions.selected > dimensions.viewport + 1) {
+            throw new Error("Selected match card exceeds viewport at " + width + "px: " + JSON.stringify(dimensions));
+          }
+          await page.screenshot({ path: path.join("archive-snapshot", "ui-viewport-" + width + ".png") });
+          viewportChecks.push(dimensions);
+        }
+        await page.setViewportSize({ width: 1280, height: 900 });
+        const explanation = page.locator("#matchForecast details").first();
+        let openedExplanation = null;
+        if (await explanation.count()) {
+          openedExplanation = await explanation.locator("summary").innerText();
+          await explanation.locator("summary").click();
+        }
+        await page.evaluate(() => window.scrollTo(0, Math.min(450, document.documentElement.scrollHeight - window.innerHeight)));
+        const scrollBefore = await page.evaluate(() => window.scrollY);
         await page.waitForFunction(() => {
           const button = document.querySelector("#refreshLiveMatches");
           return button && !button.disabled;
@@ -241,6 +277,18 @@ const { chromium } = require("playwright");
           const count = document.querySelector("#historyCount");
           return count && Number(count.textContent || 0) > before;
         }, historyBefore, { timeout: 30000 });
+        const selectedAfterRefresh = await page.locator("#selectedMatchTitle").innerText();
+        if (!selectedAfterRefresh.includes(smokeRow.teams.split(" — ")[0])) {
+          throw new Error("Auto-refresh changed the selected match");
+        }
+        if (openedExplanation) {
+          const explanationStillOpen = await page.locator("#matchForecast details[open]").filter({ hasText: openedExplanation }).count();
+          if (!explanationStillOpen) throw new Error("Auto-refresh collapsed the opened explanation");
+        }
+        const scrollAfter = await page.evaluate(() => window.scrollY);
+        if (Math.abs(scrollAfter - scrollBefore) > 5) {
+          throw new Error("Auto-refresh moved the reading position: " + scrollBefore + " -> " + scrollAfter);
+        }
         const settlementContract = {
           event_id: "ui-smoke-fixture", snapshot_id: "ui-smoke-snapshot",
           target: { type: "match" }, market: { lines: [{ line: 200 }] }
@@ -260,7 +308,11 @@ const { chromium } = require("playwright");
         }
         result.ui_smoke = {
           status: "passed", app_script: appScriptUrl,
+          viewport_checks: viewportChecks,
+          tool_rows: toolRows,
           selected_event_id: smokeRow.event_id,
+          scroll_before_refresh: scrollBefore,
+          scroll_after_refresh: scrollAfter,
           history_before_refresh: historyBefore,
           history_after_refresh: Number(await page.locator("#historyCount").innerText()),
           result_preview: settlement.status + "/" + settlement.result
