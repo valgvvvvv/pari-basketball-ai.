@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from html.parser import HTMLParser
 from html import unescape
 import httpx
+from result_validation import settle_prediction
 
 app = FastAPI(title="PARI Basketball AI", version="0.1.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -283,6 +284,17 @@ def api_analyze_quarter(req: QuarterAnalyzeRequest):
         "warnings": ["Без истории предыдущих четвертей используется только текущая четверть и Jeffreys prior.",
                      "Вероятности не калиброваны на независимой исторической выборке."]
     }
+
+
+class SettlementPreviewRequest(BaseModel):
+    contract: dict
+    final_record: Optional[dict] = None
+
+
+@app.post("/api/archive/settle-preview")
+def api_archive_settle_preview(req: SettlementPreviewRequest):
+    """Evaluate a supplied final record without inventing or persisting an outcome."""
+    return settle_prediction(req.contract, req.final_record)
 
 
 @app.get("/api/pari/source-check")
