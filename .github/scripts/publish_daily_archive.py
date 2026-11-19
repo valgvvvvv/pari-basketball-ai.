@@ -103,6 +103,7 @@ def main():
     prediction_contract_count = 0
     forecast_error_count = 0
     snapshot_file_count = 0
+    file_entries = []
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as daily:
         for index, artifact in enumerate(sorted(artifacts, key=lambda x: x["created_at"])):
             blob = download_artifact(artifact["url"])
@@ -128,10 +129,13 @@ def main():
                         len(row.get("errors", []))
                         for row in forecasts if isinstance(row, dict)
                     )
-                    daily.writestr(
-                        f"snapshots/{artifact['created_at'].replace(':', '').replace('-', '')}-{index:04d}-{snapshot_file_count:04d}.json.gz",
-                        compressed
-                    )
+                    archive_path = f"snapshots/{artifact['created_at'].replace(':', '').replace('-', '')}-{index:04d}-{snapshot_file_count:04d}.json.gz"
+                    daily.writestr(archive_path, compressed)
+                    file_entries.append({
+                        "path": archive_path,
+                        "sha256": hashlib.sha256(compressed).hexdigest(),
+                        "bytes": len(compressed)
+                    })
                     snapshot_file_count += 1
         manifest.update({
             "version": 2,
@@ -140,6 +144,7 @@ def main():
             "forecast_records": forecast_count,
             "immutable_prediction_contracts": prediction_contract_count,
             "forecast_errors": forecast_error_count,
+            "files": file_entries,
             "contents": "Each snapshots/*.json.gz file contains normalized source events, timestamped forecast snapshots and immutable versioned prediction contracts. Final outcomes remain unresolved unless independently confirmed."
         })
         daily.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
