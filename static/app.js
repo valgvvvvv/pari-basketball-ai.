@@ -824,7 +824,6 @@ function renderAnalysisHistory(){
   }).join("");
 }
 function saveAnalysisHistory(ev,score,period,clock,estimate,quarter){
-  if(!estimate&&!quarter?.ready)return;
   const probabilities=estimate?.poisson?.probabilities||[];
   const strongest=probabilities.filter(x=>x&&Number.isFinite(Number(x.pOver))).sort((a,b)=>Math.abs(Number(b.pOver)-0.5)-Math.abs(Number(a.pOver)-0.5))[0];
   const item={eventId:String(ev?.id||""),teams:String((ev?.team1||"Команда 1")+" — "+(ev?.team2||"Команда 2")),
@@ -832,7 +831,9 @@ function saveAnalysisHistory(ev,score,period,clock,estimate,quarter){
     matchProjection:estimate?.projection??null,quarterProjection:quarter?.ready?quarter.projection:null,
     line:strongest?.line??null,direction:strongest?.direction??null,
     probability:strongest?Math.round(Math.max(strongest.pOver,strongest.pUnder)*1000)/10:null,
-    outcomeStatus:"unresolved",savedAt:Date.now()};
+    outcomeStatus:"unresolved",savedAt:Date.now(),
+    forecastStatus:estimate||quarter?.ready?"calculated":"not_available",
+    toolStatus:{match:estimate?"calculated":"not_available",quarter:quarter?.ready?"calculated":"not_available"}};
   item.snapshotId=String(ev?.snapshot_id||[item.eventId,item.savedAt,String(item.score||"").replace(/,/g,":"),item.clock||""].join("|"));
   const history=readAnalysisHistory();
   // Append-only: a later refresh never overwrites an earlier forecast snapshot.
