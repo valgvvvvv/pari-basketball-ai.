@@ -2249,6 +2249,10 @@ def _stat_value_for_ui(value):
 
 # Confirmed PARI match-centre score/statistic kinds. Unknown kind IDs are
 # diagnostic-only; their meaning is never inferred from a matching label.
+# Competition IDs are populated only from the live PARI catalogue and official
+# competition rulebooks. Empty until a specific ID/rules version is verified.
+PARI_COMPETITION_FORMATS = {}
+
 PARI_PERIOD_SCORE_KIND_IDS = {"100401": 1}
 PARI_STATISTIC_KIND_IDS = {
     "420300": "two_pointers_made", "30300401": "two_pointers_made",
@@ -3091,25 +3095,37 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     except (TypeError, ValueError, OverflowError):
                         timer_timestamp_msec = None
 
-                    competition_text = repair_team_encoding(" ".join(str(x or "") for x in (
-                        event.get("name"), event.get("competitionName"),
-                        sport_names.get(str(event.get("sportId")), "")
-                    ))).casefold()
+                    # Competition format is resolved only by the shared ID registry.
+                    # A league label or timer magnitude is not sufficient evidence.
                     period_length_seconds = None
-                    if re.search(r"\bcdb[l1]\b|chinese basketball development league|nba|g[- ]?лига|g[- ]?league", competition_text):
-                        period_length_seconds = 720
-                    elif re.search(r"bskt\s*cup|cup\s*bskt|кубок\s*bskt|philippines.*ncaa|ncaa.*philippines|филиппин.*ncaa", competition_text):
-                        period_length_seconds = 600
-                    elif (not re.search(r"\bncaa\b|college|university|студент|колледж", competition_text)
-                          and re.search(r"adriatic|адриат|аба\s*лига|plk|польша|израил|израиль|super\s*league|суперлиг|bosnia|босни|герцеговин|greece|греци|italy|итал|cyprus|кипр|morocco|марокко|montenegro|черногор|serbia|серби|croatia|хорват|fiba|euroleague|eurocup|eurobasket|vtb|basketball champions league|enbl|european northern league|европейск\w*\s+северн\w*\s+лиг", competition_text)):
-                        period_length_seconds = 600
+                    period_count = None
+                    period_format_source = None
+                    competition_id_candidates = [
+                        event.get("competitionId"), event.get("tournamentId"),
+                        event.get("championshipId"), event.get("sportId"),
+                        event_misc.get("competitionId"), event_misc.get("tournamentId"),
+                        live_info.get("competitionId"), live_info.get("tournamentId"),
+                    ]
+                    for candidate_id in competition_id_candidates:
+                        if candidate_id is None:
+                            continue
+                        rule = PARI_COMPETITION_FORMATS.get(str(candidate_id))
+                        if rule:
+                            period_length_seconds = int(rule["period_length_seconds"])
+                            period_count = int(rule["period_count"])
+                            period_format_source = {
+                                "competition_id": str(candidate_id),
+                                "source": rule["source"],
+                                "rules_version": rule["rules_version"],
+                            }
+                            break
 
                     def _period_number(value):
                         if value is None:
                             return None
                         if isinstance(value, (int, float)) and int(value) == value and 1 <= int(value) <= 4:
                             return int(value)
-                        match = re.search(r"(?:q|quarter|period|период|четверт\w*)\s*([1-4])|([1-4])\s*(?:(?:st|nd|rd|th)|(?:-?я|-?ая))?\s*(?:quarter|period|четверт\w*)", str(value), re.I)
+                        match = re.search(r"(?:q|quarter|period|период|четверт\\w*)\\s*([1-4])|([1-4])\\s*(?:(?:st|nd|rd|th)|(?:-?я|-?ая))?\\s*(?:quarter|period|четверт\\w*)", str(value), re.I)
                         if match:
                             return int(match.group(1) or match.group(2))
                         if str(value).strip() in ("1", "2", "3", "4"):
@@ -3118,64 +3134,42 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
 
                     explicit_period = _period_number(period_value)
                     if explicit_period is None:
-                        # The second PARI scores array contains the completed/current
-                        # quarter rows. Use it only when every row is explicitly a quarter.
                         score_groups = live_info.get("scores")
                         if isinstance(score_groups, list) and len(score_groups) > 1 and isinstance(score_groups[1], list):
                             quarter_rows = [x for x in score_groups[1] if isinstance(x, dict)
-                                            and "четвер" in str(x.get("title") or "").casefold()]
+                                            and "четвер" in str(x.get("title") or "").casefold()
+                                            and not _pari_stat_metric(str(x.get("kindName") or x.get("title") or ""))]
                             if quarter_rows and len(quarter_rows) <= 4:
                                 explicit_period = len(quarter_rows)
 
-                    # PARI's timerSeconds is the cumulative match timer in the live
-                    # feed. timerDirection is retained for diagnostics, not used to
-                    # reverse the value: observed snapshots increase across both flag values.
-                    # Infer 4x10/4x12 only when one format uniquely agrees with the period.
                     timer_state_text = " ".join(str(row.get(key) or "") for row in
                                                 (event, event_misc, live_info)
                                                 for key in ("comment", "scoreComment", "scoreCommentTail", "st3")).casefold()
-                    overtime_detected = bool(re.search(r"\bot\b|overtime|овертайм|от\s*[:(]|дополнительн\w*\s+врем", timer_state_text))
-                    timer_paused = bool(re.search(r"timeout|time\s*out|break|halftime|перерыв|тайм-аут|таймаут", timer_state_text))
-
-                    if period_length_seconds is None and timer_seconds is not None and explicit_period and not overtime_detected:
-                        compatible = [length for length in (600, 720)
-                                      if timer_seconds < 4 * length
-                                      and (timer_seconds // length + 1 == explicit_period
-                                           or (timer_seconds + 2) // length + 1 == explicit_period)]
-                        if len(compatible) == 1:
-                            period_length_seconds = compatible[0]
+                    overtime_detected = bool(re.search(r"\\bot\\b|overtime|овертайм|от\\s*[:(]|дополнительн\\w*\\s+врем", timer_state_text))
+                    timer_paused = bool(re.search(r"timeout|time\\s*out|break|halftime|перерыв|тайм-аут|таймаут", timer_state_text))
 
                     if clock_value is not None:
                         clock_text = str(clock_value).strip()
-                        clock_match = re.fullmatch(r"(\d{1,2}):([0-5]\d)", clock_text)
+                        clock_match = re.fullmatch(r"(\\d{1,2}):([0-5]\\d)", clock_text)
                         if clock_match and int(clock_match.group(1)) * 60 + int(clock_match.group(2)) <= 1200:
                             clock_value = clock_match.group(1).zfill(2) + ":" + clock_match.group(2)
-                        elif re.fullmatch(r"\d{1,4}", clock_text) and 0 <= int(clock_text) <= 1200:
+                        elif re.fullmatch(r"\\d{1,4}", clock_text) and 0 <= int(clock_text) <= 1200:
                             seconds = int(clock_text)
                             clock_value = f"{seconds // 60:02d}:{seconds % 60:02d}"
                         else:
                             clock_value = None
-                    elif timer_seconds is not None and period_length_seconds and not overtime_detected:
-                        # PARI timerSeconds advances as elapsed match time in the live
-                        # feed. Validate its derived quarter against the explicit period.
-                        derived_period = timer_seconds // period_length_seconds + 1
-                        target_period = explicit_period or derived_period
-                        near_period_start = ((timer_seconds + 2) // period_length_seconds + 1 == target_period)
-                        if timer_seconds < 4 * period_length_seconds and derived_period <= 4:
-                            if explicit_period is None or explicit_period == derived_period or near_period_start:
-                                period_value = target_period
-                                elapsed_in_period = timer_seconds - (target_period - 1) * period_length_seconds
-                                elapsed_in_period = max(0, min(period_length_seconds, elapsed_in_period))
-                                remaining = period_length_seconds - elapsed_in_period
-                                clock_value = f"{remaining // 60:02d}:{remaining % 60:02d}"
-                            else:
-                                # Period and timer disagree: suppress the clock rather
-                                # than show a plausible-looking but incorrect value.
-                                clock_value = None
-                        else:
-                            clock_value = None
-                    elif timer_seconds is not None:
-                        clock_value = None
+
+                    # timerSeconds and timerDirection are preserved verbatim for
+                    # diagnostics. Until sequential snapshots establish their
+                    # per-feed semantics, they never generate a live clock.
+                    timer_semantics_verified = False
+                    timer_interpretation_status = (
+                        "received_period_format_unconfirmed"
+                        if timer_seconds is not None and period_length_seconds is None
+                        else "received_timer_semantics_unverified"
+                        if timer_seconds is not None
+                        else "timer_not_received"
+                    )
 
                     # Period score extraction is centralized and kind-ID aware.
                     # Shot-stat rows cannot become quarter points by label collision.
@@ -3257,11 +3251,13 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             and clock_value is not None
                         ) else ("PARI_explicit_countdown" if clock_value is not None else None),
                         "period_length_seconds": period_length_seconds,
-                        "period_count": 2 if period_length_seconds == 1200 else (4 if period_length_seconds else None),
+                        "period_count": period_count,\n                        "period_format_source": period_format_source,
                         "match_elapsed_seconds": timer_seconds,
                         "timer_direction": timer_direction,
                         "timer_timestamp_msec": timer_timestamp_msec,
                         "timer_paused": timer_paused,
+                        "timer_semantics_verified": timer_semantics_verified,
+                        "timer_interpretation_status": timer_interpretation_status,
                         "period_scores": period_scores,
                         "period_score_sources": list(period_score_by_number.values()),
                         "period_score_conflicts": period_score_conflicts,
