@@ -186,7 +186,20 @@ assert.ok(appSource.includes("Ансамбль сценариев") && appSource
 assert.ok(!appSource.includes('add("Динамика четверти"'), "a duplicate of the primary quarter forecast must not appear as a separate method");
 assert.ok(!appSource.includes("Единый прогноз · повтор основного расчёта"), "duplicate primary forecast cards must stay removed");
 assert.ok(appSource.includes("ОТ не включён, правило PARI не подтверждено"), "list forecast must not imply overtime is included");
-assert.ok(appSource.includes('kind:"period_range",preliminary:true'), "timerless range forecasts must be explicitly preliminary");
+// Missing clocks must not produce a model forecast that could enter the archive as a prediction.
+const autoStart = appSource.indexOf("function automaticForecast(ev)");
+const autoEnd = appSource.indexOf("function quarterHighlightInfo(ev)", autoStart);
+const noClockSandbox = {
+  findLiveScore: () => [51, 57], findLivePeriod: () => 3,
+  findLiveClock: () => null, validateScoreTimeline: () => ({valid:true}),
+  getMatchTotalLines: () => [{line:206.5}],
+  inferPeriodLengthForForecast: () => ({seconds:600, periods:4}),
+  marketReferenceForecast: lines => ({ready:true,kind:"market_reference",lines}),
+  estimateLiveTotal: () => { throw new Error("No model may run without a clock"); }
+};
+vm.runInNewContext(appSource.slice(autoStart, autoEnd) + ";this.run=automaticForecast;", noClockSandbox);
+assert.equal(noClockSandbox.run({}).kind, "market_reference");
+assert.ok(noClockSandbox.run({}).reason.includes("таймер"));
 assert.ok(appSource.includes("const mu=possMu*secondaryAdjustment,mc=dynamicScenarioMonteCarlo"), "tempo momentum must not shift the mean and the scenario distribution twice");
 assert.ok(!appSource.includes("possMu*secondaryAdjustment*tempoFactor"), "duplicate tempo multiplier must stay out of the primary mean");
 assert.ok(appSource.includes("Импульс MC"), "tempo momentum must be visible as a distribution-scenario effect");
