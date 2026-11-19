@@ -11,7 +11,7 @@ import httpx
 from result_validation import settle_prediction
 from match_identity import match_context_compatible as external_match_context_compatible
 
-app = FastAPI(title="PARI Basketball AI", version="0.1.0")
+app = FastAPI(title="PARI Basketball AI", version="0.2.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 class _AssetParser(HTMLParser):
