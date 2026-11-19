@@ -189,6 +189,16 @@ const { chromium } = require("playwright");
       "\nforecasts=" + result.forecast_count +
       "\n"
     );
+    const forecastErrorDetails = result.forecasts.flatMap(row =>
+      (row.errors || []).map(error => ({
+        event_id: row.event_id,
+        model: error.model || null,
+        reason: String(error.reason || error.message || "unknown").slice(0, 180)
+      }))
+    ).slice(0, 20);
+    if (forecastErrorDetails.length) {
+      console.log("ARCHIVE_FORECAST_DIAGNOSTICS " + JSON.stringify(forecastErrorDetails));
+    }
     console.log("ARCHIVE_COLLECTION_OK " + JSON.stringify({
       captured_at_utc: result.captured_at_utc,
       events: result.event_count,
