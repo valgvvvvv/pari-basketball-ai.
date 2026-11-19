@@ -80,6 +80,10 @@ class ForecastIntegrityTests(unittest.TestCase):
         self.assertIn("#historyCount", collector)
         self.assertIn("/api/archive/settle-preview", collector)
 
+    def test_lpbl_and_cater_are_excluded_from_live_selection(self):
+        source = Path(server.__file__).read_text(encoding="utf-8").casefold()
+        self.assertIn("lpbl|cater", source)
+
     def test_external_match_requires_competition_gender_date_and_format_context(self):
         pari = {
             "team1": "Lions", "team2": "Tigers", "league": "CBA",
