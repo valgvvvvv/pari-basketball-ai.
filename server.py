@@ -2742,7 +2742,10 @@ async def _refresh_live_enrichment_background(events_snapshot):
                 "expires": now.timestamp() + 90,
                 "signature": _live_event_signature(event),
                 "external_live": copy.deepcopy(event.get("external_live")),
-                "external_statistics": copy.deepcopy(event.get("external_statistics") or []),
+                "external_statistics": copy.deepcopy([
+                    row for row in (event.get("external_statistics") or [])
+                    if str(row.get("source") or "") not in ("PARI", "derived")
+                ]),
                 "statistics_quality": copy.deepcopy(event.get("statistics_quality")),
                 "statistics_source": event.get("statistics_source"),
                 "statistics_source_diagnostics": copy.deepcopy(event.get("statistics_source_diagnostics") or {}),
