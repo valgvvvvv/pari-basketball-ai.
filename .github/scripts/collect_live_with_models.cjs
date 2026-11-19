@@ -151,6 +151,10 @@ const { chromium } = require("playwright");
                 data_mode: estimate.data_quality?.mode || forecast.data_quality?.mode || "not_reported",
                 data_label: estimate.data_quality?.label || forecast.data_quality?.label || "quality_not_reported",
                 statistics: ev.statistics_quality || null,
+                rolling_snapshot_count: estimate.data_quality?.rolling_snapshot_count ?? (Array.isArray(ev.recent_snapshots) ? ev.recent_snapshots.length : 0),
+                rolling_tempo_available: !!(estimate.tempo_dynamics?.rolling || quarter.tempo_dynamics?.rolling),
+                rolling_tempo_source: estimate.poisson?.momentum_source || estimate.tempo_dynamics?.source || "period_history_fallback",
+                rolling_tempo_reason: estimate.data_quality?.rolling_tempo_reason || null,
                 reasons: forecast.reason ? [forecast.reason] : []
               }
             };
