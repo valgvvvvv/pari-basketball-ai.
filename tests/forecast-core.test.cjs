@@ -82,6 +82,7 @@ assert.ok(appSource.includes("providerEventTimestampAvailable"), "provider event
 assert.ok(appSource.includes("full_play_by_play") && appSource.includes("score_clock_period_results") && appSource.includes("score_clock_only"), "data coverage modes must be explicit");
 assert.ok(appSource.includes("scoreSource") && appSource.includes("clockSource") && appSource.includes("statisticsSource"), "source provenance must be tracked by layer");
 assert.ok(appSource.includes("Вероятности модели по линиям PARI"), "model probability must not be presented as bookmaker probability");
+assert.ok(appSource.includes('kind:"period_range",preliminary:true'), "timerless range forecasts must be explicitly preliminary");
 const clockStart = appSource.indexOf("function findLiveClock(ev){");
 const clockEnd = appSource.indexOf("function estimateLiveTotal(ev", clockStart);
 assert.ok(clockStart >= 0 && clockEnd > clockStart);
