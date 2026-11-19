@@ -1,5 +1,8 @@
 const assert = require("node:assert/strict");
 const core = require("../static/forecast-core.js");
+const fs = require("node:fs");
+const vm = require("node:vm");
+const appSource = fs.readFileSync(require("node:path").join(__dirname, "../static/app.js"), "utf8");
 
 const earlyQ3 = core.quarterPosterior({
   current: 1, elapsedSeconds: 63, periodLengthSeconds: 600,
@@ -32,4 +35,41 @@ for (const row of [...integerLine.probabilities, ...halfLine.probabilities]) {
   const sum = row.pOver + row.pUnder + row.pPush;
   assert.ok(Math.abs(sum - 1) < 1e-9, "over/under/push probabilities must sum to one");
 }
+
+const aiStart = appSource.indexOf("function aiModelAnalysis(ev,matchForecast,quarterForecast){");
+const aiEnd = appSource.indexOf("function classicBasketballModelAnalysis(", aiStart);
+assert.ok(aiStart >= 0 && aiEnd > aiStart);
+const aiSandbox = {};
+vm.runInNewContext(appSource.slice(aiStart, aiEnd) + "; this.aiModelAnalysis = aiModelAnalysis;", aiSandbox);
+const matchFixture = {
+  ready: true, kind: "live_tempo",
+  estimate: { current: 128, projection: 217.2, poisson: { mu: 89.2, probabilities: [{line:206.5,pOver:0.71,pUnder:0.29,pPush:0}] } }
+};
+const quarterFixture = {
+  ready: true, current: 1, projection: 40.8,
+  poisson: { mu: 39.8, probabilities: [{line:40,pOver:0.48,pUnder:0.47,pPush:0.05}] },
+  lines: [{line:40,pOver:0.48,pUnder:0.47,pPush:0.05}]
+};
+const ai = aiSandbox.aiModelAnalysis({}, matchFixture, quarterFixture);
+assert.equal(ai.match.projection, matchFixture.estimate.projection);
+assert.equal(ai.match.probabilities[0].pOver, matchFixture.estimate.poisson.probabilities[0].pOver);
+assert.equal(ai.quarter.projection, quarterFixture.projection);
+assert.equal(ai.quarter.probabilities[0].pPush, quarterFixture.poisson.probabilities[0].pPush);
+
+const marketStart = appSource.indexOf("function getMatchTotalLines(ev) {");
+const marketEnd = appSource.indexOf("function inferPeriodLengthForForecast(ev)", marketStart);
+assert.ok(marketStart >= 0 && marketEnd > marketStart);
+const marketSandbox = {localStorage:{setItem(){}}};
+vm.runInNewContext(appSource.slice(marketStart, marketEnd) + "; this.getMatchTotalLines = getMatchTotalLines;", marketSandbox);
+const market = marketSandbox.getMatchTotalLines({id:"market-fixture",match_total_candidates:[
+  {f:"930",pt:"206.5",v:"1.91"},{f:"931",pt:"206.5",v:"1.89"}
+]});
+assert.equal(market.length, 1);
+assert.equal(market[0].prices.length, 2, "both raw market prices must be retained");
+assert.deepEqual(Array.from(market[0].prices, x=>x.factorId), ["930","931"]);
+
+assert.ok(!appSource.includes('const bayes=linear*0.68+prior*0.32'),
+  "legacy Bayesian calculation that mixed full-game and quarter totals must stay removed");
+assert.ok(appSource.includes("One canonical forecast drives every headline block"));
+
 console.log("forecast core regressions: OK");
