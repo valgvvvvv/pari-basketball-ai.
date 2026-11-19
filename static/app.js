@@ -139,7 +139,7 @@ function findLiveClock(ev){
 function estimateLiveTotal(ev, score, period, clock){
   const live=ev.external_live||{};
   const length=Number(live.period_length_seconds||0);
-  const periodCount=Number(live.period_count||4);
+  const periodCount=Number(live.period_count||inferPeriodLengthForForecast(ev)?.periods||4);
   if(!score||!period||!clock||!Number.isFinite(length)||length<300||length>1200||![2,4].includes(periodCount))return null;
   const match=String(clock).match(/^(\d{1,2}):([0-5]\d)$/);
   if(!match)return null;
@@ -268,6 +268,21 @@ function readPeriodScore(ev,index){
   const pair=readPeriodScorePair(ev,index);
   return pair?pair[0]+pair[1]:null;
 }
+function validateScoreTimeline(ev,matchScore,period){
+  if(!Array.isArray(matchScore)||!Number.isInteger(Number(period))||Number(period)<1)
+    return {valid:false,checked:false,reason:"нет счёта или периода"};
+  const currentPair=readPeriodScorePair(ev,Number(period)-1);
+  if(!currentPair)return {valid:true,checked:false,reason:"счёт периода не передан отдельно"};
+  let home=currentPair[0],away=currentPair[1];
+  for(let i=0;i<Number(period)-1;i++){
+    const pair=readPeriodScorePair(ev,i);
+    if(!pair)return {valid:true,checked:false,reason:"не все завершённые периоды доступны для сверки"};
+    home+=pair[0];away+=pair[1];
+  }
+  if(home!==Number(matchScore[0])||away!==Number(matchScore[1]))
+    return {valid:false,checked:true,reason:"сумма очков по периодам "+home+":"+away+" не совпадает с общим счётом "+matchScore[0]+":"+matchScore[1]};
+  return {valid:true,checked:true,reason:"сумма периодов совпадает с общим счётом"};
+}
 function currentQuarterScore(ev,period,matchScore){
   const direct=readPeriodScorePair(ev,period-1);
   if(direct)return {pair:direct,source:"PARI/внешний источник · счёт текущей четверти"};
@@ -296,7 +311,7 @@ function applyGameContext(estimate,ev,period,clock){
   if(!estimate||!Number.isFinite(estimate.projection)||!Number.isFinite(estimate.current))
     return {estimate,factors,adjustment:1};
   const length=Number(ev.period_length_seconds||ev.external_live?.period_length_seconds||inferPeriodLengthForForecast(ev)?.seconds||0);
-  const count=Number(ev.external_live?.period_count||4);
+  const count=Number(ev.external_live?.period_count||inferPeriodLengthForForecast(ev)?.periods||4);
   const totalSeconds=length*count;
   const elapsed=Number(estimate.elapsed_seconds||Number(estimate.elapsed||0)*60);
   const remaining=Math.max(0,totalSeconds-elapsed);
@@ -960,6 +975,9 @@ function automaticForecast(ev) {
     return {ready:false,reason:"Снимок LIVE устарел: ответ API получен более 2 минут назад"};
   if(ev?.clock_integrity?.valid===false)
     return {ready:false,reason:"Источник пометил таймер как противоречивый"};
+  const initialScore=findLiveScore(ev),initialPeriod=findLivePeriod(ev);
+  const scoreCheck=validateScoreTimeline(ev,initialScore,initialPeriod);
+  if(!scoreCheck.valid)return {ready:false,reason:"Конфликт счёта: "+scoreCheck.reason};
   const lines=getMatchTotalLines(ev);
   const score=findLiveScore(ev), period=findLivePeriod(ev), clock=findLiveClock(ev);
   const lengthInfo=inferPeriodLengthForForecast(ev);
@@ -967,7 +985,7 @@ function automaticForecast(ev) {
   const regularPeriods=Number(ev?.external_live?.period_count||lengthInfo?.periods||4);
   if(period&&period>regularPeriods)return {ready:false,reason:"Овертайм: нет подтверждённой модели дополнительного периода и правил рынка по ОТ"};
   if(score&&period&&clock&&periodLength){
-    const estimate=estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength}},score,period,clock);
+    const estimate=estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength,period_count:ev.external_live?.period_count||lengthInfo.periods}},score,period,clock);
     if(estimate&&estimate.elapsed_seconds>0){
       const early=estimate.elapsed_seconds<12*60;
       const formatUnverified=String(lengthInfo?.method||"").includes("предварительно");
@@ -1169,7 +1187,10 @@ function automaticQuarterForecast(ev) {
     return {ready:false,reason:"Снимок LIVE устарел: ответ API получен более 2 минут назад"};
   if(ev?.clock_integrity?.valid===false)
     return {ready:false,reason:"Источник пометил таймер как противоречивый"};
-  const period=findLivePeriod(ev);
+  const period=findLivePeriod(ev),timelineScore=findLiveScore(ev);
+  const scoreCheck=validateScoreTimeline(ev,timelineScore,period);
+  if(!scoreCheck.valid)return {ready:false,reason:"Конфликт счёта: "+scoreCheck.reason};
+  const periodUnused=period;
   const info=inferPeriodLengthForForecast(ev);
   const length=findPeriodLengthSeconds(ev)||info?.seconds;
   const directClock=findLiveClock(ev);
