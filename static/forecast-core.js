@@ -16,7 +16,8 @@
     const periodMinutes=periodLengthSeconds/60,elapsedMinutes=elapsedSeconds/60,remainingMinutes=(periodLengthSeconds-elapsedSeconds)/60;
     // Jeffreys Gamma(1/2, 0) prior; completed quarters contribute observed points
     // and their exact playing-time exposure. Current-quarter points/time update it.
-    const priorAlpha=0.5+completed.reduce((sum,x)=>sum+x,0);
+    const completedPoints=completed.reduce((sum,x)=>sum+x,0);
+    const priorAlpha=0.5+completedPoints;
     const priorExposure=completed.length*periodMinutes;
     const alpha=priorAlpha+current,beta=priorExposure+elapsedMinutes;
     if(!(alpha>0)||!(beta>0))return {ready:false,reason:"недостаточная экспозиция для оценки темпа"};
@@ -28,6 +29,7 @@
     return {ready:true,current,elapsedSeconds,remainingSeconds:periodLengthSeconds-elapsedSeconds,
       alpha,beta,remainingMinutes,expectedRemaining,varianceRemaining,meanUncertaintyVariance,meanUncertaintySd,
       projection:current+expectedRemaining,priorQuarterCount:completed.length,priorQuarterMean:priorMean,
+      priorAlpha,priorExposure,completedPoints,completedQuarterTotals:completed.slice(),periodMinutes,
       quality:completed.length>=2&&elapsedSeconds>=180?"ограниченная · prior по двум и более четвертям":
         completed.length===1?"низкая · prior по одной четверти":"низкая · только текущий темп",
       method:"Gamma-Poisson posterior predictive · Jeffreys prior"};
