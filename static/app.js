@@ -978,7 +978,10 @@ function eventClock(ev) {
     ev?.external_live?.match_elapsed_seconds;
   if(raw!=null&&raw!==""){
     const value=Number(raw);
-    const rawLabel=Number.isFinite(value)?" · исходное значение "+Math.round(value)+" с":"";
+    const rawLabel=Number.isFinite(value)
+      ? " · исходное значение "+String(Math.floor(Math.round(value)/60)).padStart(2,"0")+":"+
+        String(Math.round(value)%60).padStart(2,"0")+" ("+Math.round(value)+" с)"
+      : "";
     return (findPeriodLengthSeconds(ev)
       ? "Время получено, направление часов не подтверждено"
       : "Время получено, длительность периода не подтверждена")+rawLabel;
