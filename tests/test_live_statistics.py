@@ -289,6 +289,27 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
         self.assertEqual({item["source"] for item in conflict["values"]}, {"PARI", "SofaScore"})
 
 
+    def test_pari_only_statistics_do_not_count_as_external_match(self):
+        import asyncio
+        from unittest.mock import patch
+
+        events = [{
+            "id": "pari-only", "team1": "Home", "team2": "Away",
+            "external_statistics": [
+                {"name": "Assists", "metric_key": "assists", "home": 3, "away": 4, "source": "PARI"}
+            ],
+        }]
+
+        async def fake_provider(snapshot):
+            return {"status": "no_live_events", "matched": 0, "unmatched_pari": 1,
+                    "statistics_errors": [], "checked_at_utc": "2026-11-19T10:00:00+00:00"}
+
+        with patch.object(server, "_enrich_with_sofascore_live", side_effect=fake_provider):
+            asyncio.run(server._refresh_live_enrichment_background(events))
+        diag = server._LIVE_ENRICHMENT_CACHE["pari-only"]["statistics_source_diagnostics"]
+        self.assertEqual(diag["match_status"], "no_exact_match")
+
+
 
 if __name__ == "__main__":
     unittest.main()
