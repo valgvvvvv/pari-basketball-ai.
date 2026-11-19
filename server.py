@@ -2246,12 +2246,86 @@ def _stat_value_for_ui(value):
     return value
 
 
+
+# Confirmed PARI match-centre score/statistic kinds. Unknown kind IDs are
+# diagnostic-only; their meaning is never inferred from a matching label.
+PARI_PERIOD_SCORE_KIND_IDS = {"100401": 1}
+PARI_STATISTIC_KIND_IDS = {
+    "420300": "two_pointers_made", "30300401": "two_pointers_made",
+    "420400": "three_pointers_made", "30400401": "three_pointers_made",
+}
+
+def _pari_score_pair_from_row(row):
+    if isinstance(row, (list, tuple)) and len(row) >= 2:
+        home, away = row[0], row[1]
+    elif isinstance(row, dict):
+        home = next((row.get(k) for k in ("c1", "home", "homeScore", "home_score", "team1", "team1Score", "team1_score", "score1") if row.get(k) is not None), None)
+        away = next((row.get(k) for k in ("c2", "away", "awayScore", "away_score", "team2", "team2Score", "team2_score", "score2") if row.get(k) is not None), None)
+    else:
+        return None
+    try:
+        a, b = int(float(home)), int(float(away))
+        return [a, b] if 0 <= a <= 300 and 0 <= b <= 300 else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+def _pari_period_score_records(source_row):
+    """Return period score candidates with provenance; never accept shot-stat rows."""
+    if not isinstance(source_row, dict):
+        return []
+    records = []
+    subscores = source_row.get("subscores")
+    if isinstance(subscores, (list, tuple)):
+        for index, item in enumerate(subscores):
+            if not isinstance(item, dict):
+                continue
+            kind_id = str(item.get("kindId") or item.get("kind_id") or "")
+            label = str(item.get("kindName") or item.get("name") or item.get("title") or "")
+            pair = _pari_score_pair_from_row(item)
+            if pair is None:
+                continue
+            if kind_id in PARI_STATISTIC_KIND_IDS or _pari_stat_metric(label) in {
+                "two_pointers_made", "two_pointers_attempted", "three_pointers_made",
+                "three_pointers_attempted", "free_throws_made", "free_throws_attempted",
+                "field_goals_made", "field_goals_attempted",
+            }:
+                continue
+            period = PARI_PERIOD_SCORE_KIND_IDS.get(kind_id)
+            if period is not None:
+                records.append({"period": period, "score": pair, "kind_id": kind_id,
+                                "label": label, "source": "PARI.subscores", "source_index": index})
+    scores = source_row.get("scores")
+    if isinstance(scores, (list, tuple)) and len(scores) >= 2 and isinstance(scores[1], (list, tuple)):
+        for index, item in enumerate(scores[1]):
+            if not isinstance(item, dict):
+                continue
+            kind_id = str(item.get("kindId") or item.get("kind_id") or "")
+            label = str(item.get("title") or item.get("kindName") or item.get("name") or "")
+            if kind_id in PARI_STATISTIC_KIND_IDS or _pari_stat_metric(label) in {
+                "two_pointers_made", "two_pointers_attempted", "three_pointers_made",
+                "three_pointers_attempted", "free_throws_made", "free_throws_attempted",
+                "field_goals_made", "field_goals_attempted",
+            }:
+                continue
+            match = re.search(r"(?:^|\\D)([1-4])\\s*[-–.]?\\s*(?:я|ая|й)?\\s*(?:четверт|quarter|period)", label.casefold())
+            pair = _pari_score_pair_from_row(item)
+            if pair is not None and match and not kind_id:
+                records.append({"period": int(match.group(1)), "score": pair, "kind_id": None,
+                                "label": label, "source": "PARI.scores[1]", "source_index": index})
+    return records
+
+def _pari_period_scores(source_row):
+    """Sparse quarter scores; unknown periods remain None, never fabricated as zero."""
+    records = _pari_period_score_records(source_row)
+    indexed = {}
+    for record in records:
+        indexed.setdefault(record["period"], record["score"])
+    return [indexed.get(n) for n in range(1, max(indexed, default=0) + 1)]
+
 def _pari_score_function_is_basketball(value):
-    """Reject an explicitly non-basketball sport function; unknown stays governed by catalogue."""
+    """Return True only for an explicit basketball scoring function."""
     text = re.sub(r"[^a-zа-яё]+", "", str(value or "").casefold().replace("ё", "е"))
-    if not text:
-        return True
-    return "basketball" in text or "баскетбол" in text
+    return bool(text) and ("basketball" in text or "баскетбол" in text)
 
 
 def _pari_stat_metric(label):
@@ -2750,10 +2824,9 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                 for sid, row in sports_by_id.items():
                     chain = sport_chain_text(row)
                     direct_name = str(row.get("name", "")).lower()
-                    if any(marker in chain for marker in basketball_markers) or (
-                        str(row.get("kind", "")).lower() == "segment"
-                        and any(marker in direct_name for marker in known_basketball_markers)
-                    ):
+                    # Competition names (e.g. UAAP) do not classify the sport.
+                    # Require a Basketball node in the actual sport hierarchy.
+                    if any(marker in chain for marker in basketball_markers):
                         basketball_ids.add(sid)
                         sport_names[sid] = str(row.get("name", ""))
                 # Retain the two IDs already verified from actual basketball root events.
@@ -2880,8 +2953,12 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                            ("notstarted", "не начался", "не началась", "ожидает начала")):
                         filter_counts["not_live"] += 1
                         continue
-                    score_function = live_info.get("scoreFunction") or event_misc.get("scoreFunction")
-                    if not _pari_score_function_is_basketball(score_function):
+                    score_function_rows = (event, live_info, event_misc, *event_block_rows, *related_rows)
+                    explicit_score_functions = [
+                        row.get("scoreFunction") for row in score_function_rows
+                        if isinstance(row, dict) and row.get("scoreFunction") not in (None, "")
+                    ]
+                    if any(not _pari_score_function_is_basketball(value) for value in explicit_score_functions):
                         filter_counts["excluded_by_score_function"] += 1
                         continue
                     pari_gender_text = " ".join(
@@ -3059,106 +3136,28 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     elif timer_seconds is not None:
                         clock_value = None
 
-                    # PARI versions expose quarter scores in different shapes:
-                    # liveEventInfos.scores[1], scores[0], eventMiscs.scores,
-                    # or a mapping keyed by quarter. Normalize only explicit paired scores.
-                    def _score_pair_from_row(row):
-                        if isinstance(row, (list, tuple)) and len(row) >= 2:
-                            try:
-                                a, b = int(float(row[0])), int(float(row[1]))
-                                return [a, b] if 0 <= a <= 300 and 0 <= b <= 300 else None
-                            except (TypeError, ValueError, OverflowError):
-                                return None
-                        if not isinstance(row, dict):
-                            return None
-                        home = next((row.get(k) for k in (
-                            "c1", "home", "homeScore", "home_score", "team1",
-                            "team1Score", "team1_score", "score1"
-                        ) if row.get(k) is not None), None)
-                        away = next((row.get(k) for k in (
-                            "c2", "away", "awayScore", "away_score", "team2",
-                            "team2Score", "team2_score", "score2"
-                        ) if row.get(k) is not None), None)
-                        try:
-                            a, b = int(float(home)), int(float(away))
-                            return [a, b] if 0 <= a <= 300 and 0 <= b <= 300 else None
-                        except (TypeError, ValueError, OverflowError):
-                            return None
-
-                    def _collect_period_score_rows(value, depth=0):
-                        if depth > 5 or value is None:
-                            return []
-                        pair = _score_pair_from_row(value)
-                        if pair is not None:
-                            return [pair]
-                        rows = []
-                        if isinstance(value, dict):
-                            for key, child in value.items():
-                                if str(key).lower() in ("total", "match", "current", "aggregate"):
-                                    continue
-                                rows.extend(_collect_period_score_rows(child, depth + 1))
-                        elif isinstance(value, (list, tuple)):
-                            for child in value:
-                                rows.extend(_collect_period_score_rows(child, depth + 1))
-                        return rows
-
-                    def _pari_period_scores(source_row):
-                        if not isinstance(source_row, dict):
-                            return []
-                        scores = source_row.get("scores")
-                        # PARI liveEventInfos commonly uses scores[0] for the
-                        # cumulative match score and scores[1] for quarter rows.
-                        # Never mix that aggregate row into the quarter timeline.
-                        if isinstance(scores, (list, tuple)) and len(scores) >= 2:
-                            quarter_group = scores[1]
-                            if isinstance(quarter_group, (list, tuple)):
-                                labeled = []
-                                for item in quarter_group:
-                                    if not isinstance(item, dict):
-                                        continue
-                                    title = str(item.get("title") or item.get("kindName") or "").casefold()
-                                    if re.search(r"четверт|quarter|period", title):
-                                        pair = _score_pair_from_row(item)
-                                        if pair is not None:
-                                            labeled.append(pair)
-                                if labeled:
-                                    return labeled[:4]
-                                direct = [_score_pair_from_row(item) for item in quarter_group]
-                                direct = [pair for pair in direct if pair is not None]
-                                # A single current-quarter row is valid. Do not
-                                # fall through and accidentally count scores[0]
-                                # (the aggregate match score) as quarter one.
-                                if direct:
-                                    return direct[:4]
-                        # Some PARI versions expose named subscores instead.
-                        subscores = source_row.get("subscores")
-                        indexed = {}
-                        if isinstance(subscores, (list, tuple)):
-                            for item in subscores:
-                                if not isinstance(item, dict):
-                                    continue
-                                label = str(item.get("kindName") or item.get("name") or item.get("title") or "").casefold()
-                                match = re.search(r"(?:^|\D)([1-4])\s*[-–.]?\s*(?:я|ая|й)?\s*(?:четверт|quarter|period)", label)
-                                if not match:
-                                    continue
-                                pair = _score_pair_from_row(item)
-                                if pair is not None:
-                                    indexed[int(match.group(1))] = pair
-                        if indexed:
-                            return [indexed.get(n) for n in range(1, max(indexed) + 1)]
-                        # scores[0] is commonly the aggregate match score.
-                        # Only inspect scores[1] as the quarter group; never shift
-                        # the aggregate into Q1 when just one quarter is available.
-                        if isinstance(scores, (list, tuple)) and len(scores) >= 2:
-                            return _collect_period_score_rows(scores[1])[:4]
-                        return _collect_period_score_rows(scores)[:4]
-
-                    period_scores = []
-                    for score_source_row in (live_info, event_misc, event):
-                        candidate_scores = _pari_period_scores(score_source_row)
-                        if len(candidate_scores) >= 1 and any(pair is not None for pair in candidate_scores):
-                            period_scores = candidate_scores[:4]
-                            break
+                    # Period score extraction is centralized and kind-ID aware.
+                    # Shot-stat rows cannot become quarter points by label collision.
+                    period_score_records = []
+                    for score_source_row, source_name in ((live_info, "live_info"), (event_misc, "event_misc"), (event, "event")):
+                        candidate_records = _pari_period_score_records(score_source_row)
+                        period_score_records.extend({**record, "source_object": source_name} for record in candidate_records)
+                    period_score_by_number = {}
+                    period_score_conflicts = []
+                    for record in period_score_records:
+                        number = record["period"]
+                        previous = period_score_by_number.get(number)
+                        if previous is None:
+                            period_score_by_number[number] = record
+                        elif previous["score"] != record["score"]:
+                            period_score_conflicts.append({
+                                "period": number, "kept": previous, "conflicting": record,
+                                "reason": "Разные значения поквартального счёта из источников PARI",
+                            })
+                    period_scores = [
+                        period_score_by_number[n]["score"] if n in period_score_by_number else None
+                        for n in range(1, max(period_score_by_number, default=0) + 1)
+                    ]
                     if period_value is None and period_scores:
                         period_value = len(period_scores)
                     # PARI can leave a completed fixture in the LIVE tree for a short
@@ -3220,6 +3219,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "timer_timestamp_msec": timer_timestamp_msec,
                         "timer_paused": timer_paused,
                         "period_scores": period_scores,
+                        "period_score_sources": list(period_score_by_number.values()),
+                        "period_score_conflicts": period_score_conflicts,
                         "match_timeline": [
                             {"period": index + 1, "home": pair[0], "away": pair[1],
                              "total": pair[0] + pair[1],
