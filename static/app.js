@@ -1096,9 +1096,8 @@ function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="m
     strongest,probabilities:lineResults,confidence};
   for(const model of models){model.direction="альтернативная оценка";model.line=null;model.probability=null;}
   const groups=[];
-  return {models,consensus:{projection:Math.round(consensus*10)/10,sigma:Math.round(consensusSigma*10)/10,
-      strongest,probabilities:lineResults,confidence:models.length>=6?"средняя":models.length>=4?"ограниченная":"низкая"},
-    groups,anomaly,tools,mlStatus:"Основной прогноз единственный. Вероятности не калиброваны: нет независимой размеченной выборки."};
+  return {models,consensus,groups,anomaly,tools,
+    mlStatus:"Основной прогноз единственный. Вероятности не калиброваны: нет независимой размеченной выборки."};
 }
 function classicModelPanelHtml(data,title){
   if(!data)return "";
