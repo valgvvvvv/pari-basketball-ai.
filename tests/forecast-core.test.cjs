@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const appSource = fs.readFileSync(require("node:path").join(__dirname, "../static/app.js"), "utf8");
 const htmlSource = fs.readFileSync(require("node:path").join(__dirname, "../static/index.html"), "utf8");
+const archivePublisherSource = fs.readFileSync(require("node:path").join(__dirname, "../.github/scripts/publish_daily_archive.py"), "utf8");
 
 const earlyQ3 = core.quarterPosterior({
   current: 1, elapsedSeconds: 63, periodLengthSeconds: 600,
@@ -133,6 +134,7 @@ assert.ok(appSource.includes("priorExposureSeconds:aggregatePriorExposureSeconds
 assert.ok(!appSource.slice(appSource.indexOf("function saveAnalysisHistory("),appSource.indexOf("function clearAnalysisHistory(")).includes("if(!estimate&&!quarter?.ready)return"), "raw snapshot history must persist even when no forecast is available");
 assert.ok(appSource.includes('forecastStatus:estimate||quarter?.ready?"calculated":"not_available"'), "history must distinguish snapshot from forecast availability");
 assert.ok(htmlSource.includes("20261119-integrity-v55"), "history fix must bump frontend cache");
+assert.ok(archivePublisherSource.startsWith("import hashlib"), "permanent archive publisher must import hashlib before calculating checksums");
 assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
 assert.ok(htmlSource.includes("20261119-integrity-v54"), "frontend cache must be bumped after display fixes");
 assert.ok(appSource.includes("Ансамбль сценариев") && appSource.includes("не независимый голос"), "scenario mixture must be shown without counting it as an independent model");
