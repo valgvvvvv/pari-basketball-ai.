@@ -186,5 +186,25 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
 
 
 
+    def test_future_zero_quarters_are_kept_as_unstarted_not_match_scores(self):
+        records = [
+            {"period": 1, "score": [26, 23], "kind_id": "100401"},
+            {"period": 2, "score": [24, 14], "kind_id": "100402"},
+            {"period": 3, "score": [11, 7], "kind_id": "100403"},
+            {"period": 4, "score": [0, 0], "kind_id": "100404"},
+        ]
+        accepted, unstarted = server._pari_filter_unstarted_zero_periods(records, 3)
+        self.assertEqual([row["period"] for row in accepted], [1, 2, 3])
+        self.assertEqual(unstarted[0]["period"], 4)
+        self.assertIn("ещё не начался", unstarted[0]["reason"])
+
+    def test_unknown_current_period_does_not_discard_source_zero_scores(self):
+        records = [{"period": 4, "score": [0, 0], "kind_id": "100404"}]
+        accepted, unstarted = server._pari_filter_unstarted_zero_periods(records, None)
+        self.assertEqual(accepted, records)
+        self.assertEqual(unstarted, [])
+
+
+
 if __name__ == "__main__":
     unittest.main()
