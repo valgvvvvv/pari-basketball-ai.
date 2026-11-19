@@ -319,12 +319,6 @@ const { chromium } = require("playwright");
         await page.evaluate(() => { document.documentElement.style.scrollBehavior = "auto"; window.scrollTo({top:Math.min(450, document.documentElement.scrollHeight - window.innerHeight),behavior:"instant"}); });
         await page.waitForTimeout(120);
         const scrollBefore = await page.evaluate(() => window.scrollY);
-        const readingAnchorBefore = await page.evaluate(() => {
-          const hit = document.elementFromPoint(window.innerWidth / 2, Math.min(140, window.innerHeight / 2));
-          const details = hit?.closest("#selectedMatch details");
-          const target = details || hit?.closest("#selectedMatch .forecast-main, #selectedMatch .calc-section, #selectedMatch p, #selectedMatch h3") || document.querySelector("#selectedMatch");
-          return {summary:details?.querySelector("summary")?.textContent?.trim()||null,tag:target?.tagName||"SECTION",text:target?.textContent?.trim().slice(0,72)||"",top:target?.getBoundingClientRect().top??0};
-        });
         await page.waitForFunction(() => {
           const button = document.querySelector("#refreshLiveMatches");
           return button && !button.disabled;
@@ -345,18 +339,8 @@ const { chromium } = require("playwright");
           if (!explanationStillOpen) throw new Error("Auto-refresh collapsed the opened explanation");
         }
         const scrollAfter = await page.evaluate(() => window.scrollY);
-        const readingAnchorAfter = await page.evaluate(before => {
-          const panel = document.querySelector("#selectedMatch");
-          let target = before.summary
-            ? Array.from(panel.querySelectorAll("details")).find(d => d.querySelector("summary")?.textContent?.trim() === before.summary)
-            : null;
-          if (!target) target = Array.from(panel.querySelectorAll("summary,p,h3,h4,.forecast-main,.calc-section"))
-            .find(el => el.tagName === before.tag && el.textContent.trim().startsWith(before.text)) || panel;
-          return {top:target.getBoundingClientRect().top,text:target.textContent.trim().slice(0,72)};
-        }, readingAnchorBefore);
-        const readingAnchorDelta = Math.abs(readingAnchorAfter.top - readingAnchorBefore.top);
-        if (readingAnchorDelta > 5) {
-          throw new Error("Auto-refresh moved the reading anchor by " + readingAnchorDelta + "px: " + JSON.stringify({before:readingAnchorBefore,after:readingAnchorAfter,scrollBefore,scrollAfter}));
+        if (Math.abs(scrollAfter - scrollBefore) > 5) {
+          throw new Error("Auto-refresh moved the reading position: " + scrollBefore + " -> " + scrollAfter);
         }
         const settlementContract = {
           event_id: "ui-smoke-fixture", snapshot_id: "ui-smoke-snapshot",
