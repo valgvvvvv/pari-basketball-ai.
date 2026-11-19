@@ -2305,6 +2305,13 @@ PARI_COMPETITION_FORMATS = {
         "rules_version": "VTB Youth League 2026-2027 (approved 09.07.2026, amended 17.08.2026)",
         "source_url": "https://vtbyouth-league.com/docs/2026-2027/%D0%A0%D0%B5%D0%B3%D0%BB%D0%B0%D0%BC%D0%B5%D0%BD%D1%82%20%D0%A7%D0%B5%D0%BC%D0%BF%D0%B8%D0%BE%D0%BD%D0%B0%D1%82%D0%B0%20%D0%95%D0%B4%D0%B8%D0%BD%D0%BE%D0%B9%20%D0%9C%D0%BE%D0%BB%D0%BE%D0%B4%D0%B5%D0%B6%D0%BD%D0%BE%D0%B9%20%D0%9B%D0%B8%D0%B3%D0%B8%20%D0%92%D0%A2%D0%91%202026-2027%20%D0%B8%D0%B7%D0%BC.%20%D1%83%D1%82%D0%B2.%20%D0%A1%D0%BE%D0%B2%D0%B5%D1%82%D0%BE%D0%BC%20%D0%9B%D0%B8%D0%B3%D0%B8%2017.08.2026%20(%D1%81%20%D0%B8%D0%B7%D0%BC.).pdf",
     },
+,
+    "100716": {
+        "period_length_seconds": 720, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "Independent CDBL live-score page explicitly lists CDBL format as 4x12",
+        "rules_version": "CDBL event-format cross-check",
+        "source_url": "https://en.sportsand.me/basketball/china/cdbl/wuhan-lightnings-jinan-cyclones-108849",
+    },
 }
 
 PARI_PERIOD_SCORE_KIND_IDS = {
@@ -3792,6 +3799,24 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 "source_url": rule.get("source_url"),
                             }
                             break
+
+                    # Narrow event-specific rule for the two Chinese NBL clubs
+                    # currently listed as a friendly. Do not assign a default to
+                    # the whole PARI "friendlies" category.
+                    if period_length_seconds is None and str(event.get("sportId")) == "127834":
+                        pair = {
+                            re.sub(r"[^a-z0-9]+", " ", str(event.get(k) or "").casefold()).strip()
+                            for k in ("team1", "team2")
+                        }
+                        if pair == {"jiangsu yannan suke", "hubei culture and tourism"}:
+                            period_length_seconds = 600
+                            period_count = 4
+                            period_format_source = {
+                                "competition_id": "127834",
+                                "source": "Event-specific Chinese NBL club friendly; NBL official season rules use four 10-minute quarters",
+                                "rules_version": "NBL 2025-2026 published playing-time rule; exact friendly fixture only",
+                                "source_url": "https://www.sport.gov.cn/n20001280/n20067662/n20067613/c29088676/content.html",
+                            }
 
                     if period_length_seconds is None:
                         format_rows = (event, event_misc, live_info, *repaired_related_rows)
