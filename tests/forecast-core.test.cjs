@@ -131,7 +131,7 @@ const applyPoissonSource=appSource.slice(applyPoissonStart,applyPoissonEnd);
 assert.ok(!applyPoissonSource.includes("dataQuality.rolling_snapshot_count="), "data quality fields must not be written before dataQuality is initialized");
 assert.ok(appSource.includes("priorExposureSeconds:aggregatePriorExposureSeconds"), "missing period splits must use aggregate historical score and exact exposure");
 assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
-assert.ok(htmlSource.includes("20261119-integrity-v53"), "frontend cache must be bumped after display fixes");
+assert.ok(htmlSource.includes("20261119-integrity-v54"), "frontend cache must be bumped after display fixes");
 assert.ok(appSource.includes("Ансамбль сценариев") && appSource.includes("не независимый голос"), "scenario mixture must be shown without counting it as an independent model");
 assert.ok(!appSource.includes('add("Динамика четверти"'), "a duplicate of the primary quarter forecast must not appear as a separate method");
 assert.ok(!appSource.includes("Единый прогноз · повтор основного расчёта"), "duplicate primary forecast cards must stay removed");
