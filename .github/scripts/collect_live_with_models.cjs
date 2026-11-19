@@ -435,3 +435,5 @@ const { chromium } = require("playwright");
 // Recheck responsive UI after the v63/v8 deployment completed.
 
 // Final browser smoke is intentionally rerun after v63 has reached Render.
+
+// v64 is live on Render; run final viewport and refresh-anchor smoke now.
