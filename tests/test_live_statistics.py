@@ -153,5 +153,15 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
 
 
 
+    def test_related_rows_are_initialized_before_sport_function_filter(self):
+        with open(server.__file__, encoding="utf-8") as source_file:
+            source = source_file.read()
+        self.assertLess(
+            source.index("related_rows = collect_related_event_rows(event_id)"),
+            source.index("score_function_rows = (event, live_info, event_misc, *event_block_rows, *related_rows)"),
+        )
+
+
+
 if __name__ == "__main__":
     unittest.main()
