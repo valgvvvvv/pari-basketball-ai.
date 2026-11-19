@@ -155,3 +155,11 @@ html,body{max-width:100%;overflow-x:clip}
   .sidebar nav a{padding:8px 9px}
   .sidebar-bottom{display:none}
 }
+
+@media(max-width:1000px){
+  .shell{grid-template-columns:minmax(0,1fr);width:100%;max-width:100%;overflow-x:clip}
+  .sidebar{display:block;min-width:0;width:100%;max-width:100%;box-sizing:border-box}
+  .sidebar nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;width:100%;min-width:0;overflow:visible}
+  .sidebar nav a{display:block;min-width:0;white-space:normal;overflow-wrap:anywhere;word-break:break-word;padding:8px 9px}
+  .shell main{width:100%;max-width:100%;min-width:0}
+}
