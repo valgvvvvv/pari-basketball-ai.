@@ -157,6 +157,28 @@ class ForecastIntegrityTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 restore_archive(archive_path, root / "restore")
 
+    def test_recent_archive_endpoint_returns_only_requested_event_snapshots(self):
+        with tempfile.TemporaryDirectory() as temp:
+            db_path = Path(temp) / "archive.sqlite"
+            now = server.datetime.now(server.timezone.utc)
+            with patch.object(server, "_ARCHIVE_DB", db_path):
+                conn = server._archive_connect()
+                try:
+                    for event_id in ("game-a", "game-b"):
+                        conn.execute(
+                            "INSERT INTO snapshots(event_id,captured_at,quarter,clock,score,payload_z,payload_sha) VALUES(?,?,?,?,?,?,?)",
+                            (event_id, (now - server.timedelta(minutes=2)).isoformat(), 3, "05:00",
+                             json.dumps([40, 38]), b"compressed", event_id)
+                        )
+                    conn.commit()
+                finally:
+                    conn.close()
+                result = server.archive_recent(minutes=10, event_ids="game-a")
+                self.assertTrue(result["ok"])
+                self.assertEqual(list(result["events"].keys()), ["game-a"])
+                self.assertEqual(result["events"]["game-a"][0]["score"], [40, 38])
+                self.assertEqual(result["events"]["game-a"][0]["clock"], "05:00")
+
     def test_raw_archive_snapshots_are_append_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "archive.sqlite3"
