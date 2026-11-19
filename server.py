@@ -3138,7 +3138,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             and clock_value is not None
                         ) else ("PARI_explicit_countdown" if clock_value is not None else None),
                         "period_length_seconds": period_length_seconds,
-                        "period_count": 4 if period_length_seconds else None,
+                        "period_count": 2 if period_length_seconds == 1200 else (4 if period_length_seconds else None),
                         "match_elapsed_seconds": timer_seconds,
                         "timer_direction": timer_direction,
                         "timer_timestamp_msec": timer_timestamp_msec,
