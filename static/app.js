@@ -1475,12 +1475,21 @@ function automaticQuarterForecast(ev) {
     possession_model:possessionModel, possession_projection:possessionQuarterProjection,
     statistics_adjustment:quarterStatsAdjustment,tempo_dynamics:quarterDynamics,posterior,distribution:poisson.distribution};
 }
+let userScrollIntentVersion = 0;
+for (const eventName of ["wheel","touchstart","touchmove"]) {
+  window.addEventListener(eventName,()=>{userScrollIntentVersion++;},{passive:true});
+}
+window.addEventListener("keydown",event=>{
+  if(["ArrowUp","ArrowDown","PageUp","PageDown","Home","End"," "].includes(event.key))userScrollIntentVersion++;
+});
 let liveRefreshInFlight = false;
 let nextLiveRefreshDelay = 30000;
 async function refreshLiveMatches() {
   nextLiveRefreshDelay = 30000;
   if (liveRefreshInFlight) return;
   liveRefreshInFlight = true;
+  const refreshScrollY = window.scrollY;
+  const scrollIntentAtStart = userScrollIntentVersion;
   const button = $("refreshLiveMatches");
   if (button) button.disabled = true;
   const refreshScrollRoot=document.scrollingElement||document.documentElement;
@@ -1625,6 +1634,11 @@ async function refreshLiveMatches() {
       refreshScrollRoot.style.scrollBehavior=previousBehavior;
     }
     $("feedStatus").textContent = count ? "PARI LIVE: найдено " + count + " матчей" : "PARI API отвечает; матчи не распознаны";
+    if (userScrollIntentVersion === scrollIntentAtStart) {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (userScrollIntentVersion === scrollIntentAtStart) window.scrollTo({top:refreshScrollY,behavior:"instant"});
+      }));
+    }
   } catch (error) {
     const sourceStatus = $("liveSourceStatus");
     const sourceDetail = $("liveSourceDetail");
