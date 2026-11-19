@@ -89,7 +89,7 @@ for (const projection of [172.4,215.7,219.6,212.1]) {
   },lines:[{line:206.5}]};
   const models = classicContext.runClassic(ev,forecast,{ready:false},"match");
   assert.equal(models.consensus,null,"correlated alternatives must not form an unvalidated consensus");
-  assert.deepEqual(models.groups,[],"model coincidence must not be presented as independent evidence");
+  assert.equal(models.groups.length,0,"model coincidence must not be presented as independent evidence");
   assert.ok(!models.models.some(x => /Байесовская/.test(x.name)),
     "the unit-mismatched Bayesian full-match model must be excluded");
   assert.ok(!models.models.some(x => Math.abs(x.projection-132)<0.2 || Math.abs(x.projection-166.4)<0.2),
