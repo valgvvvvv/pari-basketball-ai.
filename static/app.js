@@ -83,12 +83,14 @@ function findLiveClock(ev){
     findPeriodLengthSeconds(ev)||0);
   const elapsedRaw=ev?.match_elapsed_seconds??ev?.external_live?.match_elapsed_seconds;
   const elapsedBase=Number(elapsedRaw);
-  if(ev?.clock_source==="PARI_timer_and_period_consistency"&&
+  if((ev?.clock_source||ev?.live_fields?.clock_source)==="PARI_timer_and_period_consistency"&&
      Number.isFinite(elapsedBase)&&length>=300&&length<=1200&&period>=1&&period<=4){
     let elapsed=elapsedBase;
-    const timestamp=Number(ev?.timer_timestamp_msec||ev?.external_live?.timer_timestamp_msec||0);
+    const timestamp=Number(ev?.timer_timestamp_msec||ev?.live_fields?.timer_timestamp_msec||
+      ev?.external_live?.timer_timestamp_msec||0);
     const stateText=String(ev?.live_fields?.st3||ev?.live_fields?.status||ev?.live_fields?.comment||"").toLowerCase();
-    if(timestamp>0&&!ev?.timer_paused&&!/timeout|break|halftime|перерыв|тайм-аут|таймаут/.test(stateText)){
+    if(timestamp>0&&!(ev?.timer_paused??ev?.live_fields?.timer_paused)&&
+       !/timeout|break|halftime|перерыв|тайм-аут|таймаут/.test(stateText)){
       const age=(Date.now()-timestamp)/1000;
       if(Number.isFinite(age)&&age>=0&&age<=60)elapsed+=age;
     }
@@ -970,8 +972,10 @@ function eventPeriod(ev) {
 function eventClock(ev) {
   const clock=findLiveClock(ev);
   if(clock)return clock;
-  const raw=ev?.source_timer_seconds??ev?.external_live?.source_timer_seconds??
-    ev?.timer_seconds??ev?.match_elapsed_seconds??ev?.external_live?.match_elapsed_seconds;
+  const raw=ev?.source_timer_seconds??ev?.live_fields?.source_timer_seconds??
+    ev?.external_live?.source_timer_seconds??ev?.timer_seconds??
+    ev?.match_elapsed_seconds??ev?.live_fields?.match_elapsed_seconds??
+    ev?.external_live?.match_elapsed_seconds;
   if(raw!=null&&raw!==""){
     const value=Number(raw);
     const rawLabel=Number.isFinite(value)?" · исходное значение "+Math.round(value)+" с":"";
@@ -984,7 +988,8 @@ function eventClock(ev) {
 
 function findPeriodLengthSeconds(ev) {
   const raw=ev?.raw||{};
-  const candidates=[ev?.period_length_seconds,ev?.external_live?.period_length_seconds,
+  const candidates=[ev?.period_length_seconds,ev?.live_fields?.period_length_seconds,
+    ev?.external_live?.period_length_seconds,ev?.external_live?.live_fields?.period_length_seconds,
     raw.periodLength,raw.period_length,raw.periodDuration,raw.period_duration,
     ev?.live_fields?.periodLength,ev?.live_fields?.period_length];
   for(const value of candidates){
@@ -1035,7 +1040,8 @@ function getMatchTotalLines(ev) {
 }
 function inferPeriodLengthForForecast(ev) {
   const explicit=findPeriodLengthSeconds(ev);
-  const periodCount=Number(ev?.period_count||ev?.external_live?.period_count||0);
+  const periodCount=Number(ev?.period_count||ev?.live_fields?.period_count||
+    ev?.external_live?.period_count||ev?.external_live?.live_fields?.period_count||0);
   if(!explicit||![2,4].includes(periodCount))return null;
   return {seconds:explicit,periods:periodCount,
     method:ev?.period_format_source?.source||"подтверждённый формат по ID соревнования"};
@@ -1304,7 +1310,7 @@ function aiSignalHtml(signal,title){
     '<small>'+escapeHtml(signal.drivers.join(" · "))+'</small><small>Это тот же основной прогноз, а не независимая ИИ-модель.</small></div>';
 }
 function findQuarterClockFromElapsed(ev,period,length){
-  if(ev?.timer_semantics_verified!==true)return null;
+  if(ev?.timer_semantics_verified!==true&&ev?.live_fields?.timer_semantics_verified!==true)return null;
   if(!Number.isInteger(Number(period))||!Number.isFinite(Number(length))||Number(length)<300)return null;
   const candidates=[ev?.match_elapsed_seconds,ev?.external_live?.match_elapsed_seconds,
     ev?.live_fields?.timerSeconds,ev?.live_fields?.timer_seconds,
