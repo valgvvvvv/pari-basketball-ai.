@@ -46,12 +46,13 @@ class ForecastIntegrityTests(unittest.TestCase):
             "event_id": "game-1", "final_status": "finished", "confirmed": True,
             "identity_verified": True, "independent_confirmation": True, "source": "independent-final-feed",
             "regulation_total": 200, "total_with_overtime": 210, "line": 205,
-            "includes_overtime": True
+            "includes_overtime": True, "market_rule_confirmed": True
         }
         self.assertEqual(settle_prediction(contract, base)["result"], "over_won")
         self.assertEqual(settle_prediction(contract, {**base, "includes_overtime": False})["result"], "under_won")
         self.assertEqual(settle_prediction(contract, {**base, "total_with_overtime": 205})["result"], "push")
         self.assertEqual(settle_prediction(contract, {**base, "includes_overtime": None})["status"], "unresolved")
+        self.assertEqual(settle_prediction(contract, {**base, "market_rule_confirmed": False})["status"], "unresolved")
         self.assertEqual(settle_prediction(contract, {**base, "identity_verified": False})["status"], "unresolved")
         self.assertEqual(settle_prediction(contract, {**base, "event_id": "different"})["status"], "disputed")
 
