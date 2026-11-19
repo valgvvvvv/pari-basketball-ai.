@@ -25,8 +25,8 @@ def settle_prediction(contract: dict[str, Any], final_record: dict[str, Any] | N
     if final_record.get("final_status") not in {"finished", "completed", "final"}:
         return {"status": "unresolved", "reason": "event is not confirmed final",
                 "event_id": event_id, "snapshot_id": snapshot_id}
-    if final_record.get("confirmed") is not True or final_record.get("identity_verified") is not True:
-        return {"status": "unresolved", "reason": "final score or event identity is not independently confirmed",
+    if final_record.get("confirmed") is not True or final_record.get("identity_verified") is not True or final_record.get("independent_confirmation") is not True:
+        return {"status": "unresolved", "reason": "final score or event identity is not independently confirmed by a second source",
                 "event_id": event_id, "snapshot_id": snapshot_id}
     source = str(final_record.get("source") or "").strip()
     if not source:
@@ -58,6 +58,12 @@ def settle_prediction(contract: dict[str, Any], final_record: dict[str, Any] | N
         line = float(final_record.get("line"))
     except (TypeError, ValueError):
         return {"status": "unresolved", "reason": "confirmed final total or market line is missing",
+                "event_id": event_id, "snapshot_id": snapshot_id}
+    market = contract.get("market") if isinstance(contract.get("market"), dict) else {}
+    market_lines = market.get("lines") if isinstance(market.get("lines"), list) else []
+    if not any(isinstance(row, dict) and row.get("line") is not None and
+               abs(float(row["line"]) - line) < 1e-9 for row in market_lines):
+        return {"status": "unresolved", "reason": "settlement line was not captured in this prediction snapshot",
                 "event_id": event_id, "snapshot_id": snapshot_id}
     if total < 0 or line < 0:
         return {"status": "disputed", "reason": "negative total or line is invalid",
