@@ -1,7 +1,8 @@
 import unittest
 
 from server import (_PARI_TIMER_OBSERVATIONS, _pari_normalize_timer,
-                    _pari_infer_period_format_from_timeline)
+                    _pari_infer_period_format_from_timeline,
+                    _pari_period_from_match_timer)
 
 
 class PariTimerNormalizationTests(unittest.TestCase):
@@ -44,6 +45,15 @@ class PariTimerNormalizationTests(unittest.TestCase):
         # 28:00 remain in the match and 8:00 remain in Q2 => 10-minute quarters.
         result = _pari_infer_period_format_from_timeline(2, 1680, 480, 4)
         self.assertEqual(result["period_length_seconds"], 600)
+
+
+    def test_match_timer_resolves_quarter_from_verified_count_up(self):
+        self.assertEqual(_pari_period_from_match_timer(1183, 600, 4, "up"), 2)
+        self.assertEqual(_pari_period_from_match_timer(1569, 600, 4, "up"), 3)
+        self.assertEqual(_pari_period_from_match_timer(2263, 600, 4, "up"), 4)
+
+    def test_match_timer_resolves_quarter_from_verified_count_down(self):
+        self.assertEqual(_pari_period_from_match_timer(1183, 600, 4, "down"), 3)
 
     def test_count_up_verified_after_two_intervals(self):
         self.assertFalse(self.normalize("up", 100, 1, 1000)["timer_semantics_verified"])
