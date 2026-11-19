@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PARI Basketball AI</title>
-<link rel="stylesheet" href="/static/styles.css?v=20261119-ui-v8">
+<link rel="stylesheet" href="/static/styles.css?v=20261120-ui-v9">
 </head>
 <body>
 <div class="shell">
@@ -32,6 +32,7 @@
       <div class="section-head"><div><span class="eyebrow">LIVE EVENT DISCOVERY</span><h2>Матчи PARI в онлайне</h2><p>Матчи и линии загружаются из PARI, счёт и игровое время — только из подтверждённых источников. Предварительные ориентиры ТБ/ТМ рассчитываются автоматически при наличии полного набора данных.</p></div><span class="pill warn" id="liveFeedBadge">Проверяем источник</span></div>
       <div class="form-actions"><button class="btn-primary" type="button" id="refreshLiveMatches">Обновить матчи</button><span class="muted" id="liveFeedUpdated">Ожидание первого ответа…</span></div>
       <p class="muted" id="liveFeedMessage" aria-live="polite">Проверяем доступность API PARI.</p>
+      <div id="priorityForecasts" class="priority-forecasts" aria-live="polite">Проверяем условия отбора прогнозов…</div>
       <div id="liveMatchList" class="live-match-list"></div>
     </section>
 
@@ -75,6 +76,6 @@ window.addEventListener("unhandledrejection", function(event) {
   if (message) message.textContent = "Ошибка выполнения страницы: " + String(event.reason || "неизвестная ошибка");
 });
 </script>
-<script src="/static/forecast-core.js?v=20261119-forecast-core-v3"></script>
-<script src="/static/app.js?v=20261119-integrity-v74" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
+<script src="/static/forecast-core.js?v=20261120-forecast-core-v4"></script>
+<script src="/static/app.js?v=20261120-integrity-v75" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
 </body></html>
