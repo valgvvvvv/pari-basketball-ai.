@@ -334,6 +334,8 @@ const { chromium } = require("playwright");
           const count = document.querySelector("#historyCount");
           return count && Number(count.textContent || 0) > before;
         }, historyBefore, { timeout: 30000 });
+        // The app restores the reading anchor after two animation frames; wait for that scheduled correction before measuring it.
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 80)))));
         const selectedAfterRefresh = await page.locator("#selectedMatchTitle").innerText();
         if (!selectedAfterRefresh.includes(smokeRow.teams.split(" — ")[0])) {
           throw new Error("Auto-refresh changed the selected match");
