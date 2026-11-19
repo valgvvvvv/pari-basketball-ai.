@@ -1483,11 +1483,20 @@ function liveMatchRenderFallback(ev) {
   const title = [ev?.team1 || "Команда 1", ev?.team2 || "Команда 2"].map(safe).join(" — ");
   const scoreText = safePart(() => eventScore(ev), "Счёт пока не подтверждён");
   const periodText = safePart(() => eventPeriod(ev), "Период не определён");
-  const clockText = safePart(() => eventClock(ev), (ev?.timer_seconds??ev?.match_elapsed_seconds) != null
+  const clockText = safePart(() => eventClock(ev), (ev?.source_timer_seconds??ev?.timer_seconds??ev?.match_elapsed_seconds) != null
     ? "Время получено, длительность периода не подтверждена" : "Таймер пока не получен");
   const stats = Array.isArray(ev?.external_statistics) ? ev.external_statistics : [];
-  const statsText = stats.length ? "Статистика: "+stats.length+" показателей"+(ev?.statistics_quality
-    ? " · покрытие "+ev.statistics_quality.available_count+"/"+ev.statistics_quality.expected_count : "")
+  const periodStats = Array.isArray(ev?.period_statistics) ? ev.period_statistics : [];
+  const statLines = stats.slice(0,6).map(row =>
+    (row?.name||row?.metric_key||"Показатель")+" "+(row?.home??"—")+":"+(row?.away??"—"));
+  const periodStatLines = periodStats.slice(0,4).map(row =>
+    "Q"+(row?.period??"?")+" "+(row?.name||row?.metric_key||"Показатель")+" "+
+    (row?.home??"—")+":"+(row?.away??"—"));
+  const coverage = ev?.statistics_quality
+    ? " · покрытие "+ev.statistics_quality.available_count+"/"+ev.statistics_quality.expected_count : "";
+  const statsText = stats.length || periodStats.length
+    ? "Статистика: "+[...statLines,...periodStatLines].join(" · ")+
+      ((stats.length+periodStats.length)>10?" · ещё "+((stats.length+periodStats.length)-10):"")+coverage
     : "Статистика: подтверждённых значений пока нет";
   const markets = (ev?.match_total_candidates || []).map(f =>
     f?.pt ? "Тотал "+f.pt+" · "+(f.v ?? "коэффициент не указан") : null).filter(Boolean);
