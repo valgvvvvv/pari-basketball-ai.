@@ -1190,9 +1190,6 @@ function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="m
     const rate=recent/(length/60),global=current/(elapsed/60);
     dynamic=linear*0.72+(current+rate*(remaining/60))*0.28;
     add("Динамический темп",dynamic,safeSigma*1.05,"72% общий темп + 28% темп последнего завершённого периода",1.05);
-  } else if(isQuarter&&Number.isFinite(Number(forecast.projection))){
-    dynamic=projection;
-    add("Динамика четверти",dynamic,safeSigma,"Текущий темп четверти с поправкой на доступный таймер",1);
   }
   const possession=isQuarter?forecast.possession_model:estimate.possession_model;
   if(possession?.applied&&Number.isFinite(Number(isQuarter?forecast.possession_projection:possession.projection))){
@@ -1261,6 +1258,7 @@ function unifiedToolsPanelHtml(ev,matchData,quarterData,matchForecast,quarterFor
     {id:"linear-pace",name:"Линейный темп",role:"числовой центр по очкам и времени",mv:find(matchData,"Линейный темп"),qv:find(quarterData,"Линейный темп"),status:"числовой центр"},
     {id:"poisson",name:"Пуассон",role:"механизм генерации распределения; не отдельный голос",mv:md?{distribution:true}:null,qv:qd?{distribution:true}:null,status:"часть распределения"},
     {id:"monte-carlo",name:"Монте‑Карло",role:"способ симуляции распределения",mv:md?{distribution:true}:null,qv:qd?{distribution:true}:null,status:"симулятор, не отдельная модель"},
+    {id:"scenario-ensemble",name:"Ансамбль сценариев",role:"взвешенная смесь сценариев; не независимый голос",mv:md?.scenarios?.length?{distribution:true}:null,qv:null,status:"экспериментальный · не калиброван"},
     {id:"dynamic-tempo",name:"Динамика темпа / концовки",role:"зависимая эвристическая оценка",mv:find(matchData,"Динамический темп")||find(matchData,"Модель концовки"),qv:find(quarterData,"Динамика четверти"),status:"эвристика"},
     {id:"possessions",name:"Модель владений",role:"ожидаемые владения × PPP",mv:find(matchData,"Модель владений"),qv:null,status:m?.possession_model?.reason||"нет владений"},
     {id:"gamma-poisson",name:"Gamma‑Poisson",role:"апостериорное распределение темпа четверти",mv:null,qv:q?.posterior?.ready?{distribution:true}:null,status:q?.posterior?.ready?"активна для Qn":"нет данных для распределения Qn"},
