@@ -742,6 +742,7 @@ function saveAnalysisHistory(ev,score,period,clock,estimate,quarter){
       probabilities:quarter.lines,posterior:quarter.posterior,prior:quarter.prior}:null,
     line:strongest?.line??null,direction:strongest?.direction??null,
     probability:strongest?Math.round(Math.max(strongest.pOver,strongest.pUnder)*1000)/10:null,
+    outcomeStatus:"unresolved",settlementStatus:"unresolved",finalScore:null,
     dataQuality:ev?.statistics_quality||null,scoreSource:ev?.score_source||null,clockSource:ev?.clock_source||null,
     modelVersion:quarter?.model_version||"match-live-v1",savedAt};
   const history=readAnalysisHistory();
