@@ -262,9 +262,15 @@ const { chromium } = require("playwright");
             viewport: window.innerWidth,
             document: document.documentElement.scrollWidth,
             body: document.body.scrollWidth,
-            selected: Math.round(document.querySelector("#selectedMatch").getBoundingClientRect().width)
+            selected: Math.round(document.querySelector("#selectedMatch").getBoundingClientRect().width),
+            offenders: Array.from(document.querySelectorAll("body *")).map(el => {
+              const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+              return {tag:el.tagName,id:el.id,className:typeof el.className==="string"?el.className:"",left:Math.round(r.left),right:Math.round(r.right),width:Math.round(r.width),scrollWidth:el.scrollWidth,minWidth:s.minWidth,whiteSpace:s.whiteSpace};
+            }).filter(x => x.right > window.innerWidth + 1 || x.width > window.innerWidth + 1)
+              .sort((a,b)=>b.right-a.right).slice(0,18)
           }));
           if (dimensions.document > dimensions.viewport + 1 || dimensions.body > dimensions.viewport + 1) {
+            await page.screenshot({path:path.join("archive-snapshot","ui-overflow-"+width+".png"),fullPage:true});
             throw new Error("Page-level horizontal overflow at " + width + "px: " + JSON.stringify(dimensions));
           }
           if (dimensions.selected > dimensions.viewport + 1) {
