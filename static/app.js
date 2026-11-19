@@ -736,7 +736,7 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
     providerEventTimestampAvailable:!!(ev?.updated_at||ev?.raw?.updated_at||ev?.raw?.updatedAt),
     label:modeLabel+" · статистика "+available+"/"+expected
   };
-  if(tempoDynamics.applied)factors.push("Динамика темпа: "+(tempoDynamics.rawChange>=0?"ускорение ":"спад ")+Math.abs(tempoDynamics.rawChange).toFixed(1)+"% · диагностический индекс ×"+tempoFactor.toFixed(3)+" · импульс сценариев MC "+Number(mc.momentum||0).toFixed(1)+"% (влияет на распределение, не повторно на центр)");
+  if(tempoDynamics.applied)factors.push("Динамика темпа: "+(tempoDynamics.rawChange>=0?"ускорение ":"спад ")+Math.abs(tempoDynamics.rawChange).toFixed(1)+"% · диагностический индекс ×"+tempoFactor.toFixed(3)+" · импульс MC "+Number(mc.momentum||0).toFixed(1)+"% · источник "+(mc.momentum_source||"period_history_fallback")+" (влияние только на распределение)");
   else factors.push("Динамика темпа: коэффициент не применён — "+tempoDynamics.reason);
   const scenarioText=(mc?.scenarios||[]).map(x=>x.name+" "+x.probability+"%").join(" · ");
   if(scenarioText)factors.push("100 000 динамических сценариев: "+scenarioText+" · импульс "+Number(mc.momentum||0).toFixed(1)+"%");
