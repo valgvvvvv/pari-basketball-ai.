@@ -656,7 +656,7 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   return {...adjusted,context_factors:factors,context_adjustment:context.adjustment,statistics_adjustment:secondaryAdjustment,
     statistics_quality:statsContext.quality,shooting_efg:statsContext.efg??null,possession_model:possession,
     poisson:mc,tempo_dynamics:tempoDynamics,low:mc.low80,high:mc.high80,
-    sigma:mc.stddev_exact,projection:mc.mean,projection_exact:mc.mean_exact,expected_remaining_exact:mu,distribution_method:mc.method};
+    sigma:mc.stddev_exact,projection:mc.mean,projection_exact:mc.mean_exact,expected_remaining_exact:mu,distribution_method:mc.method,model_version:"match-live-v2"};
 }
 function normalCdf(z){
   const sign=z<0?-1:1,x=Math.abs(z),t=1/(1+0.2316419*x);
@@ -744,7 +744,7 @@ function saveAnalysisHistory(ev,score,period,clock,estimate,quarter){
     probability:strongest?Math.round(Math.max(strongest.pOver,strongest.pUnder)*1000)/10:null,
     outcomeStatus:"unresolved",settlementStatus:"unresolved",finalScore:null,
     dataQuality:ev?.statistics_quality||null,scoreSource:ev?.score_source||null,clockSource:ev?.clock_source||null,
-    modelVersion:quarter?.model_version||"match-live-v1",savedAt};
+    modelVersion:quarter?.model_version||"match-live-v2",savedAt};
   const history=readAnalysisHistory();
   history.push(item);
   try{localStorage.setItem(ANALYSIS_HISTORY_KEY,JSON.stringify(history));}catch(_){}
