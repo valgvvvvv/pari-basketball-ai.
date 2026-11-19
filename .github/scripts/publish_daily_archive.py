@@ -94,7 +94,7 @@ def main():
         "period_end_utc": NOW.isoformat(),
         "snapshot_artifacts": len(artifacts),
         "source": "PARI live feed collected by scheduled GitHub Actions workflow",
-        "contents": "Each snapshots/*.json.gz file is a compressed JSON snapshot containing the complete normalized event records returned by the project's PARI adapter.",
+        "contents": "Each snapshots/*.json.gz file contains normalized LIVE events, model outputs, immutable prediction contracts, source provenance and diagnostics.",
     }
 
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as daily:
