@@ -1600,7 +1600,14 @@ async function refreshLiveMatches() {
           const missingReason = missingStatuses.length ? (statusLabels[missingStatuses[0]] || missingStatuses[0]) : "показатели пока не получены";
           const conflictText = quality.conflicts?.length ? " · противоречивые значения: " + quality.conflicts.length : "";
           const statsLabel = statCount ? ("Статистика: " + statCount + " показателей" + coverage + conflictText + " · " + (ev.statistics_source || "источник не указан")) : "Статистика: " + missingReason;
-          const details = [ev.league || ev.sport_name, score, eventPeriod(ev), eventClock(ev), statsLabel, ...totalMarkets].filter(Boolean).map(escapeHtml).join(" · ");
+          const timerRaw=ev?.source_timer_seconds;
+          const timerNorm=ev?.timer_semantics_verified===true
+            ?("нормализовано: матч "+(ev.match_elapsed_seconds??"—")+" с · период "+(ev.period_elapsed_seconds??"—")+" с прошло / "+(ev.period_remaining_seconds??"—")+" с осталось")
+            :(timerRaw!=null?("таймер не используется: "+(ev.timer_block_reason||"семантика не подтверждена")):"таймер не получен");
+          const timerDebug=timerRaw!=null
+            ?("PARI timerSeconds: "+timerRaw+" с · timerDirection: "+(ev.timer_direction??"—")+" · "+timerNorm)
+            :timerNorm;
+          const details = [ev.league || ev.sport_name, score, eventPeriod(ev), eventClock(ev), timerDebug, statsLabel, ...totalMarkets].filter(Boolean).map(escapeHtml).join(" · ");
           const forecast = automaticForecast(ev);
           const quarterForecast = automaticQuarterForecast(ev);
           const aiAnalysis = aiModelAnalysis(ev,forecast,quarterForecast);
