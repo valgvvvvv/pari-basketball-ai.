@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PARI Basketball AI</title>
-<link rel="stylesheet" href="/static/styles.css">
+<link rel="stylesheet" href="/static/styles.css?v=20261119-ui-v2">
 </head>
 <body>
 <div class="shell">
   <aside class="sidebar">
-    <div class="brand"><div class="brand-mark">P</div><div><b>PARI Basketball AI</b><small>ANALYTICS ENGINE · 0.2</small></div></div>
+    <div class="brand"><div class="brand-mark">P</div><div><b>PARI Basketball AI</b><small>ANALYTICS ENGINE · 0.2.0</small></div></div>
     <nav>
       <a class="active" href="#dashboard">Обзор</a>
       <a href="#selectedMatch">Прогноз выбранного матча</a>
@@ -59,7 +59,7 @@
       <div class="form-actions"><a class="btn-primary" href="/api/archive/export">Скачать локальный ZIP</a><a class="btn-ghost" href="https://github.com/valgvvvvv/pari-basketball-ai./releases" target="_blank" rel="noopener">Ежедневные архивы GitHub</a><button class="btn-ghost" type="button" id="clearServerArchive">Очистить локальную базу</button></div>
     </section>
     <section class="panel" id="history"><div class="section-head"><div><span class="eyebrow">TRACK RECORD</span><h2>История анализов</h2></div><button class="btn-ghost" id="clearHistory">Очистить</button></div><div id="historyList" class="history-list"><p class="muted">Пока нет сохранённых расчётов.</p></div></section>
-    <footer><span>PARI Basketball AI · MVP 0.2</span><span>Аналитический инструмент. Вероятности не гарантируют результат.</span><span>Данные live-счёта: <a href="https://sportscore.com/" target="_blank" rel="dofollow noopener">Powered by SportScore</a></span></footer>
+    <footer><span>PARI Basketball AI · MVP 0.2.0</span><span>Аналитический инструмент. Вероятности не гарантируют результат.</span><span>Данные live-счёта: <a href="https://sportscore.com/" target="_blank" rel="dofollow noopener">Powered by SportScore</a></span></footer>
   </main>
 </div>
 <script>
@@ -75,5 +75,5 @@ window.addEventListener("unhandledrejection", function(event) {
 });
 </script>
 <script src="/static/forecast-core.js?v=20261119-forecast-core-v3"></script>
-<script src="/static/app.js?v=20261119-integrity-v48" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
+<script src="/static/app.js?v=20261119-integrity-v49" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
 </body></html>
