@@ -2825,7 +2825,11 @@ async def _refresh_live_enrichment_background(events_snapshot):
             event_id = str(event.get("id") or "")
             if not event_id:
                 continue
-            match_status = "matched" if event.get("external_statistics") or event.get("external_live") else (
+            external_rows = [
+                row for row in (event.get("external_statistics") or [])
+                if str(row.get("source") or "") not in ("PARI", "derived")
+            ]
+            match_status = "matched" if external_rows or event.get("external_live") else (
                 "no_exact_match" if diagnostics.get("unmatched_pari") else "not_confirmed"
             )
             event["statistics_source_diagnostics"] = {
@@ -3676,7 +3680,10 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "status": enrichment_status,
                         "background_status": _LIVE_ENRICHMENT_LAST_STATUS,
                         "matched": sum(1 for e in basketball if e.get("external_live")),
-                        "statistics_matches": sum(1 for e in basketball if e.get("external_statistics")),
+                        "statistics_matches": sum(1 for e in basketball if any(
+                            str(row.get("source") or "") not in ("PARI", "derived")
+                            for row in (e.get("external_statistics") or [])
+                        )),
                         "note": "PARI list and markets are returned independently; optional provider enrichment is cached per event in the background."
                     }
                     print("PARI_LIVE_DIAG " + json.dumps({
