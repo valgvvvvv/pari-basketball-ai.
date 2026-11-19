@@ -147,3 +147,11 @@ html,body{max-width:100%;overflow-x:clip}
 #selectedMatch :where(table){max-width:100%;table-layout:fixed}
 
 @media(max-width:1000px){.shell{width:100%;grid-template-columns:minmax(0,1fr)}.shell main{width:100%;min-width:0}}
+
+@media(max-width:1000px){
+  .sidebar{position:relative;top:auto;height:auto;padding:10px 12px;border-right:0;border-bottom:1px solid var(--line)}
+  .brand{padding:0 8px 8px}
+  .sidebar nav{display:flex;flex-wrap:wrap;gap:5px}
+  .sidebar nav a{padding:8px 9px}
+  .sidebar-bottom{display:none}
+}
