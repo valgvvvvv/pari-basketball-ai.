@@ -109,6 +109,8 @@ assert.ok(appSource.includes("scoreSource") && appSource.includes("clockSource")
 assert.ok(appSource.includes("probText=p=>p?"), "headline probabilities must come from the forecast distribution only");
 assert.ok(appSource.includes("Вероятности показаны только из собственного распределения"), "tool registry must distinguish model probabilities from bookmaker odds");
 assert.ok(appSource.includes("unifiedToolsPanelHtml") && appSource.includes("Недоступны / отключены:"), "all tools must be available in one shared registry");
+assert.ok(appSource.includes("Ансамбль сценариев") && appSource.includes("не независимый голос"), "scenario mixture must be shown without counting it as an independent model");
+assert.ok(!appSource.includes('add("Динамика четверти"'), "a duplicate of the primary quarter forecast must not appear as a separate method");
 assert.ok(!appSource.includes("Единый прогноз · повтор основного расчёта"), "duplicate primary forecast cards must stay removed");
 assert.ok(appSource.includes("ОТ не включён, правило PARI не подтверждено"), "list forecast must not imply overtime is included");
 assert.ok(appSource.includes('kind:"period_range",preliminary:true'), "timerless range forecasts must be explicitly preliminary");
