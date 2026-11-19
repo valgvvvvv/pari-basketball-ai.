@@ -205,6 +205,86 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
         self.assertEqual(unstarted, [])
 
 
+    def test_null_stat_values_are_not_converted_to_zero(self):
+        event = {"id": "fixture-null", "external_statistics": [
+            {"name": "Assists", "metric_key": "assists", "home": None, "away": "0", "source": "SofaScore"}
+        ]}
+        server._finalize_live_statistics([event])
+        self.assertEqual(event["external_statistics"], [])
+        self.assertNotIn("assists", event["statistics_quality"]["available_metrics"])
+
+
+    def test_statistics_rows_keep_source_and_event_provenance(self):
+        event = {"id": "pari-123", "feed_checked_at_utc": "2026-11-19T10:00:00+00:00",
+                 "external_statistics": [
+                     {"name": "Assists", "metric_key": "assists", "home": 4, "away": 7,
+                      "source": "SofaScore", "source_event_id": "sofa-987",
+                      "target": "match", "match_status": "exact_event_id_match"}
+                 ]}
+        server._finalize_live_statistics([event])
+        row = event["external_statistics"][0]
+        self.assertEqual(row["event_id"], "pari-123")
+        self.assertEqual(row["source_event_id"], "sofa-987")
+        self.assertEqual(row["target"], "match")
+        self.assertIsNone(row["target_period"])
+        self.assertEqual(row["match_status"], "exact_event_id_match")
+        self.assertEqual(row["observed_at_utc"], "2026-11-19T10:00:00+00:00")
+        self.assertEqual(row["observation_basis"], "pari_feed_snapshot_proxy")
+        self.assertEqual(row["freshness_status"], "source_timestamp_unavailable")
+        self.assertTrue(row["received_at_utc"])
+
+
+    def test_background_enrichment_preserves_partial_success_when_other_metric_times_out(self):
+        import asyncio
+        from unittest.mock import patch
+
+        events = [{
+            "id": "pari-partial", "team1": "Home", "team2": "Away",
+            "external_statistics": [
+                {"name": "Assists", "metric_key": "assists", "home": 3, "away": 4, "source": "PARI"}
+            ],
+        }]
+
+        async def fake_provider(snapshot):
+            snapshot[0]["external_statistics"].append({
+                "name": "Steals", "metric_key": "steals", "home": 2, "away": 1,
+                "source": "SofaScore", "source_event_id": "sofa-partial",
+                "target": "match", "match_status": "exact_event_id_match"
+            })
+            return {"status": "partial", "matched": 1, "unmatched_pari": 0,
+                    "statistics_errors": ["stats_TimeoutException"],
+                    "checked_at_utc": "2026-11-19T10:00:00+00:00"}
+
+        with patch.object(server, "_enrich_with_sofascore_live", side_effect=fake_provider):
+            asyncio.run(server._refresh_live_enrichment_background(events))
+        cached = server._LIVE_ENRICHMENT_CACHE["pari-partial"]
+        self.assertEqual(len(cached["external_statistics"]), 1)
+        self.assertEqual(cached["external_statistics"][0]["metric_key"], "steals")
+        self.assertTrue(cached["statistics_source_diagnostics"]["timeout"])
+        self.assertEqual(cached["signature"], ("home", "away"))
+
+
+    def test_unmatched_external_source_is_diagnosed_separately_from_missing_field(self):
+        event = {"id": "pari-no-match", "external_statistics": [],
+                 "statistics_source_diagnostics": {"match_status": "no_exact_match"}}
+        server._finalize_live_statistics([event])
+        self.assertEqual(event["statistics_quality"]["missing_status"]["assists"], "no_exact_match")
+
+
+
+
+    def test_confirmed_pari_value_wins_and_conflicting_external_value_is_preserved(self):
+        event = {"id": "conflict-fixture", "external_statistics": [
+            {"name": "Assists", "metric_key": "assists", "home": 5, "away": 6, "source": "PARI"},
+            {"name": "Assists", "metric_key": "assists", "home": 7, "away": 6, "source": "SofaScore"}
+        ]}
+        server._finalize_live_statistics([event])
+        assists = next(row for row in event["external_statistics"] if row.get("metric_key") == "assists")
+        self.assertEqual(assists["home"], 5)
+        conflict = next(row for row in event["statistics_quality"]["conflicts"] if row["metric"] == "assists")
+        self.assertEqual({item["source"] for item in conflict["values"]}, {"PARI", "SofaScore"})
+
+
 
 if __name__ == "__main__":
     unittest.main()
