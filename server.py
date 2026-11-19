@@ -3340,11 +3340,25 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             for item in attempts
                         ],
                     }, ensure_ascii=False, default=str), flush=True)
+                    feed_fetched_at = datetime.now(timezone.utc).isoformat()
+                    for live_event in basketball:
+                        if not isinstance(live_event, dict):
+                            continue
+                        external = live_event.get("external_live") if isinstance(live_event.get("external_live"), dict) else {}
+                        live_event["feed_fetched_at_utc"] = feed_fetched_at
+                        live_event["event_source_timestamp_utc"] = (
+                            live_event.get("updated_at") or external.get("updated_at") or
+                            live_event.get("statistics_checked_at")
+                        )
+                        live_event["event_freshness_status"] = (
+                            "provider_timestamp_available" if live_event["event_source_timestamp_utc"]
+                            else "provider_timestamp_unavailable"
+                        )
                     return {
                         "ok": True,
                         "connected": True,
                         "source": url + "?lang=ru&scopeMarket=2300",
-                        "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+                        "checked_at_utc": feed_fetched_at,
                         "total_events": len(all_events),
                         "basketball_events": len(basketball),
                         "events": basketball,
