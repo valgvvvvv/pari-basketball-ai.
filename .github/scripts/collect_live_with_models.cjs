@@ -204,8 +204,8 @@ const { chromium } = require("playwright");
     const appScriptUrl = await page.evaluate(() =>
       Array.from(document.scripts).map(script => script.src).find(src => src.includes("/static/app.js")) || ""
     );
-    result.ui_smoke = { status: "skipped_old_deployment", app_script: appScriptUrl, expected_bundle: "20261119-integrity-v56" };
-    if (appScriptUrl.includes("20261119-integrity-v56")) {
+    result.ui_smoke = { status: "skipped_old_deployment", app_script: appScriptUrl, expected_bundle: "20261119-integrity-v57" };
+    if (appScriptUrl.includes("20261119-integrity-v57")) {
       const smokeRow = result.forecasts.find(row => row.event_id);
       if (smokeRow) {
         const uiPayload = {
