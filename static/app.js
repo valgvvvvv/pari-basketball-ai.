@@ -1556,7 +1556,7 @@ async function refreshLiveMatches() {
                 ? forecast.lines.map(x => {
                     const mc=(estimate.poisson?.probabilities||[]).find(p=>Number(p.line)===Number(x.line));
                     const direction=mc?mc.direction:(estimate.low>x.line?"ТБ":(estimate.high<x.line?"ТМ":"без преимущества"));
-                    return direction+" "+x.line+(mc?" · ТБ "+(mc.pOver*100).toFixed(0)+"% / ТМ "+(mc.pUnder*100).toFixed(0)+"%":"")+" · диапазон "+estimate.low+"–"+estimate.high;
+                    return direction+" "+x.line+(mc?" · ТБ "+(mc.pOver*100).toFixed(1)+"% / ТМ "+(mc.pUnder*100).toFixed(1)+"%":"")+" · диапазон "+estimate.low+"–"+estimate.high;
                   }).join(" | ")
                 : "ориентир "+estimate.projection+" · диапазон "+estimate.low+"–"+estimate.high;
               if(forecast.kind==="period_range")lineText+=" · без точного таймера, предварительно";
@@ -1569,7 +1569,7 @@ async function refreshLiveMatches() {
           }
           if (quarterForecast.ready) {
             const qLines=quarterForecast.lines.length
-              ? quarterForecast.lines.map(x => x.direction+" "+x.line+" · ТБ "+(x.pOver*100).toFixed(0)+"% / ТМ "+(x.pUnder*100).toFixed(0)+"%").join(" | ")
+              ? quarterForecast.lines.map(x => x.direction+" "+x.line+" · ТБ "+(x.pOver*100).toFixed(1)+"% / ТМ "+(x.pUnder*100).toFixed(1)+"%").join(" | ")
               : "линия четверти пока не найдена";
             if(quarterForecast.ready)qLines+=" · модельная вероятность не калибрована";
             forecastHtml += '<span class="live-match-meta forecast-live">Прогноз Q'+escapeHtml(quarterForecast.period||findLivePeriod(ev)||"?")+': '+escapeHtml(quarterForecast.projection)+' очков за четверть · '+escapeHtml(qLines)+(quarterForecast.preliminary?' · предварительно':'')+'</span>';
