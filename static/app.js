@@ -194,7 +194,8 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
       if(k<0||(us<0.013&&v>us))continue;
       if(Math.log(Math.max(v*invAlpha/(a/(us*us)+b),1e-300))<=-lambda+k*Math.log(lambda)-logFactorial(k))return k;
     }
-    return Math.max(0,Math.round(lambda+root*normalRandom(random)));
+    const u1=Math.max(random(),1e-12),u2=random(),z=Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2);
+    return Math.max(0,Math.round(lambda+root*z));
   };
   const info=inferPeriodLengthForForecast(ev||{}),length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||info?.seconds||0);
   const completed=[];
