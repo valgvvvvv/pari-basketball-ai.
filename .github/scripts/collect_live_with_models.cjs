@@ -125,7 +125,10 @@ const { chromium } = require("playwright");
                 method: distribution.distribution || distribution.method || "Monte Carlo predictive sampler",
                 expected_remaining_points: distribution.mu ?? null,
                 variance: distribution.variance ?? (Number.isFinite(Number(estimate.sigma)) ? Number(estimate.sigma) ** 2 : null),
+                mean_uncertainty_variance: distribution.meanUncertaintyVariance ?? null,
+                mean_uncertainty_sd: distribution.meanUncertaintySd ?? null,
                 simulations: distribution.simulations ?? null,
+                interval_type: "predictive_total_interval",
                 interval_80: [distribution.low80 ?? estimate.low ?? null, distribution.high80 ?? estimate.high ?? null],
                 interval_95: [distribution.low95 ?? null, distribution.high95 ?? null]
               } : null,
