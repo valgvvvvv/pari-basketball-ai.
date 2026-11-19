@@ -89,6 +89,23 @@ const secondHalf=autoContext.runAuto({id:"half2-start",score:[40,40],period:2,cl
 assert.equal(secondHalf.ready,true,"explicit 2x20 format may forecast in the second half");
 assert.equal(estimateCalls,1);
 
+const mcStart=app.indexOf("function dynamicScenarioMonteCarlo(");
+const mcEnd=app.indexOf("\nfunction poissonMonteCarlo",mcStart);
+assert.ok(mcStart>=0&&mcEnd>mcStart);
+const mcContext={
+  Number,Math,Array,String,Object,
+  clampForecast:(x,lo,hi)=>Math.max(lo,Math.min(hi,x)),
+  inferPeriodLengthForForecast:()=>({seconds:600}),
+  readPeriodScore:()=>null,
+  findLiveScore:()=>[50,50],
+  currentQuarterScore:()=>null
+};
+vm.runInNewContext(app.slice(mcStart,mcEnd)+"\nthis.runMonteCarlo=dynamicScenarioMonteCarlo;",mcContext);
+const largeRate=mcContext.runMonteCarlo(100,80,[{line:180.5}],"ptrs-large-rate",{},3,null,"match");
+assert.ok(Math.abs(largeRate.mean_exact-180)<0.8,"large-rate Poisson sampler should preserve the expected center");
+assert.ok(largeRate.stddev_exact>8,"scenario mixture should retain predictive spread");
+assert.ok(Math.abs(largeRate.probabilities[0].pOver+largeRate.probabilities[0].pUnder+largeRate.probabilities[0].pPush-1)<1e-9);
+
 assert.ok(!app.includes('add("Байесовская",bayes'),
   "the old full-match/quarter-unit Bayesian blend must not re-enter the model list");
 assert.ok(!app.includes('history.splice(oldIndex,1)'),
