@@ -85,6 +85,7 @@ assert.ok(appSource.includes("liveList.innerHTML = count ? window.pariLiveEvents
 assert.ok(appSource.includes("scoreSource") && appSource.includes("clockSource") && appSource.includes("statisticsSource"), "source provenance must be tracked by layer");
 assert.ok(appSource.includes("Вероятности модели по линиям PARI"), "model probability must not be presented as bookmaker probability");
 assert.ok(appSource.includes("Модельные вероятности не калиброваны"), "unvalidated model probabilities must be labeled in the live UI");
+assert.ok(appSource.includes("ОТ не включён, правило PARI не подтверждено"), "list forecast must not imply overtime is included");
 assert.ok(appSource.includes('kind:"period_range",preliminary:true'), "timerless range forecasts must be explicitly preliminary");
 assert.ok(appSource.includes("const mu=possMu*secondaryAdjustment,mc=dynamicScenarioMonteCarlo"), "tempo momentum must not shift the mean and the scenario distribution twice");
 assert.ok(!appSource.includes("possMu*secondaryAdjustment*tempoFactor"), "duplicate tempo multiplier must stay out of the primary mean");
