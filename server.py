@@ -845,6 +845,104 @@ async def _enrich_with_sofascore_live(events):
         reverse = min(team_score(a, y), team_score(b, x))
         return max(direct, reverse)
 
+    def _period_number(value):
+        if value is None:
+            return None
+        if isinstance(value, (int, float)) and float(value).is_integer():
+            return int(value)
+        match = re.search(r"(?:q|quarter|period|half|период|четверт\\w*)\\s*([1-4])|^([1-4])$", str(value), re.I)
+        return int(match.group(1) or match.group(2)) if match else None
+
+    def _score_pair(value):
+        if isinstance(value, (list, tuple)) and len(value) >= 2:
+            try:
+                pair = [int(value[0]), int(value[1])]
+                return pair if min(pair) >= 0 else None
+            except (TypeError, ValueError):
+                return None
+        if isinstance(value, dict):
+            return _score_pair([value.get("home", value.get("team1")), value.get("away", value.get("team2"))])
+        match = re.search(r"(\\d+)\\s*[:：-]\\s*(\\d+)", str(value or ""))
+        return [int(match.group(1)), int(match.group(2))] if match else None
+
+    def _timestamp(value):
+        if value in (None, ""):
+            return None
+        try:
+            number = float(value)
+            if number > 1e12:
+                number /= 1000
+            if number > 1e8:
+                return datetime.fromtimestamp(number, timezone.utc)
+        except (TypeError, ValueError, OverflowError):
+            pass
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(timezone.utc)
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    def _league_tags(value):
+        text = str(value or "").casefold()
+        patterns = {
+            "nba": r"\\bnba\\b", "g_league": r"g[- ]?league|\\bnba g\\b",
+            "ncaa": r"\\bncaa\\b|college|university",
+            "euroleague": r"euroleague", "eurocup": r"eurocup",
+            "vtb": r"\\bvtb\\b", "cba": r"\\bcba\\b|chinese basketball",
+            "fiba": r"\\bfiba\\b"
+        }
+        return {key for key, pattern in patterns.items() if re.search(pattern, text)}
+
+    def external_context_check(pari, row):
+        evidence = []
+        raw = pari.get("raw") if isinstance(pari.get("raw"), dict) else {}
+        ext = pari.get("external_live") if isinstance(pari.get("external_live"), dict) else {}
+        pari_period = _period_number(pari.get("period") or pari.get("quarter"))
+        row_period = _period_number(row.get("period"))
+        if pari_period is not None and row_period is not None:
+            if pari_period != row_period:
+                return False, "period_mismatch"
+            evidence.append("period")
+
+        pari_score = _score_pair(pari.get("score"))
+        row_score = _score_pair(row.get("score"))
+        if pari_score and row_score:
+            direct_error = max(abs(pari_score[0]-row_score[0]), abs(pari_score[1]-row_score[1]))
+            reverse_error = max(abs(pari_score[0]-row_score[1]), abs(pari_score[1]-row_score[0]))
+            if min(direct_error, reverse_error) > 5:
+                return False, "live_score_mismatch"
+            evidence.append("score")
+
+        pari_length = pari.get("period_length_seconds") or ext.get("period_length_seconds") or raw.get("periodLength")
+        row_length = row.get("period_length_seconds")
+        try:
+            pari_length = int(float(pari_length)) if pari_length is not None else None
+            row_length = int(float(row_length)) if row_length is not None else None
+        except (TypeError, ValueError, OverflowError):
+            pari_length = row_length = None
+        if pari_length and row_length:
+            if pari_length != row_length:
+                return False, "period_format_mismatch"
+            evidence.append("period_format")
+
+        pari_league = pari.get("league") or raw.get("competitionName") or raw.get("name")
+        row_league = row.get("league") or row.get("competition")
+        pari_tags, row_tags = _league_tags(pari_league), _league_tags(row_league)
+        if pari_tags and row_tags:
+            if not (pari_tags & row_tags):
+                return False, "league_family_mismatch"
+            evidence.append("league_family")
+
+        pari_start = _timestamp(pari.get("start_time") or raw.get("startTime"))
+        row_start = _timestamp(row.get("start_timestamp") or row.get("start_time"))
+        if pari_start and row_start:
+            if abs((pari_start-row_start).total_seconds()) > 12*3600:
+                return False, "event_date_mismatch"
+            evidence.append("event_date")
+
+        if not evidence:
+            return False, "identity_context_not_confirmed"
+        return True, "verified_by_" + "_and_".join(evidence)
+
     if not events:
         return {"source": "sofascore", "status": "skipped_no_pari_events", "matched": 0}
     headers = {
@@ -1124,6 +1222,8 @@ async def _enrich_with_sofascore_live(events):
                     "home": home_name, "away": away_name, "score": score_pair,
                     "period_scores": period_scores, "period": period, "clock": clock,
                     "status": status_label, "slug": match_slug,
+                    "league": first_identity(("competition", "league", "tournament", "tournament_name", "tournamentName", "category")),
+                    "start_timestamp": first_identity(("start_time", "startTime", "start_timestamp", "startTimestamp", "kickoff")),
                     "id": match_slug or provider_id, "provider_id": provider_id,
                     "raw_identity_keys": list(dict.fromkeys(
                         str(k) for obj in identity_sources if isinstance(obj, dict) for k in obj.keys()
@@ -1745,6 +1845,11 @@ async def _enrich_with_sofascore_live(events):
                 if best[0] < 0.72:
                     diagnostic["rejection_reason"] = "both_team_names_not_confirmed"
                     continue
+                context_ok, context_reason = external_context_check(pari, best[1])
+                if not context_ok:
+                    diagnostic["rejection_reason"] = context_reason
+                    continue
+                diagnostic["identity_context"] = context_reason
                 if len(ranked) > 1 and best[0] - ranked[1][0] < 0.10:
                     diagnostic["rejection_reason"] = "ambiguous_external_candidates"
                     ambiguous += 1
@@ -1984,6 +2089,11 @@ async def _enrich_with_sofascore_live(events):
         })
         if not ranked or ranked[0][0] < 0.86:
             continue
+        context_ok, context_reason = external_context_check(pari, ranked[0][1])
+        if not context_ok:
+            match_diagnostics[-1]["identity_rejection_reason"] = context_reason
+            continue
+        match_diagnostics[-1]["identity_context"] = context_reason
         if len(ranked) > 1 and ranked[0][0] - ranked[1][0] < 0.07:
             ambiguous += 1
             continue
