@@ -35,6 +35,9 @@ jobs:
           python -m http.server 8000 >/tmp/pari-http.log 2>&1 &
           sleep 2
           node tests/browser-ui.test.cjs
+      - name: Python syntax
+        run: |
+          python -m py_compile server.py .github/scripts/publish_daily_archive.py .github/scripts/restore_daily_archive.py
       - name: Backend regression tests
         run: |
           pip install -r requirements.txt
