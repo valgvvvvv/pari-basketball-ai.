@@ -339,6 +339,30 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
         )
 
 
+    def test_provider_with_no_live_rows_is_not_misreported_as_no_exact_match(self):
+        import asyncio
+        from unittest.mock import patch
+
+        events = [{"id": "pari-no-provider-live", "team1": "Home", "team2": "Away",
+                   "external_statistics": []}]
+
+        async def fake_provider(snapshot):
+            return {"status": "no_live_events", "matched": 0, "unmatched_pari": 1,
+                    "statistics_matches": 0, "statistics_errors": [], "sofascore_errors": [],
+                    "sportscore_diagnostics": {"errors": []}}
+
+        with patch.object(server, "_enrich_with_sofascore_live", side_effect=fake_provider):
+            asyncio.run(server._refresh_live_enrichment_background(events))
+        cached = server._LIVE_ENRICHMENT_CACHE["pari-no-provider-live"]
+        diag = cached["statistics_source_diagnostics"]
+        self.assertTrue(diag["no_live_events"])
+        self.assertEqual(diag["match_status"], "source_no_live_events")
+        events[0]["statistics_source_diagnostics"] = diag
+        server._finalize_live_statistics(events)
+        self.assertEqual(events[0]["statistics_quality"]["missing_status"]["assists"],
+                         "source_no_live_events")
+
+
 
 if __name__ == "__main__":
     unittest.main()
