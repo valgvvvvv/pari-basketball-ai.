@@ -171,10 +171,30 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
   const n=100000;let seed=2166136261;
   for(const ch of String(seedText))seed=Math.imul(seed^ch.charCodeAt(0),16777619)>>>0;
   const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return (seed+1)/4294967297;};
+  const logFactorial=k=>{
+    if(k<2)return 0;
+    if(k<20){let value=0;for(let i=2;i<=k;i++)value+=Math.log(i);return value;}
+    const x=k+1,inv=1/x,inv2=inv*inv;
+    return (x-0.5)*Math.log(x)-x+0.9189385332046727+inv/12-inv*inv2/360+inv*inv2*inv2/1260;
+  };
   const poisson=lambda=>{
     if(lambda<=0)return 0;
-    if(lambda>35){const u=Math.max(random(),1e-12),v=random(),z=Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);return Math.max(0,Math.round(lambda+Math.sqrt(lambda)*z));}
-    const limit=Math.exp(-lambda);let product=1,k=0;do{k++;product*=random();}while(product>limit&&k<1000);return k-1;
+    if(lambda<=35){
+      const limit=Math.exp(-lambda);let product=1,k=0;
+      do{k++;product*=random();}while(product>limit&&k<1000);
+      return k-1;
+    }
+    // Hörmann PTRS rejection sampler: exact discrete Poisson draw for large rates.
+    const root=Math.sqrt(lambda),b=0.931+2.53*root,a=-0.059+0.02483*b;
+    const invAlpha=1.1239+1.1328/(b-3.4),vr=0.9277-3.6224/(b-2);
+    for(let attempt=0;attempt<1000;attempt++){
+      const u=random()-0.5,v=random(),us=Math.max(0.5-Math.abs(u),1e-12);
+      const k=Math.floor((2*a/us+b)*u+lambda+0.43);
+      if(us>=0.07&&v<=vr)return k;
+      if(k<0||(us<0.013&&v>us))continue;
+      if(Math.log(Math.max(v*invAlpha/(a/(us*us)+b),1e-300))<=-lambda+k*Math.log(lambda)-logFactorial(k))return k;
+    }
+    return Math.max(0,Math.round(lambda+root*normalRandom(random)));
   };
   const info=inferPeriodLengthForForecast(ev||{}),length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||info?.seconds||0);
   const completed=[];
