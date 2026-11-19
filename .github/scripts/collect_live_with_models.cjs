@@ -220,6 +220,7 @@ const { chromium } = require("playwright");
       }
     }
 
+    // v62 is deployed before this run; verify the live UI bundle and stylesheet before smoke tests.
     const appScriptUrl = await page.evaluate(() =>
       Array.from(document.scripts).map(script => script.src).find(src => src.includes("/static/app.js")) || ""
     );
