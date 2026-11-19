@@ -351,6 +351,8 @@ assert.ok(appSource.includes("data.successful_source || data.source_url"),
   "UI must show the actually successful PARI host");
 assert.ok(!appSource.includes("data.attempts?.[0]?.host"),
   "UI must not display the first failed host as the successful source");
+assert.ok(appSource.includes('source_no_live_events:"у внешнего источника нет LIVE-событий"'),
+  "provider empty-live-feed status must be visible and distinct from no exact match");
 assert.ok(appSource.includes("statusLabels[missingStatuses[0]]"),
   "statistics gaps must show a specific reason rather than a generic no-statistics label");
 
