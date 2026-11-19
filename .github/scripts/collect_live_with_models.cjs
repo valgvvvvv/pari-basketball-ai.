@@ -429,4 +429,4 @@ const { chromium } = require("playwright");
   process.exit(1);
 });
 
-// The deployed v61/v8 assets are now live; run the responsive browser acceptance against them.
+// Recheck responsive UI after the v62/v8 deployment completed.
