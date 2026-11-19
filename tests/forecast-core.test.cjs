@@ -196,7 +196,7 @@ const runtimeSource = appSource.slice(periodSourceStart, periodSourceEnd) +
 const runtimeSandbox = {collectEventObjects:()=>[], localStorage:{setItem(){}}};
 vm.runInNewContext(runtimeSource, runtimeSandbox);
 assert.equal(runtimeSandbox.findLiveClock({period:3,clock:"08:57"}), "08:57");
-assert.equal(runtimeSandbox.inferPeriodLengthForForecast({period:3,league:"Unknown league",clock:"08:57"}).seconds, 600);
+assert.equal(runtimeSandbox.inferPeriodLengthForForecast({period:3,league:"Unknown league",clock:"08:57"}), null, "unknown format must not be guessed from period or clock");
 assert.equal(runtimeSandbox.inferPeriodLengthForForecast({period:2,period_length_seconds:1200,external_live:{period_count:2},clock:"15:00"}).periods, 2);
 const recentStart = appSource.indexOf("function recentTempoFromSnapshots");
 const recentEnd = appSource.indexOf("function dynamicScenarioMonteCarlo", recentStart);
