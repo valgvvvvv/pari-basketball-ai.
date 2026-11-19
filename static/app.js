@@ -970,11 +970,14 @@ function eventPeriod(ev) {
 function eventClock(ev) {
   const clock=findLiveClock(ev);
   if(clock)return clock;
-  const raw=ev?.match_elapsed_seconds??ev?.external_live?.match_elapsed_seconds;
+  const raw=ev?.source_timer_seconds??ev?.external_live?.source_timer_seconds??
+    ev?.timer_seconds??ev?.match_elapsed_seconds??ev?.external_live?.match_elapsed_seconds;
   if(raw!=null&&raw!==""){
-    return findPeriodLengthSeconds(ev)
+    const value=Number(raw);
+    const rawLabel=Number.isFinite(value)?" · исходное значение "+Math.round(value)+" с":"";
+    return (findPeriodLengthSeconds(ev)
       ? "Время получено, направление часов не подтверждено"
-      : "Время получено, длительность периода не подтверждена";
+      : "Время получено, длительность периода не подтверждена")+rawLabel;
   }
   return null;
 }
