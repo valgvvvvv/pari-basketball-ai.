@@ -129,6 +129,7 @@ const { chromium } = require("playwright");
                 interval_80: [distribution.low80 ?? estimate.low ?? null, distribution.high80 ?? estimate.high ?? null],
                 interval_95: [distribution.low95 ?? null, distribution.high95 ?? null]
               } : null,
+              market_probability_status: "not_computed_factor_side_mapping_unverified",
               market: {
                 lines: marketLines || [],
                 raw_factor_records: ev.match_total_candidates || []
