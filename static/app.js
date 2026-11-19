@@ -1070,7 +1070,7 @@ function automaticForecast(ev) {
       const preliminary=early||formatUnverified;
       const modeled=applyPoissonModel(estimate,lines,String(ev.id||"")+"|"+score.join(":")+"|"+clock,ev,period,clock);
       return {ready:true,kind:"live_tempo",estimate:{...modeled,confidence:preliminary?"низкая · предварительный формат/ранняя стадия":modeled.data_quality?.label||"ограниченная",preliminary},lines,
-        message:preliminary?"Предварительная оценка: формат или стадия матча не подтверждены":"Линейный темп + модель статистики + симуляции Монте-Карло"};
+        message:preliminary?"Предварительная оценка: формат или стадия матча не подтверждены":"Единый основной прогноз · Монте-Карло — способ построения распределения, не отдельная модель"};
     }
   }
   if(score&&period&&lengthInfo){
