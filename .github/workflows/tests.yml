@@ -20,5 +20,6 @@ jobs:
         with:
           node-version: "22"
       - run: node tests/forecast-core.test.cjs
+      - run: node --check static/app.js
       - run: node --check .github/scripts/collect_live_with_models.cjs
       - run: python -m py_compile server.py result_validation.py match_identity.py .github/scripts/publish_daily_archive.py .github/scripts/restore_daily_archive.py

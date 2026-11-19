@@ -158,7 +158,7 @@ assert.ok(!applyPoissonSource.includes("dataQuality.rolling_snapshot_count="), "
 assert.ok(appSource.includes("priorExposureSeconds:aggregatePriorExposureSeconds"), "missing period splits must use aggregate historical score and exact exposure");
 assert.ok(!appSource.slice(appSource.indexOf("function saveAnalysisHistory("),appSource.indexOf("function clearAnalysisHistory(")).includes("if(!estimate&&!quarter?.ready)return"), "raw snapshot history must persist even when no forecast is available");
 assert.ok(appSource.includes('forecastStatus:estimate||quarter?.ready?"calculated":"not_available"'), "history must distinguish snapshot from forecast availability");
-assert.ok(htmlSource.includes("20261119-integrity-v66"), "history fix must bump frontend cache");
+assert.ok(htmlSource.includes("20261119-integrity-v69"), "history fix must bump frontend cache");
 assert.ok(htmlSource.includes("confirmedIndependentMatches") && htmlSource.includes("Финалы ещё не сверяются автоматически"), "quality panel must show zero confirmed independent finals and not claim accuracy without settlement");
 assert.ok(archivePublisherSource.startsWith("import hashlib"), "permanent archive publisher must import hashlib before calculating checksums");
 assert.ok(archiveCollectorSource.includes("contract.snapshot_id = row.snapshot_id") && archiveCollectorSource.includes("contract.contract_id = crypto.createHash"), "all prediction blocks from one source update must share snapshot_id; target identity uses contract_id");
@@ -167,7 +167,10 @@ assert.ok(!archiveCollectorSource.includes("window.automaticForecast") && archiv
 assert.ok(archiveCollectorSource.includes("result.source_checked_at_utc || row.captured_at_utc") && archiveCollectorSource.includes("String(row.score || \"\"),"), "archive snapshot IDs must use the same source timestamp, score, period and clock key as the UI");
 assert.ok(archiveCollectorSource.includes("source_event_snapshot: JSON.parse(JSON.stringify(rawEvent))") && archiveCollectorSource.includes("model_versions:"), "archive must preserve immutable raw source event and method versions separately from forecasts");
 assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
-assert.ok(htmlSource.includes("20261119-integrity-v66"), "frontend cache must be bumped after display fixes");
+assert.ok(htmlSource.includes("20261119-integrity-v69"), "frontend cache must be bumped after display fixes");
+assert.ok(appSource.includes("const qLines=") && !appSource.includes("qLines+="), "quarter forecast text must be immutable after declaration");
+assert.ok(appSource.includes("timer_semantics_verified!==true"), "unverified PARI timer values must not be converted into a quarter countdown");
+
 assert.ok(appSource.includes("Ансамбль сценариев") && appSource.includes("не независимый голос"), "scenario mixture must be shown without counting it as an independent model");
 assert.ok(!appSource.includes('add("Динамика четверти"'), "a duplicate of the primary quarter forecast must not appear as a separate method");
 assert.ok(!appSource.includes("Единый прогноз · повтор основного расчёта"), "duplicate primary forecast cards must stay removed");
@@ -193,7 +196,7 @@ const runtimeSource = appSource.slice(periodSourceStart, periodSourceEnd) +
 const runtimeSandbox = {collectEventObjects:()=>[], localStorage:{setItem(){}}};
 vm.runInNewContext(runtimeSource, runtimeSandbox);
 assert.equal(runtimeSandbox.findLiveClock({period:3,clock:"08:57"}), "08:57");
-assert.equal(runtimeSandbox.inferPeriodLengthForForecast({period:3,league:"Unknown league",clock:"08:57"}).seconds, 600);
+assert.equal(runtimeSandbox.inferPeriodLengthForForecast({period:3,league:"Unknown league",clock:"08:57"}), null, "unknown format must not be guessed from period or clock");
 assert.equal(runtimeSandbox.inferPeriodLengthForForecast({period:2,period_length_seconds:1200,external_live:{period_count:2},clock:"15:00"}).periods, 2);
 const recentStart = appSource.indexOf("function recentTempoFromSnapshots");
 const recentEnd = appSource.indexOf("function dynamicScenarioMonteCarlo", recentStart);
@@ -260,8 +263,8 @@ vm.runInNewContext(appSource.slice(scoreStart, scoreEnd) + "; this.validateScore
 assert.equal(scoreSandbox.validateScoreTimeline({}, [50,48], 3).valid, true);
 assert.equal(scoreSandbox.validateScoreTimeline({}, [51,48], 3).valid, false,
   "period sum mismatch must block a forecast");
-assert.ok(appSource.includes("(periodCount===2||explicit===1200)?2:4"),
-  "20-minute halves must not be normalized as four quarters");
+assert.ok(appSource.includes("if(!explicit||![2,4].includes(periodCount))return null") && appSource.includes("seconds:explicit,periods:periodCount"),
+  "period duration and period count must both be confirmed independently");
 
 const periodStart = appSource.indexOf("function findLivePeriod(ev){");
 const periodEnd = appSource.indexOf("function findLiveClock(ev){", periodStart);
