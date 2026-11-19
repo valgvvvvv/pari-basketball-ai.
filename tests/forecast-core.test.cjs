@@ -106,8 +106,10 @@ assert.ok(appSource.includes("full_play_by_play") && appSource.includes("score_c
 assert.ok(appSource.includes("/api/archive/recent?minutes=10"), "live refresh must retrieve timestamped rolling snapshots");
 assert.ok(appSource.includes("liveList.innerHTML = count ? window.pariLiveEvents.map"), "live list cards must use events enriched with recent snapshots");
 assert.ok(appSource.includes("scoreSource") && appSource.includes("clockSource") && appSource.includes("statisticsSource"), "source provenance must be tracked by layer");
-assert.ok(appSource.includes("Вероятности модели по линиям PARI"), "model probability must not be presented as bookmaker probability");
-assert.ok(appSource.includes("Модельные вероятности не калиброваны"), "unvalidated model probabilities must be labeled in the live UI");
+assert.ok(appSource.includes("probText=p=>p?"), "headline probabilities must come from the forecast distribution only");
+assert.ok(appSource.includes("Вероятности показаны только из собственного распределения"), "tool registry must distinguish model probabilities from bookmaker odds");
+assert.ok(appSource.includes("unifiedToolsPanelHtml") && appSource.includes("Недоступны / отключены:"), "all tools must be available in one shared registry");
+assert.ok(!appSource.includes("Единый прогноз · повтор основного расчёта"), "duplicate primary forecast cards must stay removed");
 assert.ok(appSource.includes("ОТ не включён, правило PARI не подтверждено"), "list forecast must not imply overtime is included");
 assert.ok(appSource.includes('kind:"period_range",preliminary:true'), "timerless range forecasts must be explicitly preliminary");
 assert.ok(appSource.includes("const mu=possMu*secondaryAdjustment,mc=dynamicScenarioMonteCarlo"), "tempo momentum must not shift the mean and the scenario distribution twice");
