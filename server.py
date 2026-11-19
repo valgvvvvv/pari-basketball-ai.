@@ -2495,7 +2495,7 @@ def _pari_normalize_match_timer_against_period(timer_seconds, period_number,
         "timer_semantics_verified": True,
         "timer_interpretation_status": "verified_match_timer_" + direction,
         "timer_observed_direction": direction,
-        "timer_direction_semantics_verified": direction != "boundary" or True,
+        "timer_direction_semantics_verified": direction != "boundary",
         "timer_scope": "match",
         "match_elapsed_seconds": int(round(elapsed)),
         "period_elapsed_seconds": period_elapsed,
@@ -2596,7 +2596,7 @@ def _pari_infer_period_format_from_match_boundary(period_number, timer_seconds,
         candidates.append(raw / remaining_periods)
     supported = sorted({standard for candidate in candidates
                         for standard in (600, 720)
-                        if abs(candidate - standard) <= 12})
+                        if abs(candidate - standard) <= 5})
     if len(supported) != 1:
         return None
     length = supported[0]
