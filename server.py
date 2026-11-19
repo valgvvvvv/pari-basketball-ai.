@@ -67,6 +67,7 @@ class QuarterAnalyzeRequest(BaseModel):
     score2: int = Field(ge=0, le=100)
     clock: str
     period_minutes: int = Field(default=10, ge=5, le=15)
+    prior_quarter_totals: list[int] = Field(default_factory=list, max_length=3)
     total_line: float
     simulations: int = Field(default=100000, ge=1000, le=100000)
 
@@ -77,11 +78,12 @@ class AnalyzeRequest(BaseModel):
     score2: int = Field(ge=0, le=300)
     period: int = Field(ge=1, le=4)
     clock: str
-    period_minutes: int = Field(ge=5, le=15)
+    period_minutes: int = Field(ge=5, le=20)
+    period_count: int = Field(default=4, ge=2, le=4)
     total_line: float
     over_odds: Optional[float] = None
     under_odds: Optional[float] = None
-    fouls_total: int = Field(default=0, ge=0, le=100)
+    fouls_total: Optional[int] = Field(default=None, ge=0, le=100)
     pace_adjustment: float = Field(default=1.0, ge=0.5, le=1.5)
     simulations: int = Field(default=100000, ge=1000, le=100000)
 
@@ -112,22 +114,24 @@ def analyze(req: AnalyzeRequest):
     remaining_in_period = period_sec - parse_clock(req.clock)
     if remaining_in_period < 0:
         raise ValueError("Время четверти превышает её продолжительность")
-    periods_left = 4 - req.period
+    if req.period > req.period_count:
+        raise ValueError("Номер периода превышает число периодов формата.")
+    periods_left = req.period_count - req.period
     remaining_sec = remaining_in_period + periods_left * period_sec
-    elapsed_sec = 4 * period_sec - remaining_sec
+    elapsed_sec = req.period * period_sec - remaining_in_period
     if elapsed_sec <= 0:
         raise ValueError("Для LIVE-анализа нужно ненулевое прошедшее время")
     current = req.score1 + req.score2
     pace = current / (elapsed_sec / 60.0)
     # Explicit transparent adjustments; do not infer a foul rate without data.
     close_game = abs(req.score1 - req.score2) <= 6
-    late_game = req.period == 4 and remaining_in_period <= 300
+    late_game = req.period == req.period_count and remaining_in_period <= 300
     endgame_factor = 1.0
     if late_game and close_game:
         endgame_factor += 0.035
     elif late_game and not close_game:
         endgame_factor -= 0.025
-    foul_factor = 1.0 + min(req.fouls_total, 20) * 0.0015
+    foul_factor = 1.0 + min(req.fouls_total, 20) * 0.0015 if req.fouls_total is not None else 1.0
     mu_remaining = pace * (remaining_sec / 60.0) * req.pace_adjustment * endgame_factor * foul_factor
     expected = current + mu_remaining
     # Variance inflation relative to Poisson accounts for pace uncertainty.
@@ -141,12 +145,17 @@ def analyze(req: AnalyzeRequest):
     totals = []
     n = req.simulations
     for _ in range(n):
-        rem = max(0, rng.gauss(mu_remaining, sigma))
+        rem = max(0, round(rng.gauss(mu_remaining, sigma)))
         total = current + rem
         totals.append(total)
         if total > req.total_line: over += 1
     p_over_mc = over / n
-    p_under_mc = 1 - p_over_mc
+    under = sum(1 for total in totals if total < req.total_line)
+    push = sum(1 for total in totals if total == req.total_line)
+    p_under_mc = under / n
+    p_push_mc = push / n
+    resolved = p_over_mc + p_under_mc
+    conditional_over = p_over_mc / resolved if resolved else None
     totals.sort()
     def quantile(q):
         return round(totals[min(n-1, max(0, int(q*(n-1))))], 1)
@@ -155,7 +164,7 @@ def analyze(req: AnalyzeRequest):
     if req.over_odds and req.under_odds and req.over_odds > 1 and req.under_odds > 1:
         po, pu = 1/req.over_odds, 1/req.under_odds
         market = round(po/(po+pu)*100, 1)
-    chosen = "ТБ" if p_over_mc >= 0.5 else "ТМ"
+    chosen = "возврат" if conditional_over is None else ("ТБ" if conditional_over >= 0.5 else "ТМ")
     probability = max(p_over_mc, p_under_mc)
     # Conservative signal grading based on model probability and distance to line.
     edge = abs(expected - req.total_line)
@@ -167,12 +176,15 @@ def analyze(req: AnalyzeRequest):
         "line": req.total_line, "direction": chosen,
         "p_over_poisson": round(p_over_pois*100, 1),
         "p_over_mc": round(p_over_mc*100, 1), "p_under_mc": round(p_under_mc*100, 1),
+        "p_push_mc": round(p_push_mc*100, 1), "overtime_included": False,
         "market_over_devig": market, "range80": [quantile(.10), quantile(.90)],
         "range95": [quantile(.025), quantile(.975)], "grade": grade,
         "simulations": n, "sigma_remaining": round(sigma, 2),
         "warnings": [
             "Монте-Карло использует приближённое распределение остаточных очков; для калибровки нужны исторические данные этой лиги.",
-            "Нет подтверждённого LIVE-feed: расчёт основан только на введённых пользователем данных."
+            "Нет подтверждённого LIVE-feed: расчёт основан только на введённых пользователем данных.",
+            "Фолы не учтены." if req.fouls_total is None else "Фолы заданы вручную.",
+            "Овертайм не включён в расчёт."
         ]
     }
 
@@ -207,45 +219,77 @@ def api_analyze(req: AnalyzeRequest):
 @app.post("/api/analyze-quarter")
 def api_analyze_quarter(req: QuarterAnalyzeRequest):
     period_sec = req.period_minutes * 60
-    elapsed_sec = parse_clock(req.clock)
-    if elapsed_sec <= 0 or elapsed_sec > period_sec:
-        raise ValueError("Время должно быть внутри текущей четверти и больше нуля")
+    remaining_sec = parse_clock(req.clock)  # LIVE clock is a countdown (MM:SS remaining).
+    if remaining_sec > period_sec:
+        raise ValueError("Оставшееся время превышает длительность четверти.")
+    elapsed_sec = period_sec - remaining_sec
     current = req.score1 + req.score2
+    prior = [int(x) for x in req.prior_quarter_totals if isinstance(x, int) and x >= 0]
+    prior_points = sum(prior)
+    prior_minutes = len(prior) * req.period_minutes
+    if not prior and elapsed_sec < 180:
+        return {
+            "ready": False, "quarter": req.quarter, "current_total": current,
+            "elapsed_seconds": elapsed_sec, "reason": "Недостаточно данных: первые 3 минуты без завершённых четвертей или внешнего prior.",
+            "calibration_status": "not_calibrated"
+        }
     elapsed_min = elapsed_sec / 60.0
-    remaining_min = (period_sec - elapsed_sec) / 60.0
-    pace = current / elapsed_min
-    mu = pace * remaining_min
-    expected = current + mu
-    sigma = max(math.sqrt(max(mu, 1.0)) * 1.18, 1.0)
+    remaining_min = remaining_sec / 60.0
+    # Same-game completed periods are the empirical prior. With no previous
+    # period, use the Jeffreys Gamma(1/2, 0) prior after 3 minutes.
+    alpha = prior_points + current + 0.5
+    beta = prior_minutes + elapsed_min
+    if beta <= 0:
+        return {"ready": False, "quarter": req.quarter, "reason": "Недостаточно временной экспозиции."}
+    posterior_rate = alpha / beta
+    expected_remaining = posterior_rate * remaining_min
+    expected = current + expected_remaining
     rng = random.Random()
     n = req.simulations
     totals = []
-    over = 0
+    def poisson_sample(lam):
+        if lam <= 0:
+            return 0
+        limit = math.exp(-lam)
+        product = 1.0
+        k = 0
+        while product > limit:
+            k += 1
+            product *= rng.random()
+        return k - 1
     for _ in range(n):
-        total = current + max(0.0, rng.gauss(mu, sigma))
-        totals.append(total)
-        if total > req.total_line:
-            over += 1
+        sampled_rate = rng.gammavariate(alpha, 1.0 / beta)
+        totals.append(current + poisson_sample(sampled_rate * remaining_min))
     totals.sort()
     def qtile(q):
-        return round(totals[min(n - 1, max(0, int(q * (n - 1))))], 1)
-    p_over = over / n
+        return totals[min(n - 1, max(0, math.ceil(q * n) - 1))]
+    over = sum(1 for total in totals if total > req.total_line) / n
+    under = sum(1 for total in totals if total < req.total_line) / n
+    push = sum(1 for total in totals if total == req.total_line) / n
+    resolved = over + under
+    conditional_over = over / resolved if resolved else None
+    direction = "возврат" if conditional_over is None else (
+        "ТБ" if conditional_over >= 0.57 else "ТМ" if conditional_over <= 0.43 else "без преимущества"
+    )
     return {
-        "quarter": req.quarter, "current_total": current,
-        "elapsed_minutes": round(elapsed_min, 2),
-        "remaining_minutes": round(remaining_min, 2),
-        "pace_per_min": round(pace, 3), "expected_total": round(expected, 1),
-        "line": req.total_line, "direction": "ТБ" if p_over >= 0.5 else "ТМ",
-        "p_over_mc": round(p_over * 100, 1),
-        "p_under_mc": round((1 - p_over) * 100, 1),
-        "range80": [qtile(.10), qtile(.90)],
-        "range95": [qtile(.025), qtile(.975)],
-        "grade": "A" if max(p_over, 1-p_over) >= .72 and abs(expected-req.total_line) >= 3 else ("B" if max(p_over,1-p_over) >= .62 else "C"),
-        "simulations": n,
-        "warnings": ["Оценка основана на темпе текущей четверти и приближённой симуляции.",
-                     "Не учитываются владения, составы, фолы по командам и игровые события; модель пока не обучена на истории лиги."]
+        "ready": True, "quarter": req.quarter, "current_total": current,
+        "elapsed_seconds": elapsed_sec, "elapsed_minutes": round(elapsed_min, 3),
+        "remaining_seconds": remaining_sec, "remaining_minutes": round(remaining_min, 3),
+        "posterior_rate": round(posterior_rate, 4),
+        "expected_remaining": round(expected_remaining, 2), "expected_total": round(expected, 2),
+        "line": req.total_line, "direction": direction,
+        "p_over_mc": round(over * 100, 2), "p_under_mc": round(under * 100, 2),
+        "p_push_mc": round(push * 100, 2),
+        "range80": [qtile(.10), qtile(.90)], "range95": [qtile(.025), qtile(.975)],
+        "posterior": {"shape": alpha, "rate": beta},
+        "prior": {"source": "same_game_completed_periods" if prior else "Jeffreys prior",
+                  "completed_periods": len(prior), "points": prior_points, "exposure_minutes": prior_minutes},
+        "distribution": "Gamma-Poisson predictive",
+        "calibration_status": "not_calibrated",
+        "simulations": n, "overtime_included": False,
+        "warnings": ["Вероятности не калиброваны на независимых финальных исходах.",
+                     "Без истории лиги/команд prior строится только по завершённым четвертям этого матча или prior Джеффриса."]
     }
-
 
 @app.get("/api/pari/source-check")
 async def pari_source_check():
