@@ -1,6 +1,7 @@
 import unittest
 
-from server import (_PARI_TIMER_OBSERVATIONS, _pari_normalize_timer,\n                    _pari_infer_period_format_from_timeline)
+from server import (_PARI_TIMER_OBSERVATIONS, _pari_normalize_timer,
+                    _pari_infer_period_format_from_timeline)
 
 
 class PariTimerNormalizationTests(unittest.TestCase):
