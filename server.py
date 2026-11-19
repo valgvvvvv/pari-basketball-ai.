@@ -2240,6 +2240,7 @@ async def _enrich_with_sofascore_live(events):
         "statistics_matches": stats_matched,
         "statistics_checked": stats_checked,
         "statistics_errors": stats_errors[:12],
+        "sofascore_errors": errors[:8],
         "statistics_fields_total": sum(len(event.get("external_statistics") or []) for event in events),
         "unmatched_pari": sum(1 for event in events if not event.get("external_live")),
         "ambiguous": ambiguous,
@@ -2857,6 +2858,8 @@ def _finalize_live_statistics(events):
                 reason = "timeout"
             elif source_diag.get("unavailable"):
                 reason = "source_unavailable"
+            elif source_diag.get("no_live_events"):
+                reason = "source_no_live_events"
             elif source_diag.get("format_unrecognized"):
                 reason = "format_unrecognized"
             elif source_diag.get("parse_error"):
@@ -2987,9 +2990,17 @@ async def _refresh_live_enrichment_background(events_snapshot):
         diagnostics = await _enrich_with_sofascore_live(events_snapshot)
         _finalize_live_statistics(events_snapshot)
         now = datetime.now(timezone.utc)
-        source_errors = [str(x) for x in (diagnostics.get("statistics_errors") or [])]
+        sportscore_diag = diagnostics.get("sportscore_diagnostics") or {}
+        source_errors = [
+            str(x) for x in (
+                list(diagnostics.get("statistics_errors") or [])
+                + list(diagnostics.get("sofascore_errors") or [])
+                + list(sportscore_diag.get("errors") or [])
+            )
+        ]
         timeout_seen = any("timeout" in x.casefold() for x in source_errors)
         unavailable_seen = any(("http_" in x.casefold() or "connect" in x.casefold() or "nameerror" in x.casefold()) for x in source_errors)
+        no_live_events_seen = diagnostics.get("status") == "no_live_events" and not timeout_seen and not unavailable_seen
         format_unrecognized_seen = any("format_unrecognized" in x.casefold() for x in source_errors)
         parse_error_seen = any("parse" in x.casefold() or "decode" in x.casefold() for x in source_errors)
         metric_codes_unmapped_seen = any("metric_codes_unmapped" in x.casefold() for x in source_errors)
@@ -3002,11 +3013,13 @@ async def _refresh_live_enrichment_background(events_snapshot):
                 if str(row.get("source") or "") not in ("PARI", "derived")
             ]
             match_status = "matched" if external_rows or event.get("external_live") else (
+                "source_no_live_events" if no_live_events_seen else
                 "no_exact_match" if diagnostics.get("unmatched_pari") else "not_confirmed"
             )
             event["statistics_source_diagnostics"] = {
                 "match_status": match_status, "timeout": timeout_seen,
                 "unavailable": unavailable_seen,
+                "no_live_events": no_live_events_seen,
                 "format_unrecognized": format_unrecognized_seen,
                 "parse_error": parse_error_seen,
                 "metric_codes_unmapped": metric_codes_unmapped_seen,
