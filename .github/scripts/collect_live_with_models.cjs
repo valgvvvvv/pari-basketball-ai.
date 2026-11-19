@@ -13,10 +13,10 @@ const { chromium } = require("playwright");
     page.setDefaultTimeout(240000);
     await page.goto(process.env.SITE_URL, { waitUntil: "domcontentloaded", timeout: 240000 });
     await page.waitForFunction(
-      () => typeof window.automaticForecast === "function" &&
-            typeof window.automaticQuarterForecast === "function" &&
-            typeof window.aiModelAnalysis === "function" &&
-            typeof window.classicBasketballModelAnalysis === "function",
+      () => typeof automaticForecast === "function" &&
+            typeof automaticQuarterForecast === "function" &&
+            typeof aiModelAnalysis === "function" &&
+            typeof classicBasketballModelAnalysis === "function",
       null,
       { timeout: 90000 }
     );
@@ -75,20 +75,20 @@ const { chromium } = require("playwright");
           errors: []
         };
         try {
-          const match = window.automaticForecast(ev);
-          const quarter = window.automaticQuarterForecast(ev);
-          row.lines = window.getMatchTotalLines(ev) || [];
+          const match = automaticForecast(ev);
+          const quarter = automaticQuarterForecast(ev);
+          row.lines = getMatchTotalLines(ev) || [];
           row.match = match;
           row.quarter = quarter;
-          row.ai = window.aiModelAnalysis(ev, match, quarter);
-          row.classic_match = window.classicBasketballModelAnalysis(ev, match, quarter, "match");
-          row.classic_quarter = window.classicBasketballModelAnalysis(ev, match, quarter, "quarter");
-          row.statistics_analysis = window.liveStatisticsAnalysis(ev);
-          row.advanced_calculations = window.advancedMatchCalculations(
+          row.ai = aiModelAnalysis(ev, match, quarter);
+          row.classic_match = classicBasketballModelAnalysis(ev, match, quarter, "match");
+          row.classic_quarter = classicBasketballModelAnalysis(ev, match, quarter, "quarter");
+          row.statistics_analysis = liveStatisticsAnalysis(ev);
+          row.advanced_calculations = advancedMatchCalculations(
             ev,
             match.ready && match.kind !== "market_reference" ? match.estimate : null,
-            window.findLivePeriod(ev),
-            window.findLiveClock(ev),
+            findLivePeriod(ev),
+            findLiveClock(ev),
             match.ready && match.kind !== "market_reference" ? match.estimate.possession_model : null,
             quarter
           );
@@ -113,8 +113,8 @@ const { chromium } = require("playwright");
               calculated_at_utc: capturedAt,
               state: {
                 score: ev.score ?? null,
-                period: window.findLivePeriod(ev),
-                clock: window.findLiveClock(ev),
+                period: findLivePeriod(ev),
+                clock: findLiveClock(ev),
                 period_length_seconds: ev.period_length_seconds || ev.external_live?.period_length_seconds || null,
                 period_count: ev.external_live?.period_count || null
               },
@@ -163,7 +163,7 @@ const { chromium } = require("playwright");
           row.prediction_contracts = [];
           const matchContract = makeContract({ type: "match", includes_overtime: null }, match, matchEstimate, row.lines);
           if (matchContract) row.prediction_contracts.push(matchContract);
-          const quarterContract = makeContract({ type: "period", number: quarter.period || window.findLivePeriod(ev) }, quarter, quarter, quarter.lines);
+          const quarterContract = makeContract({ type: "period", number: quarter.period || findLivePeriod(ev) }, quarter, quarter, quarter.lines);
           if (quarterContract) row.prediction_contracts.push(quarterContract);
         } catch (error) {
           row.errors.push(String(error && (error.stack || error.message) || error).slice(0, 1200));
@@ -243,8 +243,8 @@ const { chromium } = require("playwright");
           const state = await page.evaluate(eventId => {
             const ev = (window.pariLiveEvents || []).find(x => String(x.id) === String(eventId));
             if (!ev) return { found: false, reason: "event id missing from refreshed frontend snapshot" };
-            if (typeof window.showSelectedMatch !== "function") return { found: true, reason: "showSelectedMatch is not exposed" };
-            window.showSelectedMatch(ev);
+            if (typeof showSelectedMatch !== "function") return { found: true, reason: "showSelectedMatch is not exposed" };
+            showSelectedMatch(ev);
             return { found: true, selected: !document.querySelector("#selectedMatch").hidden };
           }, smokeRow.event_id);
           if (!state.selected) throw new Error("Click did not select match and direct selection failed: " + JSON.stringify(state));
