@@ -1056,11 +1056,6 @@ function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="m
     ?current/elapsed*(isQuarter?length:length*Number(ev?.external_live?.period_count||info?.periods||4))
     :projection;
   add("Линейный темп",linear,Math.max(2,Math.sqrt(Math.max(1,linear-current))*1.3),"Текущие очки ÷ прошедшее время × полная длительность",1);
-  add("Пуассон",projection,safeSigma,"Распределение оставшихся очков; σ "+safeSigma.toFixed(1),1.05);
-  const mc=estimate.poisson||forecast.poisson;
-  const mcCenter=mc&&Number.isFinite(Number(mc.low80))&&Number.isFinite(Number(mc.high80))
-    ?(Number(mc.low80)+Number(mc.high80))/2:projection;
-  add("Монте‑Карло · 100 000",mcCenter,safeSigma,"Симуляция пуассоновского числа очков; диапазон 80% "+(mc?.low80??"—")+"–"+(mc?.high80??"—"),1.15);
   const completed=[];
   if(!isQuarter){
     for(let i=0;i<Math.max(0,Number(period||1)-1);i++){
@@ -1082,15 +1077,6 @@ function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="m
     add("Модель владений",Number(isQuarter?forecast.possession_projection:possession.projection),safeSigma*0.95,
       "Владения × очки за владение (PPP)",1.2);
   }
-  if(completed.length>=1&&length>0){
-    const prior=completed.reduce((x,y)=>x+y,0)/completed.length;
-    const bayes=linear*0.68+prior*(isQuarter?0.32:0.32);
-    add("Байесовская",bayes,safeSigma*1.1,"68% live-темп + 32% средний тотал завершённых четвертей",0.95);
-  }
-  const regressionInputs=[linear,dynamic,projection];
-  if(possession?.applied&&Number.isFinite(Number(possession.projection)))regressionInputs.push(Number(possession.projection));
-  const regression=regressionInputs.reduce((x,y)=>x+y,0)/regressionInputs.length;
-  add("Динамическая регрессия",regression,safeSigma*0.95,"Сглаженное объединение независимых доступных оценок",1.1);
   if(!isQuarter&&Number(period)===4&&Number.isFinite(remaining)){
     const score=findLiveScore(ev),margin=score?Math.abs(score[0]-score[1]):null;
     let endgame=projection,detail="Базовый прогноз без неподтверждённых поправок";
@@ -1119,56 +1105,21 @@ function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="m
   const elapsedMinutes=elapsed/60;
   const priorRate=completed.length&&length>0?(completed.reduce((a,b)=>a+b,0)/completed.length)/(length/60):(elapsedMinutes>0?current/elapsedMinutes:NaN);
   const tools=[];
-  const playEvents=ev?.play_by_play||ev?.external_live?.play_by_play;
-  const markovReady=!!(possession?.applied&&Array.isArray(playEvents)&&playEvents.filter(x=>x&&typeof x==="object").length>=8);
-  if(markovReady&&remainingMinutes!=null){
-    const count=playEvents.filter(x=>x&&typeof x==="object").length;
-    add("Марковская модель владений",Number(possession.projection),safeSigma*0.92,"Переходы состояний владений · "+count+" событий",1.15);
-    tools.push({name:"Марковская модель владений",status:"рассчитана",detail:count+" игровых событий"});
-  }else tools.push({name:"Марковская модель владений",status:"ожидает play-by-play",detail:"Нет последовательности владений; box-score не подменяется выдуманными переходами"});
-  if(elapsedMinutes>0&&remainingMinutes!=null&&Number.isFinite(priorRate)&&priorRate>0){
-    const priorExposure=6,alpha0=priorRate*priorExposure,beta0=priorExposure;
-    const posteriorRate=(alpha0+current)/(beta0+elapsedMinutes);
-    add("Байесовская Gamma-Poisson",current+posteriorRate*remainingMinutes,Math.max(2,safeSigma*0.9),"Апостериорный темп "+posteriorRate.toFixed(2)+" оч./мин · prior 6 мин",1.15);
-    tools.push({name:"Байесовская Gamma-Poisson",status:"рассчитана",detail:"Апостериорное обновление темпа по счёту и прошлым четвертям"});
-    const priorVariance=0.16,measurementVariance=Math.max(0.015,0.45/Math.max(elapsedMinutes,1));
-    const observedRate=current/elapsedMinutes,kalmanGain=priorVariance/(priorVariance+measurementVariance);
-    const filteredRate=priorRate+kalmanGain*(observedRate-priorRate);
-    add("Фильтр Калмана · темп",current+Math.max(0,filteredRate)*remainingMinutes,Math.max(2,safeSigma*(1-kalmanGain*0.25)),"Сглаженный темп "+filteredRate.toFixed(2)+" оч./мин · K="+kalmanGain.toFixed(2),1.1);
-    tools.push({name:"Фильтр Калмана",status:"рассчитан",detail:"Сглаживает текущий темп относительно предыдущей динамики"});
-  }else{
-    tools.push({name:"Байесовская Gamma-Poisson",status:"недостаточно времени",detail:"Нужны подтверждённые счёт и игровое время"});
-    tools.push({name:"Фильтр Калмана",status:"недостаточно времени",detail:"Нужны подтверждённые счёт и игровой таймер"});
-  }
+  tools.push({name:"Марковская модель владений",status:"не реализована",detail:"Для настоящей модели нужны размеченные последовательности состояний владений; количество событий само по себе не образует матрицу переходов."});
+  tools.push({name:"Байесовская Gamma-Poisson матча",status:"исключена из основного расчёта",detail:"Нет независимого предматчевого prior для полного матча; прежняя формула смешивала полный тотал и средний тотал четверти."});
+  tools.push({name:"Фильтр Калмана",status:"диагностика, не прогноз",detail:"Текущая реализация не имеет оценённой модели шума/состояния и не включается в итоговый прогноз."});
   tools.push({name:"CatBoost / LightGBM",status:"ожидают обучения",detail:"Нужны размеченные завершённые матчи; прогноз не подменяется эвристикой"});
   tools.push({name:"Калибровка вероятностей",status:"ожидает выборку",detail:"Нужны прогнозы и финальные исходы для Brier score и reliability calibration"});
   if(!models.length)return {models:[],consensus:null,groups:[],anomaly,mlStatus:"недостаточно данных для расчёта"};
-  const totalWeight=models.reduce((s,m)=>s+m.weight,0);
-  const consensus=models.reduce((s,m)=>s+m.projection*m.weight,0)/totalWeight;
-  const consensusSigma=Math.sqrt(models.reduce((s,m)=>s+(m.sigma*m.sigma*m.weight/totalWeight),0));
-  const lineResults=lines.map(x=>{
-    const line=Number(x.line),pOver=Math.max(0,Math.min(1,1-normalCdf((Math.floor(line)+0.5-consensus)/consensusSigma)));
-    return {...x,pOver,pUnder:1-pOver,direction:pOver>=0.57?"ТБ":pOver<=0.43?"ТМ":"без преимущества"};
-  });
-  const strongest=lineResults.slice().sort((a,b)=>Math.abs(a.pOver-0.5)-Math.abs(b.pOver-0.5)).pop()||null;
   for(const model of models){
-    const modelLine=lines.map(x=>{
-      const p=1-normalCdf((Math.floor(Number(x.line))+0.5-model.projection)/model.sigma);
-      return {...x,pOver:Math.max(0,Math.min(1,p)),pUnder:Math.max(0,Math.min(1,1-p))};
-    }).sort((a,b)=>Math.abs(b.pOver-0.5)-Math.abs(a.pOver-0.5))[0];
-    model.direction=modelLine?(modelLine.pOver>=0.57?"ТБ":modelLine.pOver<=0.43?"ТМ":"нет перевеса"):"нет линии";
+    const modelLine=lines.slice().sort((a,b)=>Math.abs(Number(model.projection)-Number(a.line))-Math.abs(Number(model.projection)-Number(b.line)))[0];
+    model.direction=modelLine?(model.projection>Number(modelLine.line)?"центр выше линии":model.projection<Number(modelLine.line)?"центр ниже линии":"центр на линии"):"нет линии";
     model.line=modelLine?.line??null;
-    model.probability=modelLine?Math.round(Math.max(modelLine.pOver,modelLine.pUnder)*100):null;
+    model.probability=null;
   }
-  const groups=[2,3,4,5,6,8,10].map(size=>{
-    const matching=models.filter(m=>m.direction!=="нет линии"&&m.direction!=="нет перевеса"&&m.direction!=="нет линии");
-    const over=matching.filter(m=>m.direction==="ТБ"),under=matching.filter(m=>m.direction==="ТМ");
-    const side=over.length>=size?"ТБ":under.length>=size?"ТМ":null;
-    return {size,side,count:side?(side==="ТБ"?over.length:under.length):0,available:models.length};
-  });
-  return {models,consensus:{projection:Math.round(consensus*10)/10,sigma:Math.round(consensusSigma*10)/10,
-      strongest,probabilities:lineResults,confidence:models.length>=6?"средняя":models.length>=4?"ограниченная":"низкая"},
-    groups,anomaly,tools,mlStatus:"CatBoost/LightGBM и калибровка активируются после накопления финальных результатов."};
+  tools.push({name:"Монте-Карло · 100 000",status:"способ симуляции",detail:"Используется для распределения основного прогноза, не считается отдельной независимой моделью."});
+  tools.push({name:"Калибровка вероятностей",status:"не калибрована",detail:"Нет достаточной выборки подтверждённых финальных исходов с разделением по времени и матчам."});
+  return {models,consensus:null,groups:[],anomaly,tools,mlStatus:"Таблица показывает альтернативные ориентиры. Они коррелируют по исходному счёту/времени и не голосуют за основной прогноз."};
 }
 function classicModelPanelHtml(data,title){
   if(!data)return "";
