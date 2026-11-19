@@ -2472,10 +2472,34 @@ def _pari_normalize_match_timer_against_period(timer_seconds, period_number,
         count = int(period_count)
     except (TypeError, ValueError, OverflowError):
         return None
-    if length not in (600, 720) or count not in (2, 4) or not (1 <= period <= count):
+    if length not in (600, 720) or count not in (2, 4) or period < count:
         return None
     total = length * count
-    if raw < 0 or raw > total:
+    if raw < 0:
+        return None
+    if count == 4 and raw > total:
+        # PARI match timer has passed regulation. Basketball overtime periods
+        # are 5 minutes; keep regulation length separate from active OT length.
+        overtime_elapsed_total = raw - total
+        overtime_index = int(overtime_elapsed_total // 300) + 1
+        elapsed_in_overtime = int(overtime_elapsed_total % 300)
+        return {
+            "timer_semantics_verified": True,
+            "timer_interpretation_status": "verified_overtime_match_timer_up",
+            "timer_observed_direction": "up",
+            "timer_direction_semantics_verified": True,
+            "timer_scope": "overtime",
+            "match_elapsed_seconds": int(round(raw)),
+            "period_elapsed_seconds": elapsed_in_overtime,
+            "period_remaining_seconds": max(0, 300 - elapsed_in_overtime),
+            "overtime_period_index": overtime_index,
+            "overtime_length_seconds": 300,
+            "timer_state": "stoppage" if timer_paused else "running",
+            "timer_block_reason": None,
+            "timer_snapshot_count": 1,
+            "timer_source": "PARI cumulative match timer beyond regulation",
+        }
+    if not (1 <= period <= count) or raw > total:
         return None
 
     candidates = []
@@ -4025,6 +4049,10 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             event.get("id"), timer_seconds, timer_direction, explicit_period,
                             period_length_seconds, period_count, timer_paused, overtime_detected
                         )
+                    if normalized_timer.get("timer_scope") == "overtime":
+                        overtime_detected = True
+                        explicit_period = period_count + int(normalized_timer.get("overtime_period_index") or 1)
+                        period_value = explicit_period
                     if (clock_was_explicit and explicit_clock_seconds is not None
                             and period_length_seconds and period_count in (2, 4)
                             and explicit_period and 1 <= explicit_period <= period_count
