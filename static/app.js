@@ -163,7 +163,7 @@ function estimateLiveTotal(ev, score, period, clock){
 }
 
 function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,period=null,clock=null,kind="match"){
-  const n=20000;let seed=2166136261;
+  const n=100000;let seed=2166136261;
   for(const ch of String(seedText))seed=Math.imul(seed^ch.charCodeAt(0),16777619)>>>0;
   const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return (seed+1)/4294967297;};
   const poisson=lambda=>{
@@ -199,7 +199,7 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
   return {simulations:n,mu:Math.round(mu*100)/100,low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),momentum:Math.round(momentum*1000)/10,method:"Динамическая смесь сценариев · темп четвертей · ускорение/замедление"};
 }
 function poissonMonteCarlo(current, mu, lines=[], seedText="") {
-  const n=10000;
+  const n=100000;
   let seed=2166136261;
   for(const ch of String(seedText)) seed=Math.imul(seed^ch.charCodeAt(0),16777619)>>>0;
   const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return (seed+1)/4294967297;};
@@ -585,7 +585,7 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   const mu=possMu*secondaryAdjustment,mc=dynamicScenarioMonteCarlo(adjusted.current,mu,lines,seedText,ev,period,clock,"match");
   const factors=[...(context.factors||[]),...(statsContext.factors||[])];
   const scenarioText=(mc?.scenarios||[]).map(x=>x.name+" "+x.probability+"%").join(" · ");
-  if(scenarioText)factors.push("20 000 динамических сценариев: "+scenarioText+" · импульс "+Number(mc.momentum||0).toFixed(1)+"%");
+  if(scenarioText)factors.push("100 000 динамических сценариев: "+scenarioText+" · импульс "+Number(mc.momentum||0).toFixed(1)+"%");
   if(possession.applied){
     factors.unshift("ведущая модель владений: "+possession.average+" владений на команду · "+possession.possPerMinute+" влад./мин · "+possession.pointsPerPossession+" очка/владение");
     factors.push("ожидаемые владения до конца: "+possession.expectedRemainingPossessions+" · очки до конца по модели владений: "+possession.expectedRemainingPoints);
@@ -1018,7 +1018,7 @@ function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="m
   const mc=estimate.poisson||forecast.poisson;
   const mcCenter=mc&&Number.isFinite(Number(mc.low80))&&Number.isFinite(Number(mc.high80))
     ?(Number(mc.low80)+Number(mc.high80))/2:projection;
-  add("Монте‑Карло · 10 000",mcCenter,safeSigma,"Симуляция пуассоновского числа очков; диапазон 80% "+(mc?.low80??"—")+"–"+(mc?.high80??"—"),1.15);
+  add("Монте‑Карло · 100 000",mcCenter,safeSigma,"Симуляция пуассоновского числа очков; диапазон 80% "+(mc?.low80??"—")+"–"+(mc?.high80??"—"),1.15);
   const completed=[];
   if(!isQuarter){
     for(let i=0;i<Math.max(0,Number(period||1)-1);i++){
