@@ -93,6 +93,7 @@ assert.equal(runtimeSandbox.findLiveClock({period:3,clock:"08:57"}), "08:57");
 assert.equal(runtimeSandbox.inferPeriodLengthForForecast({period:3,league:"Unknown league",clock:"08:57"}).seconds, 600);
 assert.ok(htmlSource.indexOf("forecast-core.js") < htmlSource.indexOf("app.js"),
   "the tested forecast core must load before the UI code");
+assert.ok(appSource.includes("market.prices.push"), "quarter market prices must preserve both factor IDs");
 
 
 const scoreStart = appSource.indexOf("function validateScoreTimeline(ev,matchScore,period){");
