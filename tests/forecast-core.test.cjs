@@ -80,6 +80,8 @@ assert.ok(appSource.includes("Date.now()-feedChecked>120000"), "stale API snapsh
 assert.ok(appSource.includes("validateScoreTimeline"), "period sums must be checked against the match score");
 assert.ok(appSource.includes("providerEventTimestampAvailable"), "provider event freshness must be distinguished from API response age");
 assert.ok(appSource.includes("full_play_by_play") && appSource.includes("score_clock_period_results") && appSource.includes("score_clock_only"), "data coverage modes must be explicit");
+assert.ok(appSource.includes("/api/archive/recent?minutes=10"), "live refresh must retrieve timestamped rolling snapshots");
+assert.ok(appSource.includes("liveList.innerHTML = count ? window.pariLiveEvents.map"), "live list cards must use events enriched with recent snapshots");
 assert.ok(appSource.includes("scoreSource") && appSource.includes("clockSource") && appSource.includes("statisticsSource"), "source provenance must be tracked by layer");
 assert.ok(appSource.includes("Вероятности модели по линиям PARI"), "model probability must not be presented as bookmaker probability");
 assert.ok(appSource.includes("Модельные вероятности не калиброваны"), "unvalidated model probabilities must be labeled in the live UI");
