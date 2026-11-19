@@ -196,8 +196,13 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
   const pFast=clampForecast(0.25+momentum*0.55,0.12,0.40),pSlow=clampForecast(0.25-momentum*0.25,0.16,0.34),pBase=Math.max(0.20,1-pFast-pSlow);
   const norm=pSlow*0.78+pBase+pFast*1.22;
   const scenarios=[{name:"Замедление",factor:0.78,probability:pSlow},{name:"Базовый темп",factor:1,probability:pBase},{name:"Ускорение",factor:1.22,probability:pFast}];
-  const outcomes=new Array(n);
-  for(let i=0;i<n;i++){const u=random(),sc=u<pSlow?scenarios[0]:(u<pSlow+pBase?scenarios[1]:scenarios[2]);outcomes[i]=Math.max(current,current+poisson(Math.max(0,mu*sc.factor/norm)));}
+  const outcomes=new Array(n),scenarioMeans=new Array(n);
+  for(let i=0;i<n;i++){
+    const u=random(),sc=u<pSlow?scenarios[0]:(u<pSlow+pBase?scenarios[1]:scenarios[2]);
+    const lambda=Math.max(0,mu*sc.factor/norm);
+    scenarioMeans[i]=current+lambda;
+    outcomes[i]=Math.max(current,current+poisson(lambda));
+  }
   outcomes.sort((a,b)=>a-b);
   const quantile=q=>outcomes[Math.min(n-1,Math.max(0,Math.ceil(q*n)-1))];
   const probabilities=(lines||[]).filter(x=>Number.isFinite(Number(x.line))).map(x=>{
@@ -210,7 +215,9 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
   });
   const sampleMean=outcomes.reduce((sum,x)=>sum+x,0)/n;
   const variance=outcomes.reduce((sum,x)=>sum+(x-sampleMean)**2,0)/n;
-  return {simulations:n,mu:Math.round(mu*100)/100,mean:sampleMean,variance,low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),momentum:Math.round(momentum*1000)/10,method:"Динамическая смесь сценариев · темп четвертей · ускорение/замедление"};
+  const scenarioMean=scenarioMeans.reduce((sum,x)=>sum+x,0)/n;
+  const meanUncertaintyVariance=scenarioMeans.reduce((sum,x)=>sum+(x-scenarioMean)**2,0)/n;
+  return {simulations:n,mu:Math.round(mu*100)/100,mean:sampleMean,variance,meanUncertaintyVariance,meanUncertaintySd:Math.sqrt(meanUncertaintyVariance),low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),momentum:Math.round(momentum*1000)/10,method:"Динамическая смесь сценариев · темп четвертей · ускорение/замедление"};
 }
 function poissonMonteCarlo(current, mu, lines=[], seedText="") {
   const n=100000;
