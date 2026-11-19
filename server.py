@@ -2626,12 +2626,12 @@ def _pari_normalize_timer(event_id, timer_seconds, timer_direction, period_numbe
 
     moving = [v for v in intervals if v in ("up", "down")]
     observed = None
-    if len(moving) >= 2 and moving[-1] == moving[-2]:
-        # Require the last two informative intervals to agree. Intervening
-        # pauses are permitted; a contradictory moving interval is not.
-        last_two = intervals[-4:]
-        informative = [v for v in last_two if v in ("up", "down", "inconsistent")]
-        if len(informative) >= 2 and informative[-1] == informative[-2] and informative[-1] in ("up", "down"):
+    # One clean, timestamp-bounded interval is sufficient to establish the
+    # direction after a service restart. Pauses are ignored; conflicting or
+    # inconsistent movement still requires fresh agreeing evidence.
+    informative = [v for v in intervals[-4:] if v in ("up", "down", "inconsistent")]
+    if informative and informative[-1] in ("up", "down"):
+        if len(informative) == 1 or informative[-2] == informative[-1]:
             observed = informative[-1]
     evidence_pairs = []
     for a, b in zip(history, history[1:]):
