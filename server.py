@@ -3812,13 +3812,28 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     if (clock_was_explicit and explicit_clock_seconds is not None
                             and period_length_seconds and period_count in (2, 4)
                             and explicit_period and 1 <= explicit_period <= period_count
+                            and 0 <= explicit_clock_seconds <= int(period_length_seconds)
+                            and normalized_timer.get("timer_semantics_verified")
+                            and normalized_timer.get("period_remaining_seconds") is not None
+                            and abs(explicit_clock_seconds - int(normalized_timer["period_remaining_seconds"])) > 10):
+                        normalized_timer = {
+                            **normalized_timer,
+                            "timer_semantics_verified": False,
+                            "timer_interpretation_status": "explicit_clock_conflict",
+                            "timer_block_reason": (
+                                f"Часы четверти PARI ({clock_value}) расходятся с проверенным timerSeconds"
+                            ),
+                        }
+                        clock_value = None
+                    elif (clock_was_explicit and explicit_clock_seconds is not None
+                            and period_length_seconds and period_count in (2, 4)
+                            and explicit_period and 1 <= explicit_period <= period_count
                             and 0 <= explicit_clock_seconds <= int(period_length_seconds)):
                         explicit_elapsed = int(period_length_seconds) - explicit_clock_seconds
                         explicit_match_elapsed = ((explicit_period - 1) * int(period_length_seconds)
                                                   + explicit_elapsed)
-                        # Direct quarter clock is the primary normalized source.
-                        # Keep generic match timer raw; cross-check only when its
-                        # already verified interpretation is available.
+                        # Direct quarter clock is primary. If the generic match
+                        # timer has a verified interpretation, it must agree.
                         normalized_timer = {
                             **normalized_timer,
                             "timer_semantics_verified": True,
