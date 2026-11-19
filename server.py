@@ -3575,10 +3575,26 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     )
                     timer_semantics_verified = bool(normalized_timer.get("timer_semantics_verified"))
                     timer_interpretation_status = normalized_timer.get("timer_interpretation_status")
-                    if timer_semantics_verified and not clock_was_explicit:
+                    if timer_semantics_verified:
                         remaining_value = normalized_timer.get("period_remaining_seconds")
                         if remaining_value is not None:
-                            clock_value = f"{int(remaining_value)//60:02d}:{int(remaining_value)%60:02d}"
+                            normalized_clock = f"{int(remaining_value)//60:02d}:{int(remaining_value)%60:02d}"
+                            if clock_was_explicit and isinstance(clock_value, str):
+                                explicit_match = re.fullmatch(r"(\\d{1,2}):([0-5]\\d)", clock_value)
+                                if explicit_match:
+                                    explicit_seconds = int(explicit_match.group(1))*60 + int(explicit_match.group(2))
+                                    if abs(explicit_seconds-int(remaining_value)) > 2:
+                                        normalized_timer["timer_semantics_verified"] = False
+                                        normalized_timer["timer_interpretation_status"] = "explicit_clock_conflict"
+                                        normalized_timer["timer_block_reason"] = (
+                                            f"Явные часы PARI ({clock_value}) расходятся с нормализованным timerSeconds ({normalized_clock})"
+                                        )
+                                        timer_semantics_verified = False
+                                    else:
+                                        clock_value = normalized_clock
+                            else:
+                                clock_value = normalized_clock
+                    timer_interpretation_status = normalized_timer.get("timer_interpretation_status")
 
                     # Period score extraction is centralized and kind-ID aware.
                     # Shot-stat rows cannot become quarter points by label collision.
