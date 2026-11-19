@@ -962,12 +962,20 @@ function automaticForecast(ev) {
   const score=findLiveScore(ev), period=findLivePeriod(ev), clock=findLiveClock(ev);
   const lengthInfo=inferPeriodLengthForForecast(ev);
   const periodLength=lengthInfo?.seconds;
+  const periodCount=Number(ev?.external_live?.period_count||lengthInfo?.periods||4);
+  const minimumFullGamePeriod=periodCount===2?2:3;
+  const formatUnverified=String(lengthInfo?.method||"").includes("предварительно");
+  if((period&&period<minimumFullGamePeriod)||formatUnverified){
+    const reason=formatUnverified
+      ?"Формат матча не подтверждён — полный прогноз не рассчитывается."
+      :"Полный тотал доступен со второй половины матча; прогноз четверти рассчитывается отдельно.";
+    const market=marketReferenceForecast(lines);
+    return market?{...market,reason}:{ready:false,reason,lines};
+  }
   if(score&&period&&clock&&periodLength){
     const estimate=estimateLiveTotal({...ev,external_live:{...(ev.external_live||{}),period_length_seconds:periodLength}},score,period,clock);
     if(estimate&&estimate.elapsed_seconds>0){
-      const early=estimate.elapsed_seconds<12*60;
-      const formatUnverified=String(lengthInfo?.method||"").includes("предварительно");
-      const preliminary=early||formatUnverified;
+      const preliminary=false;
       const modeled=applyPoissonModel(estimate,lines,String(ev.id||"")+"|"+score.join(":")+"|"+clock,ev,period,clock);
       const statsCount=Number(ev?.statistics_quality?.available_count||0);
       const completedPeriods=Array.from({length:Math.max(0,Number(period)-1)},(_,i)=>readPeriodScore(ev,i)).filter(Number.isFinite).length;
