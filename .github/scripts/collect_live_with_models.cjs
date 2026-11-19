@@ -194,7 +194,7 @@ const { chromium } = require("playwright");
       (row.errors || []).map(error => ({
         event_id: row.event_id,
         model: error.model || null,
-        reason: String(error.reason || error.message || "unknown").slice(0, 180)
+        reason: String(typeof error === "string" ? error : (error.reason || error.message || JSON.stringify(error) || "unknown")).slice(0, 240)
       }))
     ).slice(0, 20);
     if (forecastErrorDetails.length) {
