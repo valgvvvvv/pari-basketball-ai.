@@ -2519,18 +2519,37 @@ def _pari_infer_period_format_from_timeline(period_number, timer_seconds,
             "source_url": None,
         }
 
-    # A clock captured very near a period start is a direct duration bound.
-    # Do not infer from an arbitrary mid-quarter clock value.
-    for standard in (600, 720):
-        if standard - 12 <= remaining <= standard:
-            return {
-                "period_length_seconds": standard,
-                "period_count": count,
-                "source": "PARI explicit quarter clock near period start",
-                "rules_version": "event_timeline_inference",
-                "source_url": None,
-            }
     return None
+
+
+def _pari_infer_period_format_from_match_boundary(period_number, timer_seconds,
+                                                  period_count=4):
+    """Learn 10/12-minute format only when cumulative timer is at a period boundary."""
+    try:
+        period = int(period_number)
+        raw = float(timer_seconds)
+        count = int(period_count)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not (2 <= period <= count <= 4 and raw >= 0):
+        return None
+    candidates = [raw / (period - 1)]
+    remaining_periods = count - period + 1
+    if remaining_periods > 0:
+        candidates.append(raw / remaining_periods)
+    supported = sorted({standard for candidate in candidates
+                        for standard in (600, 720)
+                        if abs(candidate - standard) <= 12})
+    if len(supported) != 1:
+        return None
+    length = supported[0]
+    return {
+        "period_length_seconds": length,
+        "period_count": count,
+        "source": "PARI cumulative match timer at quarter boundary",
+        "rules_version": "event_boundary_inference",
+        "source_url": None,
+    }
 
 
 def _pari_normalize_timer(event_id, timer_seconds, timer_direction, period_number,
@@ -3803,13 +3822,24 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             "source_url": None,
                         }
 
-                    # If no format has been seen yet, infer 10/12-minute periods
-                    # only when match timer arithmetic agrees with the explicit
-                    # active-quarter countdown, or the clock is near period start.
+                    # Infer from a simultaneous match timer + quarter countdown.
+                    # Without a quarter clock, learn duration only at an actual
+                    # cumulative match-clock quarter boundary.
                     if (period_length_seconds is None and explicit_clock_seconds is not None
                             and explicit_period and 1 <= explicit_period <= 4):
                         inferred_format = _pari_infer_period_format_from_timeline(
                             explicit_period, timer_seconds, explicit_clock_seconds, 4
+                        )
+                        if inferred_format:
+                            period_length_seconds = inferred_format["period_length_seconds"]
+                            period_count = inferred_format["period_count"]
+                            period_format_source = {
+                                "competition_id": next((str(x) for x in competition_id_candidates if x is not None), None),
+                                **inferred_format,
+                            }
+                    if period_length_seconds is None and timer_seconds is not None and explicit_period:
+                        inferred_format = _pari_infer_period_format_from_match_boundary(
+                            explicit_period, timer_seconds, 4
                         )
                         if inferred_format:
                             period_length_seconds = inferred_format["period_length_seconds"]
