@@ -56,6 +56,11 @@ Render запускает `uvicorn server:app --host 0.0.0.0 --port $PORT`.
 - JavaScript forecast regressions: `node tests/forecast-core.test.cjs`.
 - GitHub Actions запускает оба набора тестов на push и pull request.
 
+## Ручные расчётные API
+
+- `POST /api/analyze` поддерживает явные `period_count` и `period_minutes`; `clock` здесь задаётся как прошедшее время периода. Для 2×20 нужно передать `period_count: 2`, `period_minutes: 20`.
+- `POST /api/analyze-quarter` без истории предыдущих периодов не выдаёт прогноз в первые 3 минуты; затем использует Gamma-Poisson predictive distribution. Это вспомогательный ручной API, не отдельный источник основного LIVE-прогноза сайта.
+
 ## Диагностические маршруты
 
 - `GET /api/health` — готовность приложения.
