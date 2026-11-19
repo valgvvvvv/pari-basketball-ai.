@@ -96,6 +96,7 @@ assert.ok(htmlSource.indexOf("forecast-core.js") < htmlSource.indexOf("app.js"),
   "the tested forecast core must load before the UI code");
 assert.ok(appSource.includes("market.prices.push"), "quarter market prices must preserve both factor IDs");
 assert.ok(appSource.includes('outcomeStatus:"unresolved"'), "unconfirmed history outcomes must not be shown as settled");
+assert.ok(appSource.includes('overtime_policy:"not_included_market_rule_unverified"'), "regulation-only forecasts must not imply overtime inclusion");
 
 
 const scoreStart = appSource.indexOf("function validateScoreTimeline(ev,matchScore,period){");
