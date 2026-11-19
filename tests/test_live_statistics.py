@@ -4,6 +4,14 @@ import server
 
 
 class LiveStatisticsNormalizationTests(unittest.TestCase):
+    def test_explicit_sport_function_prevents_cross_sport_contamination(self):
+        self.assertTrue(server._pari_score_function_is_basketball("Basketball"))
+        self.assertTrue(server._pari_score_function_is_basketball("баскетбол"))
+        self.assertTrue(server._pari_score_function_is_basketball(None))
+        self.assertFalse(server._pari_score_function_is_basketball("Football"))
+        self.assertFalse(server._pari_score_function_is_basketball("Soccer"))
+        self.assertFalse(server._pari_score_function_is_basketball("Volleyball"))
+
     def test_common_provider_aliases(self):
         cases = {
             "3PM": "three_pointers_made", "3PA": "three_pointers_attempted",
