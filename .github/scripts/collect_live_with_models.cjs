@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
 const crypto = require("crypto");
-// UI acceptance rerun after the v60 / v7 responsive deployment.
+// UI acceptance rerun after the v60 / v8 scroll-anchor deployment.
 const { chromium } = require("playwright");
 
 (async () => {
