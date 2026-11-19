@@ -1576,10 +1576,6 @@ async function refreshLiveMatches() {
           } else {
             forecastHtml += '<span class="live-match-meta forecast-pending">Прогноз четверти: '+escapeHtml(quarterForecast.reason)+'</span>';
           }
-          const aiBest=aiAnalysis.match?.strongest;
-          if(aiAnalysis.match)forecastHtml+='<span class="live-match-meta forecast-live">ИИ · матч: '+escapeHtml(aiAnalysis.match.projection)+' · направление '+escapeHtml(aiBest?(aiBest.direction==="без преимущества"?"нет перевеса":aiBest.direction+" "+aiBest.line):"нет линии PARI")+' · '+escapeHtml(aiAnalysis.match.confidence)+'</span>';
-          const aiQuarterBest=aiAnalysis.quarter?.strongest;
-          if(aiAnalysis.quarter)forecastHtml+='<span class="live-match-meta forecast-live">ИИ · Q'+escapeHtml(quarterForecast.period||findLivePeriod(ev)||"?")+': '+escapeHtml(aiAnalysis.quarter.projection)+' · направление '+escapeHtml(aiQuarterBest?(aiQuarterBest.direction==="без преимущества"?"нет перевеса":aiQuarterBest.direction+" "+aiQuarterBest.line):"нет линии PARI")+' · '+escapeHtml(aiAnalysis.quarter.confidence)+'</span>';
           const quarterHighlight=quarterHighlightInfo(ev);
           const highlightTag=quarterHighlight?'<span class="quarter-highlight-tag">★ ВЫДЕЛЕН: '+quarterHighlight.minute+'–8 мин Q'+quarterHighlight.period+'</span>':"";
           return '<button type="button" class="live-match'+(quarterHighlight?' live-match-quarter-window':'')+'" data-event-id="' + escapeHtml(ev.id) + '">' +
