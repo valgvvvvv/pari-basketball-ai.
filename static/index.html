@@ -8,7 +8,7 @@
 <body>
 <div class="shell">
   <aside class="sidebar">
-    <div class="brand"><div class="brand-mark">P</div><div><b>PARI Basketball AI</b><small>ANALYTICS ENGINE · 0.1</small></div></div>
+    <div class="brand"><div class="brand-mark">P</div><div><b>PARI Basketball AI</b><small>ANALYTICS ENGINE · 0.2</small></div></div>
     <nav>
       <a class="active" href="#dashboard">Обзор</a>
       <a href="#selectedMatch">Прогноз выбранного матча</a>
@@ -58,7 +58,7 @@
       <div class="form-actions"><a class="btn-primary" href="/api/archive/export">Скачать локальный ZIP</a><a class="btn-ghost" href="https://github.com/valgvvvvv/pari-basketball-ai./releases" target="_blank" rel="noopener">Ежедневные архивы GitHub</a><button class="btn-ghost" type="button" id="clearServerArchive">Очистить локальную базу</button></div>
     </section>
     <section class="panel" id="history"><div class="section-head"><div><span class="eyebrow">TRACK RECORD</span><h2>История анализов</h2></div><button class="btn-ghost" id="clearHistory">Очистить</button></div><div id="historyList" class="history-list"><p class="muted">Пока нет сохранённых расчётов.</p></div></section>
-    <footer><span>PARI Basketball AI · MVP 0.1</span><span>Аналитический инструмент. Вероятности не гарантируют результат.</span><span>Данные live-счёта: <a href="https://sportscore.com/" target="_blank" rel="dofollow noopener">Powered by SportScore</a></span></footer>
+    <footer><span>PARI Basketball AI · MVP 0.2</span><span>Аналитический инструмент. Вероятности не гарантируют результат.</span><span>Данные live-счёта: <a href="https://sportscore.com/" target="_blank" rel="dofollow noopener">Powered by SportScore</a></span></footer>
   </main>
 </div>
 <script>
@@ -73,6 +73,6 @@ window.addEventListener("unhandledrejection", function(event) {
   if (message) message.textContent = "Ошибка выполнения страницы: " + String(event.reason || "неизвестная ошибка");
 });
 </script>
-<script src="/static/forecast-core.js?v=20261119-forecast-core-v2"></script>
-<script src="/static/app.js?v=20261119-integrity-v47" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
+<script src="/static/forecast-core.js?v=20261119-forecast-core-v3"></script>
+<script src="/static/app.js?v=20261119-integrity-v48" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
 </body></html>
