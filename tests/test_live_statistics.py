@@ -214,5 +214,28 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
 
 
 
+    def test_generic_scores_group_maps_quarters_by_position_only_when_all_titles_are_quarter(self):
+        source = {"scores": [
+            [{"c1": "56", "c2": "42"}],
+            [
+                {"c1": "26", "c2": "23", "title": "четверть"},
+                {"c1": "24", "c2": "14", "title": "четверть"},
+                {"c1": "6", "c2": "5", "title": "четверть"},
+            ],
+        ]}
+        self.assertEqual(server._pari_period_scores(source), [[26, 23], [24, 14], [6, 5]])
+
+    def test_generic_scores_group_does_not_accept_mixed_stat_labels(self):
+        source = {"scores": [
+            [{"c1": "10", "c2": "9"}],
+            [
+                {"c1": "6", "c2": "5", "title": "четверть"},
+                {"c1": "4", "c2": "3", "title": "двухочковые"},
+            ],
+        ]}
+        self.assertEqual(server._pari_period_scores(source), [])
+
+
+
 if __name__ == "__main__":
     unittest.main()
