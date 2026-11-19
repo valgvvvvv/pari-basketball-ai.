@@ -201,6 +201,10 @@ const { chromium } = require("playwright");
         await page.route("**/api/pari/live*", route => route.fulfill({
           status: 200, contentType: "application/json", body: JSON.stringify(uiPayload)
         }));
+        await page.waitForFunction(() => {
+          const button = document.querySelector("#refreshLiveMatches");
+          return button && !button.disabled;
+        }, null, { timeout: 60000 });
         await page.locator("#refreshLiveMatches").click();
         await page.waitForSelector(".live-match", { timeout: 60000 });
         const card = page.locator(".live-match").filter({ hasText: smokeRow.teams }).first();
@@ -213,6 +217,10 @@ const { chromium } = require("playwright");
         const historyBefore = Number(await page.locator("#historyCount").innerText());
         const historyText = await page.locator("#historyList").innerText();
         if (!historyText.includes(smokeRow.teams)) throw new Error("Selected match was not saved in forecast history");
+        await page.waitForFunction(() => {
+          const button = document.querySelector("#refreshLiveMatches");
+          return button && !button.disabled;
+        }, null, { timeout: 60000 });
         await page.locator("#refreshLiveMatches").click();
         await page.waitForFunction(before => {
           const count = document.querySelector("#historyCount");
