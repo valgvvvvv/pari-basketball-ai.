@@ -631,6 +631,18 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   const tempoFactor=tempoDynamics.applied?tempoDynamics.factor:1;
   const mu=possMu*secondaryAdjustment*tempoFactor,mc=dynamicScenarioMonteCarlo(adjusted.current,mu,lines,seedText,ev,period,clock,"match");
   const factors=[...(context.factors||[]),...(statsContext.factors||[])];
+  const available=Number(ev?.statistics_quality?.available_count||0);
+  const expected=Number(ev?.statistics_quality?.expected_count||19);
+  const apiAgeMs=Date.parse(ev?.feed_checked_at_utc||"");
+  const dataQuality={
+    mode:possession.applied?"score_clock_boxscore_possessions":available>0?"score_clock_partial_statistics":"score_clock_only",
+    statisticsAvailable:available,statisticsExpected:expected,
+    apiResponseAgeSeconds:Number.isFinite(apiAgeMs)?Math.max(0,Math.round((Date.now()-apiAgeMs)/1000)):null,
+    providerEventTimestampAvailable:!!(ev?.updated_at||ev?.raw?.updated_at||ev?.raw?.updatedAt),
+    label:available===0?"ограниченная · только счёт и таймер; статистика 0/"+expected:
+      available<expected?"ограниченная · частичная статистика "+available+"/"+expected:
+      "расширенная · статистика "+available+"/"+expected
+  };
   if(tempoDynamics.applied)factors.push("Динамика темпа: "+(tempoDynamics.acceleration>0?"ускорение ":"спад ")+Math.abs(tempoDynamics.rawChange).toFixed(1)+"% · коэффициент "+tempoFactor.toFixed(3)+" · влияние на оставшийся тотал "+((tempoFactor-1)*100).toFixed(1)+"%");
   else factors.push("Динамика темпа: коэффициент не применён — "+tempoDynamics.reason);
   const scenarioText=(mc?.scenarios||[]).map(x=>x.name+" "+x.probability+"%").join(" · ");
@@ -641,7 +653,7 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
     if(possession.qualityNotes?.length)factors.push(...possession.qualityNotes);
   }
   return {...adjusted,context_factors:factors,context_adjustment:context.adjustment,statistics_adjustment:secondaryAdjustment,
-    statistics_quality:statsContext.quality,shooting_efg:statsContext.efg??null,possession_model:possession,
+    statistics_quality:statsContext.quality,data_quality:dataQuality,shooting_efg:statsContext.efg??null,possession_model:possession,
     poisson:mc,tempo_dynamics:tempoDynamics,low:mc.low80,high:mc.high80,sigma:Math.sqrt(Math.max(mu,0)),projection:Math.round((adjusted.current+mu)*10)/10};
 }
 function normalCdf(z){
@@ -771,7 +783,7 @@ function showSelectedMatch(ev,options={}){
   $("selectedMatchInfo").textContent="Счёт "+(score?score.join(" : "):"—")+" · Q"+(period||"—")+" · "+(clock||"—");
   const lineRows=lines.map(x=>{
     const p=(estimate?.poisson?.probabilities||[]).find(z=>Number(z.line)===Number(x.line));
-    return '<tr><td>'+x.line+'</td><td>'+(p?(p.pOver*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pUnder*100).toFixed(1)+'%':'—')+'</td><td>'+(p?escapeHtml(p.direction):'—')+'</td><td>'+(p?(p.pPush*100).toFixed(1)+'%':'—')+'</td><td>'+(x.odds?escapeHtml(x.odds):'—')+'</td></tr>';
+    return '<tr><td>'+x.line+'</td><td>'+(p?(p.pOver*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pUnder*100).toFixed(1)+'%':'—')+'</td><td>'+(p?escapeHtml(p.direction):'—')+'</td><td>'+(p?(p.pPush*100).toFixed(1)+'%':'—')+'</td><td>'+(x.prices?.length?escapeHtml(x.prices.map(p=>p.factorId+': '+p.odds).join(' / ')):(x.odds?escapeHtml(x.odds):'—'))+'</td></tr>';
   }).join("");
   $("matchForecast").innerHTML=estimate
     ? '<div class="forecast-main"><b>Тотал матча</b><div class="forecast-number">'+estimate.projection+'</div><p>Сейчас '+estimate.current+' · прошло '+estimate.elapsed_minutes+' мин · осталось '+estimate.remaining_minutes+' мин</p><p>80%: '+(estimate.poisson?.low80??estimate.low)+'–'+(estimate.poisson?.high80??estimate.high)+' · 95%: '+(estimate.poisson?.low95??"—")+'–'+(estimate.poisson?.high95??"—")+'</p></div>'+
@@ -853,22 +865,23 @@ function getMatchTotalLines(ev) {
   // Only the server-classified root-match candidates are eligible here.
   // Never infer a full-game line from generic p, related events or child markets.
   const candidates = Array.isArray(ev?.match_total_candidates) ? ev.match_total_candidates : [];
-  const seen = new Set(), lines = [];
+  const byLine = new Map(), lines = [];
   for (const factor of candidates) {
     if (!factor || !["930","931"].includes(String(factor.f))) continue;
-    // PARI's pt is the line field. "p" is not a safe substitute: depending
-    // on the factor payload it may be a parameter/price, not the total.
+    // PARI's pt is the line; p is not substituted because it may be a price/parameter.
     if (factor.pt == null || String(factor.pt).trim() === "") continue;
     const line = Number(factor.pt);
-    if (!Number.isFinite(line) || line < 40 || line > 400) continue;
-    // Basketball total lines are normally whole or half-point increments.
-    if (Math.abs(line * 2 - Math.round(line * 2)) > 1e-8) continue;
+    if (!Number.isFinite(line) || line < 40 || line > 400 ||
+        Math.abs(line * 2 - Math.round(line * 2)) > 1e-8) continue;
     const odds = Number(factor.v);
     if (factor.v == null || !Number.isFinite(odds) || odds <= 1 || odds > 1000) continue;
     const key = line.toFixed(2);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    lines.push({line, odds:String(factor.v), factorId:String(factor.f), source:"PARI", market:"full_game_total"});
+    let row=byLine.get(key);
+    if(!row){row={line,odds:null,factorId:null,prices:[],source:"PARI",market:"full_game_total"};byLine.set(key,row);lines.push(row);}
+    row.prices.push({factorId:String(factor.f),odds:String(factor.v),
+      label:factor.name||factor.shortName||factor.kindName||null});
+    // Do not infer which factor is Over/Under without a provider-side mapping.
+    if(row.odds==null){row.odds=String(factor.v);row.factorId=String(factor.f);}
   }
   // Do not reuse cached lines: an old market association can survive a
   // changing live event and display a line that no longer belongs to it.
@@ -936,6 +949,11 @@ function marketReferenceForecast(lines) {
     lines,message:"Рыночный ориентир PARI, не самостоятельная игровая модель"};
 }
 function automaticForecast(ev) {
+  const feedChecked=Date.parse(ev?.feed_checked_at_utc||"");
+  if(Number.isFinite(feedChecked)&&Date.now()-feedChecked>120000)
+    return {ready:false,reason:"Снимок LIVE устарел: ответ API получен более 2 минут назад"};
+  if(ev?.clock_integrity?.valid===false)
+    return {ready:false,reason:"Источник пометил таймер как противоречивый"};
   const lines=getMatchTotalLines(ev);
   const score=findLiveScore(ev), period=findLivePeriod(ev), clock=findLiveClock(ev);
   const lengthInfo=inferPeriodLengthForForecast(ev);
@@ -947,7 +965,7 @@ function automaticForecast(ev) {
       const formatUnverified=String(lengthInfo?.method||"").includes("предварительно");
       const preliminary=early||formatUnverified;
       const modeled=applyPoissonModel(estimate,lines,String(ev.id||"")+"|"+score.join(":")+"|"+clock,ev,period,clock);
-      return {ready:true,kind:"live_tempo",estimate:{...modeled,confidence:preliminary?"низкая · предварительный формат/ранняя стадия":"рабочая",preliminary},lines,
+      return {ready:true,kind:"live_tempo",estimate:{...modeled,confidence:preliminary?"низкая · предварительный формат/ранняя стадия":modeled.data_quality?.label||"ограниченная",preliminary},lines,
         message:preliminary?"Предварительная оценка: формат или стадия матча не подтверждены":"Линейный темп + модель статистики + симуляции Монте-Карло"};
     }
   }
@@ -1138,6 +1156,11 @@ function findQuarterClockFromElapsed(ev,period,length){
   return String(Math.floor(remaining/60)).padStart(2,"0")+":"+String(remaining%60).padStart(2,"0");
 }
 function automaticQuarterForecast(ev) {
+  const feedChecked=Date.parse(ev?.feed_checked_at_utc||"");
+  if(Number.isFinite(feedChecked)&&Date.now()-feedChecked>120000)
+    return {ready:false,reason:"Снимок LIVE устарел: ответ API получен более 2 минут назад"};
+  if(ev?.clock_integrity?.valid===false)
+    return {ready:false,reason:"Источник пометил таймер как противоречивый"};
   const period=findLivePeriod(ev);
   const info=inferPeriodLengthForForecast(ev);
   const length=findPeriodLengthSeconds(ev)||info?.seconds;
@@ -1268,7 +1291,7 @@ async function refreshLiveMatches() {
       return;
     }
     const count = (data.events || []).length;
-    window.pariLiveEvents = data.events || [];
+    window.pariLiveEvents = (data.events || []).map(ev=>({...ev,feed_checked_at_utc:data.checked_at_utc||null}));
     if(selectedLiveEventId){
       const refreshedSelection=window.pariLiveEvents.find(x=>String(x.id)===selectedLiveEventId);
       if(refreshedSelection)showSelectedMatch(refreshedSelection,{silent:true});
