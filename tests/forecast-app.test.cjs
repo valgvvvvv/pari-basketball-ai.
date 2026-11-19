@@ -11,7 +11,7 @@ const context = {
   window: { PARIForecastCore: core },
   Number, Math, Array, Map, Set, String, RegExp, Object,
   findLivePeriod: ev => ev.period,
-  inferPeriodLengthForForecast: ev => ({seconds:ev.period_length_seconds, periods:ev.periods || 4, method:"duration from fixture"}),
+  inferPeriodLengthForForecast: ev => ({seconds:ev.period_length_seconds, periods:ev.periods || 4, method:ev.format_method || "duration from fixture"}),
   findPeriodLengthSeconds: ev => ev.period_length_seconds,
   findLiveClock: ev => ev.clock,
   findQuarterClockFromElapsed: () => null,
@@ -55,6 +55,12 @@ const noPrior = context.runQuarter({
   score:[0,0],period_scores:[[0,0]],match_total_candidates:[]
 });
 assert.equal(noPrior.ready,false,"early Q1 without a league/team prior must be unavailable");
+
+const unverifiedFormat = context.runQuarter({
+  id:"unknown-format-q1",period:1,clock:"08:00",period_length_seconds:600,periods:4,
+  format_method:"предварительно угаданный формат",score:[10,8],period_scores:[[10,8]],match_total_candidates:[]
+});
+assert.equal(unverifiedFormat.ready,false,"a guessed period format must not produce an ordinary quarter forecast");
 
 assert.ok(!app.includes('add("Байесовская",bayes'),
   "the old full-match/quarter-unit Bayesian blend must not re-enter the model list");
