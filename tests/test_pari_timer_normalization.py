@@ -64,18 +64,16 @@ class PariTimerNormalizationTests(unittest.TestCase):
     def test_match_timer_resolves_quarter_from_verified_count_down(self):
         self.assertEqual(_pari_period_from_match_timer(1183, 600, 4, "down"), 3)
 
-    def test_count_up_verified_after_two_intervals(self):
+    def test_count_up_verified_after_one_clean_interval(self):
         self.assertFalse(self.normalize("up", 100, 1, 1000)["timer_semantics_verified"])
-        self.assertFalse(self.normalize("up", 130, 1, 1030)["timer_semantics_verified"])
-        result = self.normalize("up", 160, 1, 1060)
+        result = self.normalize("up", 130, 1, 1030)
         self.assertTrue(result["timer_semantics_verified"])
-        self.assertEqual(result["period_elapsed_seconds"], 160)
-        self.assertEqual(result["period_remaining_seconds"], 440)
+        self.assertEqual(result["period_elapsed_seconds"], 130)
+        self.assertEqual(result["period_remaining_seconds"], 470)
 
     def test_direction_survives_quarter_reset_and_stoppage(self):
         self.normalize("transition", 100, 1, 1000)
-        self.normalize("transition", 130, 1, 1030)
-        self.assertTrue(self.normalize("transition", 160, 1, 1060)["timer_semantics_verified"])
+        self.assertTrue(self.normalize("transition", 130, 1, 1030)["timer_semantics_verified"])
         q2 = self.normalize("transition", 8, 2, 1090)
         self.assertTrue(q2["timer_semantics_verified"])
         self.assertEqual(q2["timer_observed_direction"], "up")
@@ -86,8 +84,7 @@ class PariTimerNormalizationTests(unittest.TestCase):
 
     def test_count_down_direction_and_period_reset(self):
         self.normalize("down", 590, 1, 1000)
-        self.normalize("down", 560, 1, 1030)
-        result = self.normalize("down", 530, 1, 1060)
+        result = self.normalize("down", 560, 1, 1030)
         self.assertTrue(result["timer_semantics_verified"])
         q2 = self.normalize("down", 600, 2, 1090)
         self.assertTrue(q2["timer_semantics_verified"])
@@ -102,8 +99,7 @@ class PariTimerNormalizationTests(unittest.TestCase):
     def test_bad_period_time_is_not_verified(self):
         self.normalize("bad", 100, 1, 1000)
         self.normalize("bad", 130, 1, 1030)
-        self.normalize("bad", 160, 1, 1060)
-        result = self.normalize("bad", 1500, 2, 1090)
+        result = self.normalize("bad", 1500, 2, 1060)
         self.assertFalse(result["timer_semantics_verified"])
         self.assertEqual(result["timer_interpretation_status"], "timer_period_mismatch")
 
