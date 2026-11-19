@@ -24,7 +24,7 @@
     <header class="topbar"><div><span class="eyebrow">PARI BASKETBALL AI</span><h1>Центр анализа</h1></div><div class="top-actions"><span class="avatar">AI</span></div></header>
     <section class="metrics" id="dashboard">
       <div class="metric"><small>LIVE-ИСТОЧНИК</small><b id="liveSourceStatus" class="amber">Проверка…</b><span id="liveSourceDetail">Автоматическое обновление каждые 30 секунд</span></div>
-      <div class="metric"><small>МОДЕЛЕЙ В ЯДРЕ</small><b>12</b><span>Расчётные методы и новые инструменты</span></div>
+      <div class="metric"><small>ОСНОВНОЙ ПРОГНОЗ</small><b>1</b><span>Единый результат; альтернативы отдельно</span></div>
       <div class="metric"><small>СИМУЛЯЦИИ</small><b>100 000</b><span>Сценариев Монте-Карло</span></div>
       <div class="metric"><small>ИСТОРИЯ</small><b id="historyCount">0</b><span>Локально сохранённых анализов</span></div>
     </section>
@@ -44,7 +44,7 @@
       </div>
     </section>
     <section>
-      <div class="panel" id="models"><span class="eyebrow">MODEL STACK</span><h2>Модельное ядро</h2><div class="model-list"><div><b>01</b><span>Линейный темп</span><i>Активна</i></div><div><b>02</b><span>Пуассон</span><i>Активна</i></div><div><b>03</b><span>Монте-Карло</span><i>Активна</i></div><div><b>04</b><span>Динамика концовки</span><i>Базовая</i></div><div><b>05</b><span>Модель владений</span><i class="muted" id="possessionModelStatus">Проверка подключения…</i></div><div><b>06</b><span>Ансамбль / калибровка</span><i class="muted">Нужна история</i></div><div><b>07</b><span>ИИ-анализ и согласование моделей</span><i>Активна · эвристическая</i></div><div><b>08</b><span>Байесовская Gamma-Poisson</span><i>Новая · LIVE</i></div><div><b>09</b><span>Фильтр Калмана</span><i>Новая · LIVE</i></div><div><b>10</b><span>Марковская модель владений</span><i>Нужен play-by-play</i></div><div><b>11</b><span>CatBoost / LightGBM</span><i>Нужно обучение</i></div><div><b>12</b><span>Калибровка вероятностей</span><i>Нужны финальные исходы</i></div></div></div>
+      <div class="panel" id="models"><span class="eyebrow">MODEL STACK</span><h2>Модельное ядро</h2><div class="model-list"><div><b>01</b><span>Линейный темп</span><i>Базовый ориентир</i></div><div><b>02</b><span>Gamma-Poisson · четверть</span><i>При наличии prior/данных</i></div><div><b>03</b><span>Монте-Карло · 100 000</span><i>Способ симуляции</i></div><div><b>04</b><span>Динамика концовки</span><i>Эвристическая поправка</i></div><div><b>05</b><span>Модель владений</span><i class="muted" id="possessionModelStatus">Проверка подключения…</i></div><div><b>06</b><span>Ансамбль / калибровка</span><i class="muted">Не включены без тестовой выборки</i></div><div><b>07</b><span>ИИ-анализ факторов</span><i>Диагностика · эвристическая</i></div><div><b>08</b><span>Gamma-Poisson для полного матча</span><i>Исключена: prior не подтверждён</i></div><div><b>09</b><span>Фильтр Калмана</span><i>Только диагностика</i></div><div><b>10</b><span>Марковская модель владений</span><i>Не реализована</i></div><div><b>11</b><span>CatBoost / LightGBM</span><i>Не обучены</i></div><div><b>12</b><span>Калибровка вероятностей</span><i>Не обучена</i></div></div></div>
     </section>
     <section class="panel" id="archive">
       <div class="section-head"><div><span class="eyebrow">RESEARCH DATA ARCHIVE</span><h2>Архив матчей и статистики</h2><p>Автономный сбор LIVE-матчей и расчётов моделей каждые 5 минут, даже когда сайт закрыт. Ежедневные сжатые ZIP-архивы сохраняются отдельно.</p></div><span class="pill warn" id="archiveStorageMode">Проверка хранилища…</span></div>
@@ -58,7 +58,7 @@
       <div class="form-actions"><a class="btn-primary" href="/api/archive/export">Скачать локальный ZIP</a><a class="btn-ghost" href="https://github.com/valgvvvvv/pari-basketball-ai./releases" target="_blank" rel="noopener">Ежедневные архивы GitHub</a><button class="btn-ghost" type="button" id="clearServerArchive">Очистить локальную базу</button></div>
     </section>
     <section class="panel" id="history"><div class="section-head"><div><span class="eyebrow">TRACK RECORD</span><h2>История анализов</h2></div><button class="btn-ghost" id="clearHistory">Очистить</button></div><div id="historyList" class="history-list"><p class="muted">Пока нет сохранённых расчётов.</p></div></section>
-    <footer><span>PARI Basketball AI · MVP 0.1</span><span>Аналитический инструмент. Вероятности не гарантируют результат.</span><span>Данные live-счёта: <a href="https://sportscore.com/" target="_blank" rel="dofollow noopener">Powered by SportScore</a></span></footer>
+    <footer><span>PARI Basketball AI · исследовательская версия</span><span>Аналитический инструмент. Вероятности не гарантируют результат.</span><span>Данные live-счёта: <a href="https://sportscore.com/" target="_blank" rel="dofollow noopener">Powered by SportScore</a></span></footer>
   </main>
 </div>
 <script>
