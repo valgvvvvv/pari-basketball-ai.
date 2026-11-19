@@ -846,9 +846,12 @@ function clearAnalysisHistory(){
 }
 let selectedLiveEventId = null;
 function showSelectedMatch(ev,options={}){
+  const panel=$("selectedMatch");
+  const previousScrollY=options.silent?window.scrollY:0;
+  const openSummaries=options.silent?Array.from(panel.querySelectorAll("details[open]")).map(d=>d.querySelector("summary")?.textContent).filter(Boolean):[];
   selectedLiveEventId=String(ev?.id||"");
   ev.snapshot_id=String(ev.snapshot_id||[selectedLiveEventId,String(ev.feed_checked_at_utc||""),String(findLiveScore(ev)||""),String(findLivePeriod(ev)||""),String(findLiveClock(ev)||"")].join("|"));
-  const panel=$("selectedMatch");panel.hidden=false;
+  panel.hidden=false;
   $("selectedMatchTitle").textContent=(ev.team1||"Команда 1")+" — "+(ev.team2||"Команда 2");
   const score=findLiveScore(ev),period=findLivePeriod(ev),clock=findLiveClock(ev);
   const matchForecast=automaticForecast(ev);
@@ -889,7 +892,7 @@ function showSelectedMatch(ev,options={}){
   $("selectedMatchMeta").textContent=[ev.league||ev.sport_name].filter(Boolean).join(" · ");
   const feedStamp=Date.parse(ev.feed_checked_at_utc||"");
   const feedAge=Number.isFinite(feedStamp)?Math.max(0,Math.round((Date.now()-feedStamp)/1000)):null;
-  $("selectedMatchInfo").textContent=(score?"Счёт "+score.join(" : "):"Счёт —")+" · Q"+(period||"—")+" · "+(clock||"—")+(timeline?" · "+timeline:"")+" · данные: "+(feedAge==null?"время обновления неизвестно":feedAge+" сек. назад")+(feedAge!=null&&feedAge>120?" · УСТАРЕЛИ":"");
+  $("selectedMatchInfo").textContent=(score?"Счёт "+score.join(" : "):"Счёт —")+" · Q"+(period||"—")+" · "+(clock||"—")+(timeline?" · "+timeline:"")+" · данные: "+(feedAge==null?"время обновления неизвестно":feedAge+" сек. назад")+(feedAge!=null&&feedAge>120?" · УСТАРЕЛИ":"")+" · snapshot "+String(ev.snapshot_id||"").slice(0,24);
   const lineRows=lines.map(x=>{
     const p=(estimate?.poisson?.probabilities||[]).find(z=>Number(z.line)===Number(x.line));
     return '<tr><td>'+x.line+'</td><td>'+(p?(p.pOver*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pUnder*100).toFixed(1)+'%':'—')+'</td><td>'+(p?escapeHtml(p.direction):'—')+'</td><td>'+(p?(p.pPush*100).toFixed(1)+'%':'—')+'</td><td>'+(x.prices?.length?escapeHtml(x.prices.map(p=>'фактор '+p.factorId+' (принадлежность ТБ/ТМ неизвестна): '+p.odds).join(' / ')):(x.odds?escapeHtml(x.odds):'—'))+'</td></tr>';
@@ -908,7 +911,7 @@ function showSelectedMatch(ev,options={}){
   $("matchForecast").innerHTML=estimate
     ? '<div class="forecast-main"><b>Ожидаемый тотал матча</b><div class="forecast-number">'+Number(estimate.projection).toFixed(1)+'</div>'+
       '<p>Сейчас '+estimate.current+' · ожидаемый остаток '+Number(estimate.poisson?.mu??estimate.calculation?.expectedRemaining??(estimate.projection-estimate.current)).toFixed(1)+' оч.</p>'+
-      '<p>Линия: '+(matchLineValue??'не получена')+' · '+(matchLine?escapeHtml(matchLine.direction||'уклон не определён')+' · '+probText(matchLine):escapeHtml(numericBias(estimate.projection,matchLineValue)))+'</p>'+
+      '<p>Линия: '+(matchLineValue??'не получена')+' · '+(matchLine?(matchLine.direction==="без выраженного преимущества"?"вероятности близки":escapeHtml(matchLine.direction))+' · '+escapeHtml(numericBias(estimate.projection,matchLineValue))+' · '+probText(matchLine):escapeHtml(numericBias(estimate.projection,matchLineValue)))+'</p>'+
       '<p>Диапазон 80%: '+(estimate.poisson?.low80??estimate.low)+'–'+(estimate.poisson?.high80??estimate.high)+' · качество данных: '+escapeHtml(estimate.data_quality?.label||'не оценено')+' · надёжность модели: не калибрована'+'</p>'+
       (estimate.overtime_policy==="not_included_market_rule_unverified"?'<p class="warn">ОТ не включён; правило рынка не подтверждено.</p>':'')+'</div>'+
       calculationStepsHtml({kind:"match",projection:Number(estimate.projection),current:Number(estimate.current),calculation:estimate.calculation,lines:matchProb,preliminary:!!estimate.preliminary})+
@@ -916,8 +919,8 @@ function showSelectedMatch(ev,options={}){
     : '<p class="muted">'+escapeHtml(matchForecast.reason||"Недостаточно данных")+'</p>';
   $("quarterForecast").innerHTML=quarter.ready
     ? '<div class="forecast-main"><b>Ожидаемый тотал Q'+escapeHtml(quarter.period||period||"?")+'</b><div class="forecast-number">'+Number(quarter.projection).toFixed(1)+'</div>'+
-      '<p>Сейчас '+quarter.current+' оч. · ожидаемый остаток '+Number(quarter.posterior?.expectedRemaining??(quarter.projection-quarter.current)).toFixed(1)+' оч. · осталось '+(clock||'—')+'</p>'+
-      '<p>Линия: '+(qLineValue??'не получена')+' · '+(qLine?escapeHtml(qLine.direction||'уклон не определён')+' · '+probText(qLine):escapeHtml(numericBias(quarter.projection,qLineValue)))+'</p>'+
+      '<p>Сейчас '+quarter.current+' оч. · ожидаемый остаток '+Number(quarter.posterior?.expectedRemaining??(quarter.projection-quarter.current)).toFixed(1)+' оч. · сыграно '+formatElapsedClock(quarter.posterior?.elapsedSeconds)+' · осталось '+(clock||'—')+'</p>'+
+      '<p>Линия: '+(qLineValue??'не получена')+' · '+(qLine?(qLine.direction==="без выраженного преимущества"?"вероятности близки":escapeHtml(qLine.direction))+' · '+escapeHtml(numericBias(quarter.projection,qLineValue))+' · '+probText(qLine):escapeHtml(numericBias(quarter.projection,qLineValue)))+'</p>'+
       '<p>Диапазон 80%: '+quarter.low80+'–'+quarter.high80+' · качество данных: '+escapeHtml(quarter.data_quality?.label||'не оценено')+' · надёжность модели: '+(quarter.preliminary?'ограниченная на ранней стадии':'не калибрована')+(quarter.preliminary?' · предварительно':'')+'</p></div>'+
       calculationStepsHtml({kind:"quarter",projection:Number(quarter.projection),current:Number(quarter.current),posterior:quarter.posterior,lines:qProb,preliminary:!!quarter.preliminary})+
       '<details class="technical-details"><summary>Технические подробности</summary><p>σ остатка: '+(quarter.poisson?.variance!=null?Math.sqrt(quarter.poisson.variance).toFixed(2):'—')+' · диапазон 95%: '+quarter.low95+'–'+quarter.high95+' · симуляций: '+(quarter.poisson?.simulations??100000)+'</p><p>'+escapeHtml((quarter.context_factors||[]).join(' · '))+'</p></details>'
@@ -933,8 +936,9 @@ function showSelectedMatch(ev,options={}){
     '<details class="technical-details"><summary>Источники и качество данных</summary>'+statsMeta+missingStats+statsConflicts+
       '<p>Счёт: '+escapeHtml(ev.score_source||ev.external_live?.score_source||"не указан")+' · таймер: '+escapeHtml(humanClockSource(ev.clock_source||ev.external_live?.clock_source))+' · статистика: '+escapeHtml(ev.statistics_source||"не указан")+'</p>'+
       '<p>Снимок API: '+(Number.isFinite(Date.parse(ev.feed_checked_at_utc||""))?Math.round((Date.now()-Date.parse(ev.feed_checked_at_utc))/1000)+" сек. назад":"время обновления неизвестно")+'</p></details>');
+  if(options.silent&&openSummaries.length){for(const d of panel.querySelectorAll("details"))if(openSummaries.includes(d.querySelector("summary")?.textContent))d.open=true;}
   saveAnalysisHistory(ev,score,period,clock,estimate,quarter);
-  if(!options.silent)panel.scrollIntoView({behavior:"smooth",block:"start"});
+  if(!options.silent)panel.scrollIntoView({behavior:"smooth",block:"start"});else window.scrollTo(0,previousScrollY);
 }
 
 // Direct PARI event feed: refresh on page open and every 30 seconds.
@@ -1235,8 +1239,7 @@ function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="m
   const primaryDistribution=estimate.poisson||forecast.poisson||null;
   const lineResults=Array.isArray(primaryDistribution?.probabilities)?primaryDistribution.probabilities:[];
   const strongest=lineResults.slice().sort((a,b)=>Math.abs(Number(b.pOver)-Number(b.pUnder))-Math.abs(Number(a.pOver)-Number(a.pUnder)))[0]||null;
-  const confidence=forecast.preliminary||estimate.preliminary?"низкая · предварительный":
-    (estimate.data_quality?.label||"ограниченная · вероятности не калиброваны");
+  const confidence=forecast.preliminary||estimate.preliminary?"не подтверждена · ранняя стадия/формат":"не калибрована · нет независимой размеченной выборки";
   const consensus={projection:Math.round(projection*10)/10,
     sigma:primaryDistribution?.variance!=null?Math.sqrt(primaryDistribution.variance):Number(estimate.sigma||safeSigma),
     strongest,probabilities:lineResults,confidence};
