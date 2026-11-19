@@ -169,7 +169,18 @@ assert.ok(archiveCollectorSource.includes("source_event_snapshot: JSON.parse(JSO
 assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
 assert.ok(htmlSource.includes("20261119-integrity-v73"), "frontend cache must be bumped after display fixes");
 assert.ok(appSource.includes("const qLines=") && !appSource.includes("qLines+="), "quarter forecast text must be immutable after declaration");
-assert.ok(appSource.includes("timer_semantics_verified!==true"), "unverified PARI timer values must not be converted into a quarter countdown");
+const timerFnStart = appSource.indexOf("function findQuarterClockFromElapsed(");
+const timerFnEnd = appSource.indexOf("function automaticQuarterForecast(", timerFnStart);
+assert.ok(timerFnStart >= 0 && timerFnEnd > timerFnStart, "quarter clock helper must be available for behavior tests");
+const timerSandbox = {};
+vm.runInNewContext(appSource.slice(timerFnStart, timerFnEnd) +
+  "; this.findQuarterClockFromElapsed=findQuarterClockFromElapsed;", timerSandbox);
+assert.equal(timerSandbox.findQuarterClockFromElapsed({
+  timer_seconds:405, period_elapsed_seconds:405, timer_semantics_verified:false
+},1,600), null, "raw timer values without verified semantics must not become a countdown");
+assert.equal(timerSandbox.findQuarterClockFromElapsed({
+  period_elapsed_seconds:5, timer_semantics_verified:true
+},1,600), "09:55", "verified period elapsed time must produce a quarter countdown");
 
 assert.ok(appSource.includes("Ансамбль сценариев") && appSource.includes("не независимый голос"), "scenario mixture must be shown without counting it as an independent model");
 assert.ok(!appSource.includes('add("Динамика четверти"'), "a duplicate of the primary quarter forecast must not appear as a separate method");
