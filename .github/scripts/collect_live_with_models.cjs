@@ -431,3 +431,5 @@ const { chromium } = require("playwright");
 });
 
 // Recheck responsive UI after the v62/v8 deployment completed.
+
+// Final browser smoke is intentionally rerun after v63 has reached Render.
