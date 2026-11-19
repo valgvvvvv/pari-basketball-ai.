@@ -317,23 +317,8 @@ function applyGameContext(estimate,ev,period,clock){
   const remaining=Math.max(0,totalSeconds-elapsed);
   const baseMu=Math.max(0,estimate.projection-estimate.current);
   let multiplier=1;
-  const globalRate=elapsed>0?estimate.current/elapsed:0;
-  const previousQuarter=Number(period)>1?readPeriodScore(ev,Number(period)-2):null;
-  if(previousQuarter!=null&&length>0&&globalRate>0){
-    const ratio=clampForecast((previousQuarter/length)/globalRate,0.85,1.15);
-    const delta=1+(ratio-1)*0.20;
-    multiplier*=delta;
-    factors.push("темп последней завершённой четверти "+Math.round((ratio-1)*100)+"% (вес 20%)");
-  }
-  const currentQuarter=Number(period)>0?readPeriodScore(ev,Number(period)-1):null;
-  const clockMatch=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
-  const periodElapsed=clockMatch&&length>0?length-(Number(clockMatch[1])*60+Number(clockMatch[2])):0;
-  if(currentQuarter!=null&&periodElapsed>=180&&globalRate>0){
-    const ratio=clampForecast((currentQuarter/periodElapsed)/globalRate,0.85,1.15);
-    const delta=1+(ratio-1)*0.15;
-    multiplier*=delta;
-    factors.push("темп текущей четверти "+Math.round((ratio-1)*100)+"% (вес 15%)");
-  }
+  // Quarter tempo/momentum is consumed once by dynamicScenarioMonteCarlo.
+  // Do not also move the forecast mean here; that would double-count the same signal.
   const score=findLiveScore(ev);
   if(Number(period)===4&&score&&remaining>0){
     const margin=Math.abs(Number(score[0])-Number(score[1]));
