@@ -801,14 +801,14 @@ function showSelectedMatch(ev,options={}){
       (advancedMatchCalculations(ev,estimate,period,clock,possession,quarter).length?'<h3>Дополнительные расчёты</h3><div class="calc-grid">'+advancedMatchCalculations(ev,estimate,period,clock,possession,quarter).map(x=>'<div class="calc-card"><span>'+escapeHtml(x.name)+'</span><b>'+escapeHtml(x.value)+'</b><small>'+escapeHtml(x.detail)+'</small></div>').join("")+'</div>':'')+
       calculationStepsHtml({kind:"match",ev,projection:Number(estimate.projection),current:Number(estimate.current),elapsedMinutes:Number(estimate.elapsed_minutes),remainingMinutes:Number(estimate.remaining_minutes),homeScore:score?.[0],awayScore:score?.[1],poss:estimate.possession_model||possession,lines:estimate.poisson?.probabilities||[],preliminary:!!estimate.preliminary,clock})
     :'<p class="muted">'+escapeHtml(matchForecast.reason||"Недостаточно данных")+'</p>';
-  $("matchForecast").insertAdjacentHTML("afterbegin",aiSignalHtml(aiAnalysis.match,"ИИ-модельный анализ"));
+  $("matchForecast").insertAdjacentHTML("afterbegin",aiSignalHtml(aiAnalysis.match,"Единый прогноз · повтор основного расчёта"));
   $("matchForecast").insertAdjacentHTML("beforeend",classicModelPanelHtml(classicMatchModels,"FULL GAME · АЛЬТЕРНАТИВНЫЕ ОЦЕНКИ"));
   $("quarterForecast").innerHTML=quarter.ready
     ? '<div class="forecast-main"><b>Тотал Q'+escapeHtml(quarter.period||period||"?")+'</b><div class="forecast-number">'+quarter.projection+'</div><p>Счёт '+(quarter.home==null?"—":quarter.home+" : "+quarter.away)+' · очков '+(quarter.current??"—")+' · прошло '+(quarter.elapsed!=null?quarter.elapsed+" мин":"—")+' · таймер '+(clock||"—")+'</p><p>Качество: '+escapeHtml(quarter.data_quality?.label||"ограниченное")+'</p><p>80%: '+quarter.low80+'–'+quarter.high80+' · 95%: '+quarter.low95+'–'+quarter.high95+(quarter.preliminary?' · предварительно':'')+'</p></div>'+
       (quarter.lines.length?'<h3>Вероятности · Q'+escapeHtml(quarter.period||period||"?")+'</h3><table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Направление</th><th>Возврат</th><th>Цены PARI · ID фактора</th></tr></thead><tbody>'+quarter.lines.map(x=>'<tr><td>'+x.line+'</td><td>'+(x.pOver*100).toFixed(1)+'%</td><td>'+(x.pUnder*100).toFixed(1)+'%</td><td>'+escapeHtml(x.direction)+'</td><td>'+((x.pPush||0)*100).toFixed(1)+'%</td><td>'+(x.odds?escapeHtml(x.odds):'—')+'</td></tr>').join('')+'</tbody></table>':'<p class="muted">Линия четверти не получена</p>')+
       calculationStepsHtml({kind:"quarter",period:quarter.period,ev,projection:Number(quarter.projection),current:Number(quarter.current),elapsedMinutes:quarter.elapsed,remainingMinutes:clock&&findPeriodLengthSeconds(ev)?Math.max(0,(Number(clock.split(":")[0])*60+Number(clock.split(":")[1]))/60):null,homeScore:quarter.home,awayScore:quarter.away,poss:quarter.possession_model,lines:quarter.lines||[],preliminary:!!quarter.preliminary,clock})
     :'<p class="muted">'+escapeHtml(quarter.reason||"Недостаточно данных")+'</p>';
-  $("quarterForecast").insertAdjacentHTML("afterbegin",aiSignalHtml(aiAnalysis.quarter,"ИИ-анализ четверти"));
+  $("quarterForecast").insertAdjacentHTML("afterbegin",aiSignalHtml(aiAnalysis.quarter,"Единый прогноз четверти · повтор основного расчёта"));
   $("quarterForecast").insertAdjacentHTML("beforeend",classicModelPanelHtml(classicQuarterModels,"Q"+(quarter.period||period||"?")+" · АЛЬТЕРНАТИВНЫЕ ОЦЕНКИ"));
   const statsMeta=statsQuality?'<p>Покрытие: <b>'+Number(statsQuality.coverage_percent||0)+'%</b> · источники: '+escapeHtml(ev.statistics_source||"нет")+'</p>':'';
   const missingStats=statsQuality?.missing_metrics?.length?'<p class="muted">Нет данных: '+escapeHtml(statsQuality.missing_metrics.join(", "))+'</p>':'';
@@ -1138,13 +1138,13 @@ function classicModelPanelHtml(data,title){
   const anomaly=data.anomaly?(data.anomaly.smooth?"Smooth Game: ровная траектория":"Аномалия/неровная траектория")+" · CV "+data.anomaly.cv+"%":"Проверка Smooth Game: мало завершённых четвертей";
   const toolsHtml=(data.tools||[]).map(t=>'<div class="model-tool-row"><b>'+escapeHtml(t.name)+'</b><span>'+escapeHtml(t.status)+'</span><small>'+escapeHtml(t.detail)+'</small></div>').join("");
   return '<section class="classic-model-panel"><div class="calc-section-head"><div><span class="eyebrow">'+escapeHtml(title)+'</span><h3>Альтернативные оценки · не независимые модели</h3></div><span class="calc-live-tag">'+(data.models.length||0)+' альтернатив</span></div>'+
-    (data.consensus?'<div class="classic-consensus"><b>Единый основной прогноз</b><strong>'+data.consensus.projection+'</strong><span>Направление: '+escapeHtml(direction)+(best?' · ТБ '+(best.pOver*100).toFixed(1)+'% / ТМ '+(best.pUnder*100).toFixed(1)+'%':'')+' · возврат '+((best.pPush||0)*100).toFixed(1)+'% · уверенность '+escapeHtml(data.consensus.confidence)+'</span></div>':'')+
+    (data.consensus?'<div class="classic-consensus"><b>Единый основной прогноз</b><strong>'+data.consensus.projection+'</strong><span>Направление: '+escapeHtml(direction)+(best?' · ТБ '+(best.pOver*100).toFixed(1)+'% / ТМ '+(best.pUnder*100).toFixed(1)+'% / возврат '+((best.pPush||0)*100).toFixed(1)+'%':'')+' · возврат '+((best.pPush||0)*100).toFixed(1)+'% · уверенность '+escapeHtml(data.consensus.confidence)+'</span></div>':'')+
     '<div class="table-scroll"><table class="calc-table"><thead><tr><th>Модель</th><th>Тотал</th><th>Направление</th><th>Вероятность</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
     '<p class="model-consensus-groups">'+(groups?escapeHtml(groups):'Совпадения однотипных методов не считаются независимым подтверждением')+'</p><p class="model-anomaly">'+escapeHtml(anomaly)+'</p><div class="model-tool-list">'+toolsHtml+'</div><p class="muted model-training-note">'+escapeHtml(data.mlStatus)+'</p></section>';
 }
 
 function aiSignalHtml(signal,title){
-  if(!signal)return '<p class="muted">ИИ-анализ: недостаточно подтверждённых данных</p>';
+  if(!signal)return '<p class="muted">Основной расчёт: недостаточно подтверждённых данных</p>';
   const best=signal.strongest;
   const direction=best
     ?(best.direction==="без преимущества"?"Нет перевеса":best.direction)+" относительно линии "+best.line
