@@ -215,8 +215,8 @@ const { chromium } = require("playwright");
       Array.from(document.styleSheets).map(sheet => sheet.href || "").find(href => href.includes("/static/styles.css")) || ""
     );
     result.ui_smoke = { status: "skipped_old_deployment", app_script: appScriptUrl, stylesheet: stylesheetUrl,
-      expected_bundle: "20261119-integrity-v59", expected_stylesheet: "20261119-ui-v6" };
-    if (appScriptUrl.includes("20261119-integrity-v59") && stylesheetUrl.includes("20261119-ui-v6")) {
+      expected_bundle: "20261119-integrity-v60", expected_stylesheet: "20261119-ui-v6" };
+    if (appScriptUrl.includes("20261119-integrity-v60") && stylesheetUrl.includes("20261119-ui-v6")) {
       const smokeRow = result.forecasts.find(row => row.event_id);
       if (smokeRow) {
         const uiPayload = {
@@ -297,7 +297,8 @@ const { chromium } = require("playwright");
           openedExplanation = await explanation.locator("summary").innerText();
           await explanation.locator("summary").click();
         }
-        await page.evaluate(() => window.scrollTo(0, Math.min(450, document.documentElement.scrollHeight - window.innerHeight)));
+        await page.evaluate(() => { document.documentElement.style.scrollBehavior = "auto"; window.scrollTo({top:Math.min(450, document.documentElement.scrollHeight - window.innerHeight),behavior:"instant"}); });
+        await page.waitForTimeout(120);
         const scrollBefore = await page.evaluate(() => window.scrollY);
         await page.waitForFunction(() => {
           const button = document.querySelector("#refreshLiveMatches");
