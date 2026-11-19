@@ -36,8 +36,8 @@ def settle_prediction(contract: dict[str, Any], final_record: dict[str, Any] | N
     target_type = target.get("type")
     if target_type == "match":
         includes_overtime = final_record.get("includes_overtime")
-        if not isinstance(includes_overtime, bool):
-            return {"status": "unresolved", "reason": "market overtime settlement rule is unknown",
+        if not isinstance(includes_overtime, bool) or final_record.get("market_rule_confirmed") is not True:
+            return {"status": "unresolved", "reason": "market overtime settlement rule is not independently confirmed",
                     "event_id": event_id, "snapshot_id": snapshot_id}
         total_key = "total_with_overtime" if includes_overtime else "regulation_total"
         total = final_record.get(total_key)
