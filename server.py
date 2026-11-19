@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional
-import math, random, os, hashlib, re, asyncio, json, sqlite3, zlib, io, zipfile, pathlib
+import math, random, os, hashlib, re, asyncio, json, sqlite3, zlib, io, zipfile, pathlib, copy
 from datetime import datetime, timezone, timedelta
 from html.parser import HTMLParser
 from html import unescape
@@ -870,7 +870,7 @@ async def _enrich_with_sofascore_live(events):
     errors = []
     try:
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(7.0, connect=4.0),
+            timeout=httpx.Timeout(4.5, connect=2.5),
             follow_redirects=True,
             headers=headers,
         ) as client:
@@ -943,7 +943,7 @@ async def _enrich_with_sofascore_live(events):
             sportscore_raw_counts = []
             sportscore_status_samples = []
             async with httpx.AsyncClient(
-                timeout=httpx.Timeout(8.0, connect=4.0),
+                timeout=httpx.Timeout(3.5, connect=1.8),
                 follow_redirects=True,
                 headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
             ) as client:
@@ -2079,7 +2079,7 @@ async def _enrich_with_sofascore_live(events):
     stats_checked = 0
     if matched_rows:
         stats_cache = globals().setdefault("_SOFASCORE_STATS_CACHE", {})
-        stats_semaphore = asyncio.Semaphore(20)
+        stats_semaphore = asyncio.Semaphore(4)
 
         async def fetch_event_statistics(pari, row):
             event_id = row.get("id")
@@ -2110,8 +2110,16 @@ async def _enrich_with_sofascore_live(events):
                     if not stats_payload:
                         return False, last_error
             source_stats = stats_payload.get("statistics") or stats_payload
-            groups = source_stats.get("groups", []) if isinstance(source_stats, dict) else []
+            if not isinstance(source_stats, dict) or "groups" not in source_stats:
+                return False, "statistics_format_unrecognized"
+            groups = source_stats.get("groups")
+            if not isinstance(groups, list):
+                return False, "statistics_format_unrecognized"
+            if not groups:
+                return False, "statistics_section_absent"
             normalized = []
+            raw_stat_rows = 0
+            unmapped_stat_names = 0
             metric_patterns = (
                 ("three_pointers", r"3.?point|three.?point|3.?очк|тр[её]х.?очк|3pt|three.?pointers"),
                 ("two_pointers", r"2.?point|two.?point|2.?очк|двух.?очк|2pt|two.?pointers"),
@@ -2135,6 +2143,7 @@ async def _enrich_with_sofascore_live(events):
                 for stat in group.get("statistics", []) if isinstance(group.get("statistics"), list) else []:
                     if not isinstance(stat, dict):
                         continue
+                    raw_stat_rows += 1
                     name = str(stat.get("name") or stat.get("key") or "")
                     home_value, away_value = stat.get("home"), stat.get("away")
                     if home_value is None and away_value is None:
@@ -2144,6 +2153,8 @@ async def _enrich_with_sofascore_live(events):
                                        if re.search(pattern, searchable, re.I)), None)
                     if metric_key:
                         present_metrics.add(metric_key)
+                    else:
+                        unmapped_stat_names += 1
                     normalized.append({
                         "group": group_name, "name": name, "metric_key": metric_key,
                         "home": home_value, "away": away_value,
@@ -2151,6 +2162,12 @@ async def _enrich_with_sofascore_live(events):
                         "away_value": stat.get("awayValue"),
                         "compare_code": stat.get("compareCode"),
                         "source": "SofaScore",
+                        "source_event_id": cache_key,
+                        "observed_at_utc": stats_payload.get("updatedAt") or stats_payload.get("updated_at"),
+                        "received_at_utc": datetime.now(timezone.utc).isoformat(),
+                        "target": "match",
+                        "target_period": None,
+                        "match_status": "exact_event_id_match",
                     })
             if normalized:
                 expected_metrics = [key for key, _ in metric_patterns]
@@ -2183,10 +2200,14 @@ async def _enrich_with_sofascore_live(events):
                     "complete": not combined_missing,
                 }
                 return True, len(normalized)
-            return False, "statistics_empty"
+            if raw_stat_rows and unmapped_stat_names == raw_stat_rows:
+                return False, "statistics_metric_codes_unmapped"
+            if raw_stat_rows:
+                return False, "statistics_values_empty"
+            return False, "statistics_section_empty"
 
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(4.5, connect=2.0),
+            async with httpx.AsyncClient(timeout=httpx.Timeout(2.8, connect=1.4),
                                           follow_redirects=True, headers=headers) as stats_client:
                 results = await asyncio.gather(
                     *(fetch_event_statistics(pari, row) for pari, row in matched_rows),
@@ -2574,6 +2595,48 @@ def _finalize_live_statistics(events):
                                      "home":parsed_pair[0][index],"away":parsed_pair[1][index],
                                      "source":row.get("source","unknown")})
         normalized = expanded
+        observed_at = event.get("feed_checked_at_utc") or event.get("checked_at_utc")
+        received_at = datetime.now(timezone.utc).isoformat()
+        external_match = event.get("external_live") if isinstance(event.get("external_live"), dict) else {}
+        for stat_row in normalized:
+            source_name = str(stat_row.get("source") or "unknown")
+            stat_row.setdefault("event_id", str(event.get("id") or ""))
+            source_observed_at = stat_row.get("observed_at_utc")
+            observation_basis = "provider_timestamp" if source_observed_at else "pari_feed_snapshot_proxy"
+            if source_name == "PARI":
+                stat_row.setdefault("source_event_id", str(event.get("id") or ""))
+                stat_row.setdefault("match_status", "pari_event_id")
+                if source_observed_at is None:
+                    source_observed_at = observed_at
+                    observation_basis = "pari_feed_timestamp"
+            else:
+                if stat_row.get("source_event_id") is None and external_match.get("source") == source_name:
+                    stat_row["source_event_id"] = external_match.get("event_id")
+                if stat_row.get("match_status") is None:
+                    stat_row["match_status"] = "matched_external_event" if external_match.get("source") == source_name else "not_confirmed"
+                if source_observed_at is None:
+                    source_observed_at = observed_at
+            stat_row.setdefault("target", "period" if stat_row.get("period") is not None else "match")
+            stat_row.setdefault("target_period", stat_row.get("period"))
+            stat_row["observed_at_utc"] = source_observed_at
+            stat_row["observation_basis"] = observation_basis
+            stat_row.setdefault("received_at_utc", received_at)
+            stat_row.setdefault("availability", "available")
+            stat_row["freshness_seconds"] = None
+            if source_name != "PARI" and observation_basis == "pari_feed_snapshot_proxy":
+                stat_row["freshness_status"] = "source_timestamp_unavailable"
+            elif source_observed_at:
+                try:
+                    observed_dt = datetime.fromisoformat(str(source_observed_at).replace("Z", "+00:00"))
+                    if observed_dt.tzinfo is None:
+                        observed_dt = observed_dt.replace(tzinfo=timezone.utc)
+                    age = max(0, int((datetime.now(timezone.utc) - observed_dt).total_seconds()))
+                    stat_row["freshness_seconds"] = age
+                    stat_row["freshness_status"] = "fresh" if age <= 60 else "stale"
+                except (TypeError, ValueError, OverflowError):
+                    stat_row["freshness_status"] = "timestamp_unparseable"
+            else:
+                stat_row["freshness_status"] = "source_timestamp_unavailable"
         by_key = {}
         for row in normalized:
             if row.get("metric_key") and row["metric_key"] not in by_key:
@@ -2613,8 +2676,28 @@ def _finalize_live_statistics(events):
                                   "values":[{"source":x.get("source"),"home":x.get("home"),"away":x.get("away")} for x in rows]})
         sources = list(dict.fromkeys(str(row.get("source") or "unknown") for row in normalized))
         event["statistics_source"] = " + ".join(sources) if sources else None
+        source_diag = event.get("statistics_source_diagnostics") or {}
+        missing_status = {}
+        for metric in missing:
+            if source_diag.get("timeout"):
+                reason = "timeout"
+            elif source_diag.get("unavailable"):
+                reason = "source_unavailable"
+            elif source_diag.get("format_unrecognized"):
+                reason = "format_unrecognized"
+            elif source_diag.get("parse_error"):
+                reason = "parse_error"
+            elif source_diag.get("match_status") == "no_exact_match":
+                reason = "no_exact_match"
+            elif source_diag.get("metric_codes_unmapped") or event.get("pari_statistics_unmapped"):
+                reason = "unknown_metric_code"
+            else:
+                reason = "field_absent_from_returned_sources"
+            missing_status[metric] = reason
         event["statistics_quality"] = {
             "available_metrics":available,"missing_metrics":missing,
+            "missing_status":missing_status,
+            "source_diagnostics":source_diag,
             "available_count":len(set(available).intersection(expected)),
             "expected_count":len(expected),
             "coverage_percent":round(len(set(available).intersection(expected))/len(expected)*100),
@@ -2711,6 +2794,73 @@ def _extract_pari_live_statistics(objects):
         walk(obj)
     return {"match": list(found.values()), "periods": list(period_found.values()),
             "unmapped": list(unmapped_found.values())[:40]}
+
+
+# Per-event enrichment cache: PARI list/markets never wait for optional providers.
+_LIVE_ENRICHMENT_CACHE = {}
+_LIVE_ENRICHMENT_TASK = None
+_LIVE_ENRICHMENT_LAST_STATUS = {"status": "not_started", "checked_at_utc": None}
+
+
+def _live_event_signature(event):
+    return (str(event.get("team1") or "").strip().casefold(),
+            str(event.get("team2") or "").strip().casefold())
+
+
+async def _refresh_live_enrichment_background(events_snapshot):
+    global _LIVE_ENRICHMENT_TASK, _LIVE_ENRICHMENT_LAST_STATUS
+    try:
+        diagnostics = await _enrich_with_sofascore_live(events_snapshot)
+        _finalize_live_statistics(events_snapshot)
+        now = datetime.now(timezone.utc)
+        source_errors = [str(x) for x in (diagnostics.get("statistics_errors") or [])]
+        timeout_seen = any("timeout" in x.casefold() for x in source_errors)
+        unavailable_seen = any(("http_" in x.casefold() or "connect" in x.casefold() or "nameerror" in x.casefold()) for x in source_errors)
+        format_unrecognized_seen = any("format_unrecognized" in x.casefold() for x in source_errors)
+        parse_error_seen = any("parse" in x.casefold() or "decode" in x.casefold() for x in source_errors)
+        metric_codes_unmapped_seen = any("metric_codes_unmapped" in x.casefold() for x in source_errors)
+        for event in events_snapshot:
+            event_id = str(event.get("id") or "")
+            if not event_id:
+                continue
+            match_status = "matched" if event.get("external_statistics") or event.get("external_live") else (
+                "no_exact_match" if diagnostics.get("unmatched_pari") else "not_confirmed"
+            )
+            event["statistics_source_diagnostics"] = {
+                "match_status": match_status, "timeout": timeout_seen,
+                "unavailable": unavailable_seen,
+                "format_unrecognized": format_unrecognized_seen,
+                "parse_error": parse_error_seen,
+                "metric_codes_unmapped": metric_codes_unmapped_seen,
+                "source_errors": source_errors[:8],
+                "source_status": diagnostics.get("status"),
+                "checked_at_utc": diagnostics.get("checked_at_utc") or now.isoformat(),
+            }
+            _LIVE_ENRICHMENT_CACHE[event_id] = {
+                "expires": now.timestamp() + 45,
+                "signature": _live_event_signature(event),
+                "external_live": copy.deepcopy(event.get("external_live")),
+                "external_statistics": copy.deepcopy([
+                    row for row in (event.get("external_statistics") or [])
+                    if str(row.get("source") or "") not in ("PARI", "derived")
+                ]),
+                "statistics_source_diagnostics": copy.deepcopy(event["statistics_source_diagnostics"]),
+                "diagnostics": copy.deepcopy(diagnostics),
+            }
+        _LIVE_ENRICHMENT_LAST_STATUS = {
+            "status": diagnostics.get("status", "completed"),
+            "checked_at_utc": diagnostics.get("checked_at_utc") or now.isoformat(),
+            "matched": diagnostics.get("matched", 0),
+            "statistics_matches": diagnostics.get("statistics_matches", 0),
+            "errors": diagnostics.get("statistics_errors", [])[:8],
+        }
+    except Exception as exc:
+        _LIVE_ENRICHMENT_LAST_STATUS = {
+            "status": "error", "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+            "errors": [type(exc).__name__],
+        }
+    finally:
+        _LIVE_ENRICHMENT_TASK = None
 
 
 # PARI public LIVE events feed. The endpoint is read-only; no account or betting actions.
@@ -3476,30 +3626,57 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                 # catalogue diagnostics are only needed by the explicit catalog_only
                 # diagnostic request, never by every phone refresh.
                 if not catalog_only:
-                    # PARI is authoritative for markets/odds. Fill missing score,
-                    # period and clock only from a separately verified live event.
-                    # External score providers must never prevent PARI matches and
-                    # markets from reaching the browser. Give enrichment a short
-                    # budget; return the authoritative PARI feed even on timeout.
-                    try:
-                        live_enrichment = await asyncio.wait_for(
-                            _enrich_with_sofascore_live(basketball), timeout=8.0
-                        )
-                    except asyncio.TimeoutError:
-                        live_enrichment = {
-                            "source": "sofascore+sportscore",
-                            "status": "timeout",
-                            "matched": 0,
-                            "errors": ["Внешнее обогащение превысило лимит 8 секунд; матчи и линии PARI возвращены без ожидания дополнительных источников."]
-                        }
-                    except Exception as exc:
-                        live_enrichment = {
-                            "source": "sofascore+sportscore",
-                            "status": "error",
-                            "matched": 0,
-                            "errors": [type(exc).__name__ + ": " + str(exc)[:180]]
-                        }
+                    # Apply only a recent enrichment snapshot for this exact PARI event.
+                    now_ts = datetime.now(timezone.utc).timestamp()
+                    cache_applied = 0
+                    needs_enrichment = False
+                    for event in basketball:
+                        event_id = str(event.get("id") or "")
+                        cached = _LIVE_ENRICHMENT_CACHE.get(event_id, {})
+                        if (cached.get("expires", 0) <= now_ts or
+                                cached.get("signature") != _live_event_signature(event)):
+                            needs_enrichment = True
+                            continue
+                        cache_applied += 1
+                        cached_stats = cached.get("external_statistics") or []
+                        if cached_stats:
+                            existing = list(event.get("external_statistics") or [])
+                            event["external_statistics"] = existing + [row for row in cached_stats if row not in existing]
+                        cached_live = cached.get("external_live")
+                        if isinstance(cached_live, dict):
+                            event["external_live"] = cached_live
+                            if event.get("score") is None and cached_live.get("score") is not None:
+                                event["score"] = cached_live["score"]
+                                event["score_source"] = cached_live.get("source")
+                            if event.get("period") is None and cached_live.get("period") is not None:
+                                event["period"] = cached_live["period"]
+                                event["period_source"] = cached_live.get("source")
+                            if event.get("clock") is None and cached_live.get("clock"):
+                                event["clock"] = cached_live["clock"]
+                                event["clock_source"] = cached_live.get("source")
+                        if cached.get("statistics_source_diagnostics"):
+                            event["statistics_source_diagnostics"] = cached["statistics_source_diagnostics"]
                     _finalize_live_statistics(basketball)
+
+                    # Queue optional providers independently of the fast PARI response.
+                    global _LIVE_ENRICHMENT_TASK, _LIVE_ENRICHMENT_LAST_STATUS
+                    if needs_enrichment and (_LIVE_ENRICHMENT_TASK is None or _LIVE_ENRICHMENT_TASK.done()):
+                        _LIVE_ENRICHMENT_TASK = asyncio.create_task(
+                            _refresh_live_enrichment_background(copy.deepcopy(basketball))
+                        )
+                        enrichment_status = "background_queued"
+                    elif _LIVE_ENRICHMENT_TASK is not None and not _LIVE_ENRICHMENT_TASK.done():
+                        enrichment_status = "background_running"
+                    else:
+                        enrichment_status = "cached" if cache_applied else "not_required"
+                    live_enrichment = {
+                        "source": "SofaScore + SportScore",
+                        "status": enrichment_status,
+                        "background_status": _LIVE_ENRICHMENT_LAST_STATUS,
+                        "matched": sum(1 for e in basketball if e.get("external_live")),
+                        "statistics_matches": sum(1 for e in basketball if e.get("external_statistics")),
+                        "note": "PARI list and markets are returned independently; optional provider enrichment is cached per event in the background."
+                    }
                     print("PARI_LIVE_DIAG " + json.dumps({
                         "ok": True,
                         "host": host,
@@ -3568,6 +3745,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "connected": True,
                         "source": url + "?lang=ru&scopeMarket=2300",
                         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+                        "source_url": url,
+                        "successful_source": host,
                         "total_events": len(all_events),
                         "basketball_events": len(basketball),
                         "events": basketball,
