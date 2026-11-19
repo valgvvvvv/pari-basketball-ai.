@@ -2450,6 +2450,29 @@ _PARI_TIMER_OBSERVATIONS = {}
 # the format from the source timer if the service has restarted.
 _PARI_PERIOD_FORMAT_OBSERVATIONS = {}
 
+def _pari_period_from_match_timer(timer_seconds, period_length_seconds,
+                                  period_count, direction):
+    """Resolve the active quarter from a verified cumulative match timer."""
+    try:
+        raw = float(timer_seconds)
+        length = int(period_length_seconds)
+        count = int(period_count)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if length not in (600, 720) or count not in (2, 4) or raw < 0:
+        return None
+    if direction == "up":
+        elapsed = raw
+    elif direction == "down":
+        elapsed = length * count - raw
+    else:
+        return None
+    total = length * count
+    if elapsed < 0 or elapsed > total + 300:
+        return None
+    return min(count, max(1, int(elapsed // length) + 1))
+
+
 def _pari_infer_period_format_from_timeline(period_number, timer_seconds,
                                             period_remaining_seconds,
                                             period_count=4):
@@ -3732,6 +3755,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         return None
 
                     explicit_period = _period_number(period_value)
+                    period_value_is_direct = period_value is not None
                     if explicit_period is None:
                         score_groups = live_info.get("scores")
                         if isinstance(score_groups, list) and len(score_groups) > 1 and isinstance(score_groups[1], list):
@@ -3801,10 +3825,27 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             "period_count": int(period_count),
                         }
 
+                    # PARI timerSeconds is a cumulative match clock in the
+                    # observed live feed. If the apparent period came only from a
+                    # child quarter row (often a future 0:0 market row), resolve it
+                    # against the already-verified timer direction before normalizing.
+                    if (not period_value_is_direct and period_length_seconds in (600, 720)
+                            and period_count in (2, 4) and timer_seconds is not None
+                            and (timer_seconds > period_length_seconds
+                                 or (_PARI_TIMER_OBSERVATIONS.get(str(event.get("id") or ""), {}).get("scope") == "match"))):
+                        timer_state = _PARI_TIMER_OBSERVATIONS.get(str(event.get("id") or ""), {})
+                        timer_period = _pari_period_from_match_timer(
+                            timer_seconds, period_length_seconds, period_count,
+                            timer_state.get("direction")
+                        )
+                        if timer_period is not None:
+                            explicit_period = timer_period
+                            period_value = timer_period
+
                     # Prefer PARI's explicit per-period countdown when present.
                     # Its field semantics (clock/countdown/periodClock/timeRemaining)
                     # are already specific to the active period; generic timerSeconds
-                    # is a separate match timer and must not override it.
+                    # is a cumulative match clock and must not override the period clock.
                     normalized_timer = _pari_normalize_timer(
                         event.get("id"), timer_seconds, timer_direction, explicit_period,
                         period_length_seconds, period_count, timer_paused, overtime_detected
