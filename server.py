@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 from html.parser import HTMLParser
 from html import unescape
 import httpx
+import tempfile
 from result_validation import settle_prediction
 from match_identity import match_context_compatible as external_match_context_compatible
 
@@ -2281,6 +2282,13 @@ def _stat_value_for_ui(value):
 # Generic "friendly" and BSKT labels are intentionally NOT assigned a global format:
 # those events require explicit per-event format metadata or remain blocked.
 PARI_COMPETITION_FORMATS = {
+    "37222": {
+        "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "EuroLeague regulation format: four 10-minute quarters; FIBA Article 8.1",
+        "rules_version": "EuroLeague 2026-27 / FIBA playing-time format",
+        "source_url": "https://assets.fiba.basketball/image/upload/documents-corporate-fiba-official-rules-2024-v10a.pdf",
+        "competition_rules_url": "https://mediacentre.euroleague.net/en/app/2/communication/communication/preview/24461",
+    },
     "59836": {
         "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
         "source": "KBL 2026-2027 official game rules, Article 8.1 and 8.7",
@@ -2623,67 +2631,16 @@ def _pari_infer_period_format_from_timeline(period_number, timer_seconds,
     return None
 
 
-def _pari_infer_period_format_from_period_timer(period_number, timer_seconds,
-                                                       period_count=4):
-    """Choose 10/12 minutes only if the current period rules out the other length."""
-    try:
-        period = int(period_number)
-        raw = float(timer_seconds)
-        count = int(period_count)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    if not (1 <= period <= count <= 4 and raw >= 0):
-        return None
-    compatible = []
-    for length in (600, 720):
-        total = length * count
-        if raw > total:
-            continue
-        up_period = min(count, max(1, int(raw // length) + 1))
-        down_elapsed = total - raw
-        down_period = min(count, max(1, int(down_elapsed // length) + 1))
-        if period in (up_period, down_period):
-            compatible.append(length)
-    if len(compatible) != 1:
-        return None
-    length = compatible[0]
-    return {
-        "period_length_seconds": length,
-        "period_count": count,
-        "source": "PARI cumulative timer + active quarter-score timeline distinguish 10/12-minute format",
-        "rules_version": "event_timeline_format_inference",
-        "source_url": None,
-    }
+def _pari_infer_period_format_from_period_timer(period_number, timer_seconds, period_count=4):
+    # One timer does not establish its scope, direction or period length.
+    return None
 
 
-def _pari_infer_period_format_from_match_boundary(period_number, timer_seconds,
-                                                  period_count=4):
-    """Learn 10/12-minute format only when cumulative timer is at a period boundary."""
-    try:
-        period = int(period_number)
-        raw = float(timer_seconds)
-        count = int(period_count)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    if not (2 <= period <= count <= 4 and raw >= 0):
-        return None
-    candidates = [raw / (period - 1)]
-    remaining_periods = count - period + 1
-    if remaining_periods > 0:
-        candidates.append(raw / remaining_periods)
-    supported = sorted({standard for candidate in candidates
-                        for standard in (600, 720)
-                        if abs(candidate - standard) <= 5})
-    if len(supported) != 1:
-        return None
-    length = supported[0]
-    return {
-        "period_length_seconds": length,
-        "period_count": count,
-        "source": "PARI cumulative match timer at quarter boundary",
-        "rules_version": "event_boundary_inference",
-        "source_url": None,
-    }
+def _pari_infer_period_format_from_match_boundary(period_number, timer_seconds, period_count=4):
+    # Q4 at 2160 seconds can mean 6:00 into a 10-minute quarter OR
+    # the start of a 12-minute quarter. A numeric multiple is not a transition.
+    # Require the competition registry or an independent quarter countdown.
+    return None
 
 
 def _pari_normalize_timer(event_id, timer_seconds, timer_direction, period_number,
@@ -4885,7 +4842,7 @@ async def _schedule_pari_stats_discovery():
 # --- Persistent match research archive ---------------------------------------
 # A mounted Render disk at /var/data makes this durable. Without one, use a
 # clearly marked temporary path; never claim that ephemeral storage is durable.
-_ARCHIVE_DIR = pathlib.Path("/var/data") if pathlib.Path("/var/data").is_dir() else pathlib.Path("/tmp")
+_ARCHIVE_DIR = pathlib.Path("/var/data") if pathlib.Path("/var/data").is_dir() else pathlib.Path(tempfile.gettempdir())
 _ARCHIVE_DB = _ARCHIVE_DIR / "pari_match_archive.sqlite3"
 _ARCHIVE_LOCK = asyncio.Lock()
 _ARCHIVE_LAST = {"checked_at": None, "events": 0, "saved": 0, "error": None}

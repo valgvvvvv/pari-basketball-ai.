@@ -63,38 +63,29 @@ function findLivePeriod(ev){
     if(value==null)continue;
     if(typeof value==="number"&&Number.isInteger(value)&&value>=1&&value<=8)return value;
     const str=String(value).toLowerCase().trim();
-    const m=str.match(/(?:q|quarter|period|период|четверт\\w*|\\b)([1-8])(?:\\b|$)/i)||str.match(/^([1-8])$/);
+    const m=str.match(/(?:q|quarter|period|период|четверт[а-яё]*)\s*([1-8])(?:\b|$)/i)||str.match(/^([1-8])$/);
     if(m)return Number(m[1]);
     if(/^(?:ot|overtime|extra time|овертайм|дополнительный период)$/i.test(str))return 5;
   }
   const status=String(ev.status||ev.live_fields?.status||ev.raw?.status||"").toLowerCase();
-  if(/\\b(?:ot|overtime|extra time)\\b|овертайм|дополнительн\\w* период/.test(status))return 5;
+  if(/\b(?:ot|overtime|extra time)\b|овертайм|дополнительн[а-яё]* период/.test(status))return 5;
   return null;
 }
 function formatElapsedClock(seconds){const n=Math.max(0,Math.round(Number(seconds)||0));return String(Math.floor(n/60)).padStart(2,"0")+":"+String(n%60).padStart(2,"0");}
 function humanClockSource(value){const s=String(value||"");return s==="PARI_timer_and_period_consistency"?"Таймер PARI, сверенный с периодом":s||"источник не указан";}
 function findLiveClock(ev){
-  // Refresh a PARI count-up timer against its source timestamp. The server
-  // has already verified period format and period/timer consistency.
+  if(ev?.clock_integrity?.valid===false)return null;
+  // Use one source snapshot for score and clock. Wall time is not playing time.
   const period=findLivePeriod(ev);
   // Do not call inferPeriodLengthForForecast here: its provisional-format
   // branch reads findLiveClock. Only explicit/server-normalized duration is safe.
   const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||
     findPeriodLengthSeconds(ev)||0);
   const elapsedRaw=ev?.match_elapsed_seconds??ev?.external_live?.match_elapsed_seconds;
-  const elapsedBase=Number(elapsedRaw);
+  const elapsedBase=elapsedRaw==null?NaN:Number(elapsedRaw);
   if((ev?.clock_source||ev?.live_fields?.clock_source)==="PARI_timer_and_period_consistency"&&
      Number.isFinite(elapsedBase)&&length>=300&&length<=1200&&period>=1&&period<=4){
-    let elapsed=elapsedBase;
-    const timestamp=Number(ev?.timer_timestamp_msec||ev?.live_fields?.timer_timestamp_msec||
-      ev?.external_live?.timer_timestamp_msec||0);
-    const stateText=String(ev?.live_fields?.st3||ev?.live_fields?.status||ev?.live_fields?.comment||"").toLowerCase();
-    if(timestamp>0&&!(ev?.timer_paused??ev?.live_fields?.timer_paused)&&
-       !/timeout|break|halftime|перерыв|тайм-аут|таймаут/.test(stateText)){
-      const age=(Date.now()-timestamp)/1000;
-      if(Number.isFinite(age)&&age>=0&&age<=60)elapsed+=age;
-    }
-    const elapsedPeriod=elapsed-(period-1)*length;
+    const elapsedPeriod=elapsedBase-(period-1)*length;
     if(elapsedPeriod>=0&&elapsedPeriod<=length+2){
       const remaining=Math.max(0,length-Math.min(length,elapsedPeriod));
       return String(Math.floor(remaining/60)).padStart(2,"0")+":"+String(Math.floor(remaining%60)).padStart(2,"0");
@@ -123,17 +114,17 @@ function findLiveClock(ev){
     const m=text.match(/^(\d{1,2}):([0-5]\d)$/);
     if(m){
       const seconds=Number(m[1])*60+Number(m[2]);
-      if(seconds<=1200)return m[1].padStart(2,"0")+":"+m[2];
+      if(seconds<=(length||1200))return m[1].padStart(2,"0")+":"+m[2];
       continue;
     }
     if(typeof candidate==="number"||/^\d{1,4}$/.test(text)){
       const seconds=Number(candidate);
-      if(Number.isInteger(seconds)&&seconds>=0&&seconds<=1200)
+      if(Number.isInteger(seconds)&&seconds>=0&&seconds<=(length||1200))
         return String(Math.floor(seconds/60)).padStart(2,"0")+":"+String(seconds%60).padStart(2,"0");
     }
   }
   // Fallback only for server-confirmed cumulative PARI timers.
-  if(Number.isFinite(elapsedBase)&&length>=300&&length<=1200&&period>=1&&period<=4){
+  if(ev?.timer_semantics_verified===true&&Number.isFinite(elapsedBase)&&length>=300&&length<=1200&&period>=1&&period<=4){
     const elapsedPeriod=elapsedBase-(period-1)*length;
     if(elapsedPeriod>=0&&elapsedPeriod<=length+2){
       const remaining=Math.max(0,length-Math.min(length,elapsedPeriod));
@@ -1125,14 +1116,44 @@ function automaticForecast(ev) {
 function quarterHighlightInfo(ev){
   const period=findLivePeriod(ev),clock=findLiveClock(ev);
   const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||inferPeriodLengthForForecast(ev)?.seconds||0);
-  const match=String(clock||"").match(/^(\\d{1,2}):([0-5]\\d)$/);
+  const match=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
   if(!period||!match||!Number.isFinite(length)||length<300||length>1200)return null;
   const remaining=Number(match[1])*60+Number(match[2]);
   if(remaining>length)return null;
   const elapsed=length-remaining;
-  if(elapsed<300||elapsed>480)return null;
+  if(period>4||elapsed<240||elapsed>480)return null;
   return {period,elapsed,minute:Math.floor(elapsed/60),second:elapsed%60};
 }
+
+function prioritySignals(ev,forecast,quarterForecast){
+  const at=Date.parse(ev?.feed_checked_at_utc||"");
+  const windowInfo=quarterHighlightInfo(ev);
+  return window.PARIForecastCore.selectPrioritySignals({
+    ageSeconds:Number.isFinite(at)?(Date.now()-at)/1000:null,
+    period:findLivePeriod(ev),elapsedSeconds:windowInfo?.elapsed,
+    timerVerified:ev?.timer_semantics_verified===true,
+    clockValid:ev?.clock_integrity?.valid!==false&&!!findLiveClock(ev),
+    scoreValid:validateScoreTimeline(ev,findLiveScore(ev),findLivePeriod(ev)).valid,
+    quarter:{ready:quarterForecast.ready,current:quarterForecast.current,preliminary:quarterForecast.preliminary,probabilities:quarterForecast.lines},
+    match:{ready:forecast.ready&&forecast.kind==="live_tempo",current:forecast.estimate?.current,preliminary:forecast.estimate?.preliminary,
+      probabilities:forecast.estimate?.poisson?.probabilities}
+  });
+}
+function priorityLabel(signal){
+  const probability=signal.probability>=0.999?"≥99.9":(signal.probability*100).toFixed(1);
+  return (signal.target==="quarter"?"Четверть Q"+signal.period:"Матч · основное время")+
+    " · "+signal.direction+" "+signal.line+" · "+probability+"% по модели";
+}
+let prioritySignalsExpiresAt=0;
+function expirePrioritySignals(){
+  if(!prioritySignalsExpiresAt||Date.now()<prioritySignalsExpiresAt)return;
+  prioritySignalsExpiresAt=0;
+  if($("priorityForecasts"))$("priorityForecasts").textContent="Направления скрыты: ответ API старше 90 секунд. Ожидаем свежие данные.";
+  document.querySelectorAll(".priority-signal").forEach(el=>el.remove());
+  document.querySelectorAll(".live-match-priority").forEach(el=>el.classList.remove("live-match-priority"));
+}
+setInterval(expirePrioritySignals,5000);
+document.addEventListener("visibilitychange",expirePrioritySignals);
 
 function aiModelAnalysis(ev,matchForecast,quarterForecast){
   // The AI-labelled panel is a view of the canonical forecast, not a second estimator.
@@ -1313,11 +1334,14 @@ function aiSignalHtml(signal,title){
     '<small>'+escapeHtml(signal.drivers.join(" · "))+'</small><small>Это тот же основной прогноз, а не независимая ИИ-модель.</small></div>';
 }
 function findQuarterClockFromElapsed(ev,period,length){
+  if(ev?.clock_integrity?.valid===false)return null;
   const verified=ev?.timer_semantics_verified===true||ev?.live_fields?.timer_semantics_verified===true;
   if(!verified)return null;
   if(!Number.isInteger(Number(period))||!Number.isFinite(Number(length))||Number(length)<300)return null;
-  const periodElapsed=Number(ev?.period_elapsed_seconds??ev?.live_fields?.period_elapsed_seconds);
-  const matchElapsed=Number(ev?.match_elapsed_seconds??ev?.live_fields?.match_elapsed_seconds);
+  const periodRaw=ev?.period_elapsed_seconds??ev?.live_fields?.period_elapsed_seconds;
+  const matchRaw=ev?.match_elapsed_seconds??ev?.live_fields?.match_elapsed_seconds;
+  const periodElapsed=periodRaw==null?NaN:Number(periodRaw);
+  const matchElapsed=matchRaw==null?NaN:Number(matchRaw);
   const elapsedInQuarter=Number.isFinite(periodElapsed)?periodElapsed:
     Number.isFinite(matchElapsed)?matchElapsed-(Number(period)-1)*Number(length):NaN;
   if(!Number.isFinite(elapsedInQuarter)||elapsedInQuarter<0||elapsedInQuarter>Number(length))return null;
@@ -1502,7 +1526,7 @@ function liveMatchRenderFallback(ev) {
   const markets = (ev?.match_total_candidates || []).map(f =>
     f?.pt ? "Тотал "+f.pt+" · "+(f.v ?? "коэффициент не указан") : null).filter(Boolean);
   const details = [scoreText,periodText,clockText,statsText,...markets].filter(Boolean).map(safe).join(" · ");
-  return '<button type="button" class="live-match" data-event-id="' + safe(ev?.id) + '><span class="live-match-title">' + title + '</span><span class="live-match-meta">' + details + '</span><span class="live-match-meta forecast-pending">Прогноз недоступен: ошибка одного из расчётных блоков. Подробности — в диагностике.</span></button>';
+  return '<button type="button" class="live-match" data-event-id="' + safe(ev?.id) + '"><span class="live-match-title">' + title + '</span><span class="live-match-meta">' + details + '</span><span class="live-match-meta forecast-pending">Прогноз недоступен: ошибка одного из расчётных блоков. Подробности — в диагностике.</span></button>';
 }
 async function refreshLiveMatches() {
   nextLiveRefreshDelay = 30000;
@@ -1590,6 +1614,7 @@ async function refreshLiveMatches() {
       : "API PARI отвечает (" + data.total_events + " событий), но сейчас не найдено LIVE-событий мужского баскетбола после фильтрации лиг.";
     if (liveUpdated) liveUpdated.textContent = "Обновлено: " + new Date(data.checked_at_utc).toLocaleTimeString("ru-RU") + " · источник: " + (data.successful_source || data.source_url || "PARI");
     if (liveList) {
+      const priorityCards=[];
       liveList.innerHTML = count ? window.pariLiveEvents.map(ev => {
         try {
           const teams = escapeHtml(ev.team1 || "Команда 1") + " — " + escapeHtml(ev.team2 || "Команда 2");
@@ -1610,7 +1635,7 @@ async function refreshLiveMatches() {
           const timerDebug=timerRaw!=null
             ?("PARI timerSeconds: "+timerRaw+" с · timerDirection: "+(ev.timer_direction??"—")+" · "+timerNorm)
             :timerNorm;
-          const details = [ev.league || ev.sport_name, score, eventPeriod(ev), eventClock(ev), timerDebug, statsLabel, ...totalMarkets].filter(Boolean).map(escapeHtml).join(" · ");
+          const details = [ev.league || ev.sport_name, score, eventPeriod(ev), eventClock(ev), statsLabel].filter(Boolean).map(escapeHtml).join(" · ");
           const forecast = automaticForecast(ev);
           const quarterForecast = automaticQuarterForecast(ev);
           const aiAnalysis = aiModelAnalysis(ev,forecast,quarterForecast);
@@ -1644,8 +1669,11 @@ async function refreshLiveMatches() {
           }
           forecastHtml += quarterForecastMarkup(quarterForecast,ev);
           const quarterHighlight=quarterHighlightInfo(ev);
-          const highlightTag=quarterHighlight?'<span class="quarter-highlight-tag">★ ВЫДЕЛЕН: '+quarterHighlight.minute+'–8 мин Q'+quarterHighlight.period+'</span>':"";
-          return '<button type="button" class="live-match'+(quarterHighlight?' live-match-quarter-window':'')+'" data-event-id="' + escapeHtml(ev.id) + '">' +
+          const signals=prioritySignals(ev,forecast,quarterForecast);
+          const signalTag=signals.map(s=>'<span class="priority-signal">★ '+escapeHtml(priorityLabel(s))+'</span>').join("");
+          for(const s of signals)priorityCards.push({ev,signal:s,teams});
+          const highlightTag=signalTag+(quarterHighlight?'<span class="quarter-window-note">Окно 4–8 минут Q'+quarterHighlight.period+' · прошло '+quarterHighlight.minute+':'+String(quarterHighlight.second).padStart(2,"0")+'</span>':"");
+          return '<button type="button" class="live-match'+(signals.length?' live-match-priority':'')+'" data-event-id="' + escapeHtml(ev.id) + '">' +
             highlightTag + '<span class="live-match-title">' + teams + '</span><span class="live-match-meta">' + (details || "Событие получено из LIVE API PARI") + '</span>' + forecastHtml + '</button>';
   
         } catch (renderError) {
@@ -1655,6 +1683,18 @@ async function refreshLiveMatches() {
           return liveMatchRenderFallback(ev);
         }
       }).join("") : '<p class="muted">В текущем ответе нет подтверждённых баскетбольных LIVE-матчей.</p>';
+      const priorityPanel=$("priorityForecasts");
+      if(priorityPanel){
+        priorityCards.sort((a,b)=>b.signal.probability-a.signal.probability||String(a.ev.id).localeCompare(String(b.ev.id)));
+        prioritySignalsExpiresAt=priorityCards.length?Math.min(...priorityCards.map(x=>Date.parse(x.ev.feed_checked_at_utc)+90000)):0;
+        priorityPanel.innerHTML='<h3>Наиболее вероятные направления по модели</h3><p class="muted">Четверти: 4–8 минута; матч: Q3–Q4. Порог 65%, свежий ответ API до 90 с и проверенный таймер. Вероятности не калиброваны; доходность не подтверждена. Коэффициент и правило ОТ сверяйте в PARI.</p>'+(
+          priorityCards.length?priorityCards.slice(0,3).map(x=>'<button type="button" class="priority-card" data-event-id="'+escapeHtml(x.ev.id)+'"><b>'+x.teams+'</b><span>'+escapeHtml(priorityLabel(x.signal))+'</span><small>Открыть разбор →</small></button>').join(""):
+          '<p>Сейчас нет направлений, прошедших условия отбора. Проверьте таймер, свежесть данных и линии в разборе матча.</p>');
+        priorityPanel.querySelectorAll("[data-event-id]").forEach(el=>el.addEventListener("click",()=>{
+          const ev=window.pariLiveEvents.find(x=>String(x.id)===el.dataset.eventId);
+          if(ev)showSelectedMatch(ev);
+        }));
+      }
       liveList.querySelectorAll(".live-match").forEach(el => el.addEventListener("click", () => {
         const ev = (window.pariLiveEvents || []).find(x => String(x.id) === el.dataset.eventId);
         if (ev) showSelectedMatch(ev);
@@ -1687,6 +1727,9 @@ async function refreshLiveMatches() {
       sourceDetail.textContent = details.length ? details.join(" | ") : "Не удалось получить ответ PARI API";
     }
     if (liveBadge) { liveBadge.textContent = "Нет подтверждения LIVE"; liveBadge.className = "pill warn"; }
+    if($("priorityForecasts"))$("priorityForecasts").textContent="Отбор прогнозов приостановлен: нет свежего ответа LIVE. Предыдущие направления не актуальны.";
+    if(liveList)liveList.querySelectorAll(".priority-signal").forEach(el=>el.remove());
+    if(liveList)liveList.querySelectorAll(".live-match-priority").forEach(el=>el.classList.remove("live-match-priority"));
     if (liveMessage) liveMessage.textContent = "Не удалось получить список матчей: " + (error.message || "ошибка запроса");
     if (liveUpdated) liveUpdated.textContent = "Ошибка первого ответа: " + (error.message || "сбой запроса");
     $("feedStatus").textContent = "PARI LIVE: подключение не подтверждено";

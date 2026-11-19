@@ -88,5 +88,28 @@
       low80:quantile(outcomes,.10),high80:quantile(outcomes,.90),low95:quantile(outcomes,.025),high95:quantile(outcomes,.975),
       probabilities,method:posterior.method,distribution:"negative-binomial predictive (Gamma-Poisson)"};
   }
-  return {quarterPosterior,simulateQuarter};
+  function selectPrioritySignals(input){
+    const age=Number(input.ageSeconds),period=Number(input.period);
+    if(input.ageSeconds==null||!Number.isFinite(age)||age<0||age>90||
+       input.timerVerified!==true||input.scoreValid!==true||input.clockValid!==true||
+       ![1,2,3,4].includes(period))return [];
+    const result=[];
+    for(const target of ["quarter","match"]){
+      const f=input[target];
+      if(!f?.ready||f.preliminary||target==="match"&&period<3)continue;
+      if(target==="quarter"&&(!Number.isFinite(input.elapsedSeconds)||input.elapsedSeconds<240||input.elapsedSeconds>480))continue;
+      const candidates=(f.probabilities||[]).filter(x=>{
+        const values=[x.pOver,x.pUnder,x.pPush??0];
+        return x.line!=null&&Number.isFinite(Number(x.line))&&!x.stale&&
+          (f.current==null||Number(x.line)>Number(f.current))&&
+          values.every(v=>typeof v==="number"&&Number.isFinite(v)&&v>=0&&v<=1)&&
+          Math.abs(values.reduce((a,b)=>a+b,0)-1)<0.002;
+      }).map(x=>({target,period,line:Number(x.line),direction:x.pOver>=x.pUnder?"ТБ":"ТМ",
+        probability:Math.max(x.pOver,x.pUnder),push:x.pPush||0}));
+      candidates.sort((a,b)=>b.probability-a.probability||a.line-b.line);
+      if(candidates[0]?.probability>=0.65)result.push(candidates[0]);
+    }
+    return result.sort((a,b)=>b.probability-a.probability||a.target.localeCompare(b.target));
+  }
+  return {quarterPosterior,simulateQuarter,selectPrioritySignals};
 });

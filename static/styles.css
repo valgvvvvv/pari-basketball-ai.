@@ -166,3 +166,11 @@ html,body{max-width:100%;overflow-x:clip}
 
 /* The app restores the selected match's reading anchor itself after refresh. */
 html,body,#selectedMatch{overflow-anchor:none}
+.priority-forecasts{border:1px solid #ac8736;border-radius:12px;padding:16px;margin:18px 0;background:#211d14}
+.priority-forecasts h3{margin-top:0;color:#f7d779}
+.priority-card{display:flex;flex-direction:column;gap:8px;width:100%;text-align:left;padding:14px;margin-top:10px;border:1px solid #c49b40;border-radius:9px;background:#302818;color:#fff;cursor:pointer;overflow-wrap:anywhere}
+.priority-card span,.priority-signal{color:#ffe49a;font-weight:800}
+.live-match.live-match-priority{border:2px solid #e5b94f;background:#282316;box-shadow:0 0 0 1px #e5b94f33}
+.priority-signal{display:block;padding:6px 0;font-size:13px}
+.quarter-window-note{display:block;color:#adb9ce;font-size:11px}
+.priority-card:focus-visible,.live-match:focus-visible{outline:3px solid #79baff;outline-offset:3px}

@@ -1,5 +1,18 @@
 const assert = require("node:assert/strict");
 const core = require("../static/forecast-core.js");
+const priorityFixture={ageSeconds:20,period:3,elapsedSeconds:240,timerVerified:true,scoreValid:true,clockValid:true,
+  quarter:{ready:true,preliminary:false,probabilities:[{line:42.5,pOver:.72,pUnder:.28,pPush:0}]},
+  match:{ready:true,preliminary:false,probabilities:[{line:180.5,pOver:.25,pUnder:.75,pPush:0}]}};
+assert.equal(core.selectPrioritySignals(priorityFixture).length,2);
+assert.equal(core.selectPrioritySignals(priorityFixture)[0].direction,"ТМ");
+for(const patch of [{ageSeconds:null},{ageSeconds:91},{ageSeconds:-1},{timerVerified:false},{scoreValid:false},{clockValid:false},{period:5}])
+  assert.equal(core.selectPrioritySignals({...priorityFixture,...patch}).length,0);
+for(const elapsedSeconds of [239,481])
+  assert.equal(core.selectPrioritySignals({...priorityFixture,elapsedSeconds}).filter(x=>x.target==="quarter").length,0);
+assert.equal(core.selectPrioritySignals({...priorityFixture,elapsedSeconds:480}).length,2);
+assert.equal(core.selectPrioritySignals({...priorityFixture,period:2}).filter(x=>x.target==="match").length,0);
+for(const probabilities of [[{line:42.5,pOver:.8,pUnder:.8}],[{line:null,pOver:.9,pUnder:.1}],[{line:42.5,pOver:.64,pUnder:.36}],[{line:42.5,pOver:.9,pUnder:.1,stale:true}]])
+  assert.equal(core.selectPrioritySignals({...priorityFixture,quarter:{ready:true,probabilities}}).filter(x=>x.target==="quarter").length,0);
 const fs = require("node:fs");
 const vm = require("node:vm");
 const appSource = fs.readFileSync(require("node:path").join(__dirname, "../static/app.js"), "utf8");
@@ -158,7 +171,7 @@ assert.ok(!applyPoissonSource.includes("dataQuality.rolling_snapshot_count="), "
 assert.ok(appSource.includes("priorExposureSeconds:aggregatePriorExposureSeconds"), "missing period splits must use aggregate historical score and exact exposure");
 assert.ok(!appSource.slice(appSource.indexOf("function saveAnalysisHistory("),appSource.indexOf("function clearAnalysisHistory(")).includes("if(!estimate&&!quarter?.ready)return"), "raw snapshot history must persist even when no forecast is available");
 assert.ok(appSource.includes('forecastStatus:estimate||quarter?.ready?"calculated":"not_available"'), "history must distinguish snapshot from forecast availability");
-assert.ok(htmlSource.includes("20261119-integrity-v74"), "history fix must bump frontend cache");
+assert.ok(htmlSource.includes("20261120-integrity-v75"), "history fix must bump frontend cache");
 assert.ok(htmlSource.includes("confirmedIndependentMatches") && htmlSource.includes("Финалы ещё не сверяются автоматически"), "quality panel must show zero confirmed independent finals and not claim accuracy without settlement");
 assert.ok(archivePublisherSource.startsWith("import hashlib"), "permanent archive publisher must import hashlib before calculating checksums");
 assert.ok(archiveCollectorSource.includes("contract.snapshot_id = row.snapshot_id") && archiveCollectorSource.includes("contract.contract_id = crypto.createHash"), "all prediction blocks from one source update must share snapshot_id; target identity uses contract_id");
@@ -167,7 +180,7 @@ assert.ok(!archiveCollectorSource.includes("window.automaticForecast") && archiv
 assert.ok(archiveCollectorSource.includes("result.source_checked_at_utc || row.captured_at_utc") && archiveCollectorSource.includes("String(row.score || \"\"),"), "archive snapshot IDs must use the same source timestamp, score, period and clock key as the UI");
 assert.ok(archiveCollectorSource.includes("source_event_snapshot: JSON.parse(JSON.stringify(rawEvent))") && archiveCollectorSource.includes("model_versions:"), "archive must preserve immutable raw source event and method versions separately from forecasts");
 assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
-assert.ok(htmlSource.includes("20261119-integrity-v74"), "frontend cache must be bumped after display fixes");
+assert.ok(htmlSource.includes("20261120-integrity-v75"), "frontend cache must be bumped after display fixes");
 assert.ok(appSource.includes("const qLines=") && !appSource.includes("qLines+="), "quarter forecast text must be immutable after declaration");
 const timerFnStart = appSource.indexOf("function findQuarterClockFromElapsed(");
 const timerFnEnd = appSource.indexOf("function automaticQuarterForecast(", timerFnStart);
@@ -220,6 +233,17 @@ const runtimeSource = appSource.slice(periodSourceStart, periodSourceEnd) +
 const runtimeSandbox = {collectEventObjects:()=>[], localStorage:{setItem(){}}};
 vm.runInNewContext(runtimeSource, runtimeSandbox);
 assert.equal(runtimeSandbox.findLiveClock({period:3,clock:"08:57"}), "08:57");
+assert.equal(runtimeSandbox.findLiveClock({period:1,match_elapsed_seconds:null,period_length_seconds:600}),null,"null is not a zero-second timer");
+assert.equal(runtimeSandbox.findLiveClock({period:3,clock:"11:00",period_length_seconds:600}),null,"clock cannot exceed confirmed quarter duration");
+const stoppedTimer={period:3,period_length_seconds:600,match_elapsed_seconds:1500,
+  clock_source:"PARI_timer_and_period_consistency",timer_timestamp_msec:Date.now()-30000,timer_direction:0};
+assert.equal(runtimeSandbox.findLiveClock(stoppedTimer),"05:00","wall time must not advance a source snapshot");
+assert.equal(runtimeSandbox.findLiveClock({...stoppedTimer,clock_integrity:{valid:false}}),null,"integrity gates apply before all fallback branches");
+const highlightSource=appSource.slice(appSource.indexOf("function quarterHighlightInfo("),appSource.indexOf("function prioritySignals("));
+vm.runInNewContext(highlightSource+";this.highlight=quarterHighlightInfo",runtimeSandbox);
+assert.equal(runtimeSandbox.highlight({period:3,clock:"06:00",period_length_seconds:600}).elapsed,240);
+assert.equal(runtimeSandbox.highlight({period:3,clock:"02:00",period_length_seconds:600}).elapsed,480);
+assert.equal(runtimeSandbox.highlight({period:3,clock:"06:01",period_length_seconds:600}),null);
 assert.equal(runtimeSandbox.inferPeriodLengthForForecast({period:3,league:"Unknown league",clock:"08:57"}), null, "unknown format must not be guessed from period or clock");
 assert.equal(runtimeSandbox.inferPeriodLengthForForecast({period:2,period_length_seconds:1200,external_live:{period_count:2},clock:"15:00"}).periods, 2);
 assert.equal(runtimeSandbox.inferPeriodLengthForForecast({
@@ -304,7 +328,7 @@ assert.equal(mcResult.momentum,20);
 assert.equal(mcResult.research_scheme,true);
 assert.ok(htmlSource.indexOf("forecast-core.js") < htmlSource.indexOf("app.js"),
   "the tested forecast core must load before the UI code");
-assert.ok(htmlSource.includes("20261119-forecast-core-v3"), "forecast core cache must be refreshed with model changes");
+assert.ok(htmlSource.includes("20261120-forecast-core-v4"), "forecast core cache must be refreshed with model changes");
 assert.ok(appSource.includes("market.prices.push"), "quarter market prices must preserve both factor IDs");
 assert.ok(appSource.includes('outcomeStatus:"unresolved"'), "unconfirmed history outcomes must not be shown as settled");
 assert.ok(appSource.includes('overtime_policy:"not_included_market_rule_unverified"'), "regulation-only forecasts must not imply overtime inclusion");
@@ -328,6 +352,9 @@ const periodEnd = appSource.indexOf("function findLiveClock(ev){", periodStart);
 const periodSandbox = {collectEventObjects:()=>[]};
 vm.runInNewContext(appSource.slice(periodStart, periodEnd) + "; this.findLivePeriod = findLivePeriod;", periodSandbox);
 assert.equal(periodSandbox.findLivePeriod({period:"OT"}), 5);
+assert.equal(periodSandbox.findLivePeriod({period:"Quarter 3"}),3);
+assert.equal(periodSandbox.findLivePeriod({period:"Q4"}),4);
+assert.equal(periodSandbox.findLivePeriod({status:"playing overtime"}),5);
 
 const cardHelpersStart = appSource.indexOf("function quarterForecastMarkup(");
 const cardHelpersEnd = appSource.indexOf("async function refreshLiveMatches()", cardHelpersStart);
