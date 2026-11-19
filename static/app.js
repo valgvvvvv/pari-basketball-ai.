@@ -786,12 +786,12 @@ function showSelectedMatch(ev,options={}){
   $("selectedMatchInfo").textContent="Счёт "+(score?score.join(" : "):"—")+" · Q"+(period||"—")+" · "+(clock||"—");
   const lineRows=lines.map(x=>{
     const p=(estimate?.poisson?.probabilities||[]).find(z=>Number(z.line)===Number(x.line));
-    return '<tr><td>'+x.line+'</td><td>'+(p?(p.pOver*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pUnder*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pPush*100).toFixed(1)+'%':'—')+'</td><td>'+(p?escapeHtml(p.direction):'—')+'</td><td>'+(x.odds?escapeHtml(x.odds):'—')+'</td></tr>';
+    return '<tr><td>'+x.line+'</td><td>'+(p?(p.pOver*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pUnder*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pPush*100).toFixed(1)+'%':'—')+'</td><td>'+(p?escapeHtml(p.direction):'—')+'</td><td>'+(x.prices?.length?escapeHtml(x.prices.map(v=>"f"+v.factorId+": "+v.price).join(" · ")):(x.odds?escapeHtml(x.odds):"—"))+'</td></tr>';
   }).join("");
   $("matchForecast").innerHTML=estimate
     ? '<div class="forecast-main"><b>Единый основной прогноз · матч</b><div class="forecast-number">'+estimate.projection+'</div><p>Сейчас '+estimate.current+' · прошло '+estimate.elapsed_minutes+' мин · осталось '+estimate.remaining_minutes+' мин · '+escapeHtml(estimate.confidence||"уверенность не определена")+'</p><p>Данные: '+escapeHtml(estimate.data_quality_mode||"режим качества не определён")+' · вероятность не калибрована</p><p>80%: '+(estimate.poisson?.low80??estimate.low)+'–'+(estimate.poisson?.high80??estimate.high)+' · 95%: '+(estimate.poisson?.low95??"—")+'–'+(estimate.poisson?.high95??"—")+'</p></div>'+
       '<h3>Показатели</h3><div class="calc-grid"><div class="calc-card"><span>Очков/мин</span><b>'+estimate.pace_per_min+'</b></div><div class="calc-card"><span>Остаток, оч.</span><b>'+(estimate.poisson?.mu??(estimate.projection-estimate.current))+'</b></div><div class="calc-card"><span>σ</span><b>'+(estimate.sigma??"—")+'</b></div><div class="calc-card"><span>Поправка</span><b>'+((Number(estimate.context_adjustment||1)-1)*100).toFixed(1)+'%</b></div></div>'+
-      '<h3>Вероятности · PARI</h3>'+(lineRows?'<table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Возврат</th><th>Направление</th><th>Цена PARI</th></tr></thead><tbody>'+lineRows+'</tbody></table>':'<p class="muted">Линия не получена</p>')+
+      '<h3>Вероятности · PARI</h3>'+(lineRows?'<table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Возврат</th><th>Направление</th><th>Цены PARI · сторона не сопоставлена</th></tr></thead><tbody>'+lineRows+'</tbody></table>':'<p class="muted">Линия не получена</p>')+
       '<h3>Владения</h3>'+(possession.applied?'<div class="calc-grid"><div class="calc-card"><span>Команда 1</span><b>'+possession.home+'</b></div><div class="calc-card"><span>Команда 2</span><b>'+possession.away+'</b></div><div class="calc-card"><span>Среднее</span><b>'+possession.average+'</b></div><div class="calc-card"><span>Влад./мин</span><b>'+possession.possPerMinute+'</b></div><div class="calc-card"><span>PPP</span><b>'+possession.pointsPerPossession+'</b></div><div class="calc-card"><span>Разница</span><b>'+possession.imbalance_percent+'%</b></div><div class="calc-card"><span>Покрытие</span><b>'+possession.metric_coverage+'/17</b></div></div>':'<p class="muted">Нет данных владений</p>')+
       '<p>eFG '+(shooting.efg!=null?(shooting.efg*100).toFixed(1)+'%':'—')+' · поправка '+((shooting.adjustment-1)*100).toFixed(1)+'%</p>'+
       (advancedMatchCalculations(ev,estimate,period,clock,possession,quarter).length?'<h3>Дополнительные расчёты</h3><div class="calc-grid">'+advancedMatchCalculations(ev,estimate,period,clock,possession,quarter).map(x=>'<div class="calc-card"><span>'+escapeHtml(x.name)+'</span><b>'+escapeHtml(x.value)+'</b><small>'+escapeHtml(x.detail)+'</small></div>').join("")+'</div>':'')+
@@ -801,7 +801,7 @@ function showSelectedMatch(ev,options={}){
   $("matchForecast").insertAdjacentHTML("beforeend",classicModelPanelHtml(classicMatchModels,"FULL GAME · МОДЕЛИ ПЕРВОГО САЙТА"));
   $("quarterForecast").innerHTML=quarter.ready
     ? '<div class="forecast-main"><b>Единый основной прогноз · Q'+escapeHtml(quarter.period||period||"?")+'</b><div class="forecast-number">'+quarter.projection+'</div><p>Модель: '+escapeHtml(quarter.distribution||"не указана")+' · prior: '+escapeHtml(quarter.prior?.source||"нет")+' · '+escapeHtml(quarter.calibration_status||"вероятности не калиброваны")+'</p><p>Счёт '+(quarter.home==null?"—":quarter.home+" : "+quarter.away)+' · очков '+(quarter.current??"—")+' · прошло '+(quarter.elapsed!=null?quarter.elapsed+" мин":"—")+' · таймер '+(clock||"—")+'</p><p>80%: '+quarter.low80+'–'+quarter.high80+' · 95%: '+quarter.low95+'–'+quarter.high95+(quarter.preliminary?' · предварительно':'')+'</p></div>'+
-      (quarter.lines.length?'<h3>Вероятности · Q'+escapeHtml(quarter.period||period||"?")+'</h3><table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Направление</th><th>Коэфф.</th></tr></thead><tbody>'+quarter.lines.map(x=>'<tr><td>'+x.line+'</td><td>'+(x.pOver*100).toFixed(1)+'%</td><td>'+(x.pUnder*100).toFixed(1)+'%</td><td>'+(x.pPush*100).toFixed(1)+'%</td><td>'+escapeHtml(x.direction)+'</td><td>'+(x.odds?escapeHtml(x.odds):'—')+'</td></tr>').join('')+'</tbody></table>':'<p class="muted">Линия четверти не получена</p>')+
+      (quarter.lines.length?'<h3>Вероятности · Q'+escapeHtml(quarter.period||period||"?")+'</h3><table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Направление</th><th>Коэфф.</th></tr></thead><tbody>'+quarter.lines.map(x=>'<tr><td>'+x.line+'</td><td>'+(x.pOver*100).toFixed(1)+'%</td><td>'+(x.pUnder*100).toFixed(1)+'%</td><td>'+(x.pPush*100).toFixed(1)+'%</td><td>'+escapeHtml(x.direction)+'</td><td>'+(x.prices?.length?escapeHtml(x.prices.map(v=>"f"+v.factorId+": "+v.price).join(" · ")):(x.odds?escapeHtml(x.odds):"—"))+'</td></tr>').join('')+'</tbody></table>':'<p class="muted">Линия четверти не получена</p>')+
       calculationStepsHtml({kind:"quarter",period:quarter.period,ev,projection:Number(quarter.projection),current:Number(quarter.current),elapsedMinutes:quarter.elapsed,remainingMinutes:clock&&findPeriodLengthSeconds(ev)?Math.max(0,(Number(clock.split(":")[0])*60+Number(clock.split(":")[1]))/60):null,homeScore:quarter.home,awayScore:quarter.away,poss:quarter.possession_model,lines:quarter.lines||[],preliminary:!!quarter.preliminary,clock})
     :'<p class="muted">'+escapeHtml(quarter.reason||"Недостаточно данных")+'</p>';
   $("quarterForecast").insertAdjacentHTML("afterbegin",aiSignalHtml(aiAnalysis.quarter,"ИИ-анализ четверти"));
@@ -865,32 +865,24 @@ function findPeriodLengthSeconds(ev) {
 }
 
 function getMatchTotalLines(ev) {
-  // Only the server-classified root-match candidates are eligible here.
-  // Never infer a full-game line from generic p, related events or child markets.
-  const candidates = Array.isArray(ev?.match_total_candidates) ? ev.match_total_candidates : [];
-  const seen = new Set(), lines = [];
-  for (const factor of candidates) {
-    if (!factor || !["930","931"].includes(String(factor.f))) continue;
-    // PARI's pt is the line field. "p" is not a safe substitute: depending
-    // on the factor payload it may be a parameter/price, not the total.
-    if (factor.pt == null || String(factor.pt).trim() === "") continue;
-    const line = Number(factor.pt);
-    if (!Number.isFinite(line) || line < 40 || line > 400) continue;
-    // Basketball total lines are normally whole or half-point increments.
-    if (Math.abs(line * 2 - Math.round(line * 2)) > 1e-8) continue;
-    const odds = Number(factor.v);
-    if (factor.v == null || !Number.isFinite(odds) || odds <= 1 || odds > 1000) continue;
-    const key = line.toFixed(2);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    lines.push({line, odds:String(factor.v), factorId:String(factor.f), source:"PARI", market:"full_game_total"});
+  const candidates=Array.isArray(ev?.match_total_candidates)?ev.match_total_candidates:[];
+  const grouped=new Map();
+  for(const factor of candidates){
+    if(!factor||!["930","931"].includes(String(factor.f))||factor.pt==null)continue;
+    const line=Number(factor.pt),price=Number(factor.v);
+    if(!Number.isFinite(line)||line<40||line>400||Math.abs(line*2-Math.round(line*2))>1e-8)continue;
+    if(!Number.isFinite(price)||price<=1||price>1000)continue;
+    const key=line.toFixed(2);
+    if(!grouped.has(key))grouped.set(key,{line,prices:[]});
+    const row=grouped.get(key);
+    const marker=String(factor.f)+":"+String(factor.v);
+    if(!row.prices.some(x=>x.marker===marker))
+      row.prices.push({factorId:String(factor.f),price:String(factor.v),side:null,marker});
   }
-  // Do not reuse cached lines: an old market association can survive a
-  // changing live event and display a line that no longer belongs to it.
-  const cacheKey = "pari-total-lines-v3:" + String(ev?.id || "");
-  try {
-    if (lines.length) localStorage.setItem(cacheKey, JSON.stringify({savedAt:Date.now(), lines}));
-  } catch (_) {}
+  const lines=Array.from(grouped.values()).map(row=>({...row,odds:row.prices[0]?.price??null,
+    source:"PARI",market:"full_game_total",price_side_status:"not_mapped",freshness:"source_timestamp_unavailable"}));
+  const cacheKey="pari-total-lines-v3:"+String(ev?.id||"");
+  try{if(lines.length)localStorage.setItem(cacheKey,JSON.stringify({savedAt:Date.now(),lines}));}catch(_){}
   return lines.sort((a,b)=>a.line-b.line);
 }
 function inferPeriodLengthForForecast(ev) {
@@ -1229,8 +1221,13 @@ function automaticQuarterForecast(ev) {
     const target=Number.isInteger(period)&&(explicit===period||(!Number.isInteger(explicit)&&quarterPatterns.some(rx=>rx.test(nextLabel))));
     if(["930","931"].includes(String(node.f))&&target){
       const line=Number(node.pt);
-      if(Number.isFinite(line)&&line>=20&&line<100&&Math.abs(line*2-Math.round(line*2))<1e-8&&!quarterLines.some(x=>x.line===line))
-        quarterLines.push({line,odds:node.v==null?null:String(node.v),source:"PARI"});
+      if(Number.isFinite(line)&&line>=20&&line<100&&Math.abs(line*2-Math.round(line*2))<1e-8){
+        let row=quarterLines.find(x=>x.line===line);
+        if(!row){row={line,prices:[],source:"PARI",price_side_status:"not_mapped"};quarterLines.push(row);}
+        if(node.v!=null&&Number(node.v)>1&&!row.prices.some(x=>x.factorId===String(node.f)&&x.price===String(node.v)))
+          row.prices.push({factorId:String(node.f),price:String(node.v),side:null});
+        row.odds=row.prices[0]?.price??null;
+      }
       return;
     }
     for(const child of Object.values(node))if(child&&typeof child==="object")walk(child,nextLabel,explicit,depth+1);
