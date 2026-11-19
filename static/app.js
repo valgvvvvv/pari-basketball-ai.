@@ -206,7 +206,9 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
       direction:conditionalOver>=0.57?"ТБ":conditionalOver<=0.43?"ТМ":"без выраженного преимущества",
       edge:Math.abs(conditionalOver-0.5)};
   });
-  return {simulations:n,mu:Math.round(mu*100)/100,low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),momentum:Math.round(momentum*1000)/10,method:"Динамическая смесь сценариев · темп четвертей · ускорение/замедление"};
+  const sampleMean=outcomes.reduce((sum,x)=>sum+x,0)/n;
+  const variance=outcomes.reduce((sum,x)=>sum+(x-sampleMean)**2,0)/n;
+  return {simulations:n,mu:Math.round(mu*100)/100,mean:sampleMean,variance,low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),momentum:Math.round(momentum*1000)/10,method:"Динамическая смесь сценариев · темп четвертей · ускорение/замедление"};
 }
 function poissonMonteCarlo(current, mu, lines=[], seedText="") {
   const n=100000;
@@ -463,7 +465,7 @@ function advancedMatchCalculations(ev,estimate,period,clock,possession,quarterFo
     out.push({name:"Коэффициент ускорения / спада",value:(dynamics.rawChange>=0?"+":"")+fmt(dynamics.rawChange,1)+"%",
       detail:"Текущий темп "+fmt(dynamics.currentRate,2)+" · базовый "+fmt(dynamics.baselineRate,2)+" оч./мин"});
     out.push({name:"Поправка к прогнозу",value:"×"+fmt(dynamics.factor,3),
-      detail:"Влияние на оставшийся тотал "+(dynamics.factor>=1?"+":"")+fmt((dynamics.factor-1)*100,1)+"% · уверенность "+dynamics.confidence});
+      detail:"Коэффициент диагностический; импульс не дублируется в среднем прогнозе · "+dynamics.confidence});
   }else out.push({name:"Ускорение / спад",value:"не рассчитано",detail:dynamics.reason});
   const qClock=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
   const qElapsed=length>0&&qClock?length-(Number(qClock[1])*60+Number(qClock[2])):null;
@@ -632,7 +634,8 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   const secondaryAdjustment=possession.applied?clampForecast(1+(statsContext.adjustment-1)*0.35,0.985,1.015):statsContext.adjustment;
   const tempoDynamics=liveTempoDynamics(ev||{},adjusted,period,clock,"match");
   const tempoFactor=tempoDynamics.applied?tempoDynamics.factor:1;
-  const mu=possMu*secondaryAdjustment*tempoFactor,mc=dynamicScenarioMonteCarlo(adjusted.current,mu,lines,seedText,ev,period,clock,"match");
+  // The dynamic Monte Carlo already uses quarter momentum to weight its scenarios. Do not multiply the mean by the same signal again.
+  const mu=possMu*secondaryAdjustment,mc=dynamicScenarioMonteCarlo(adjusted.current,mu,lines,seedText,ev,period,clock,"match");
   const factors=[...(context.factors||[]),...(statsContext.factors||[])];
   const available=Number(ev?.statistics_quality?.available_count||0);
   const expected=Number(ev?.statistics_quality?.expected_count||19);
@@ -657,7 +660,7 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   }
   return {...adjusted,context_factors:factors,context_adjustment:context.adjustment,statistics_adjustment:secondaryAdjustment,
     statistics_quality:statsContext.quality,data_quality:dataQuality,shooting_efg:statsContext.efg??null,possession_model:possession,
-    poisson:mc,tempo_dynamics:tempoDynamics,low:mc.low80,high:mc.high80,sigma:Math.sqrt(Math.max(mu,0)),projection:Math.round((adjusted.current+mu)*10)/10};
+    poisson:mc,tempo_dynamics:tempoDynamics,low:mc.low80,high:mc.high80,sigma:Math.sqrt(Math.max(mc.variance??mu,0)),projection:Math.round((adjusted.current+mu)*10)/10};
 }
 function normalCdf(z){
   const sign=z<0?-1:1,x=Math.abs(z),t=1/(1+0.2316419*x);
