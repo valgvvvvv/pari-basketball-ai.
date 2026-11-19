@@ -62,4 +62,37 @@ assert.ok(!app.includes('history.splice(oldIndex,1)'),
   "new snapshots must not replace earlier snapshots");
 assert.ok(!app.includes('history.slice(-100)'),
   "local history must not silently discard earlier saved entries");
+
+const classicStart = app.indexOf("function classicBasketballModelAnalysis(");
+const classicEnd = app.indexOf("\nfunction classicModelPanelHtml", classicStart);
+assert.ok(classicStart >= 0 && classicEnd > classicStart);
+const classicContext = {
+  Number, Math, Array, String, Object, Set,
+  findLivePeriod: ev => ev.period,
+  findLiveClock: ev => ev.clock,
+  inferPeriodLengthForForecast: () => ({seconds:600,periods:4,method:"confirmed"}),
+  readPeriodScore: (_ev,index) => [40,42][index] ?? null,
+  currentQuarterScore: () => ({pair:[1,0]}),
+  findLiveScore: ev => ev.score,
+  clampForecast: (x,lo,hi) => Math.max(lo,Math.min(hi,x))
+};
+vm.runInNewContext(app.slice(classicStart,classicEnd) +
+  "\nthis.runClassic=classicBasketballModelAnalysis;", classicContext);
+for (const projection of [172.4,215.7,219.6,212.1]) {
+  const ev = {period:3,clock:"06:33",score:[59,69],period_length_seconds:600,
+    external_live:{period_count:4,period_length_seconds:600}};
+  const forecast = {ready:true,kind:"live_tempo",estimate:{
+    current:128,projection,sigma:12,elapsed_seconds:1407,remaining_seconds:993,
+    remaining_minutes:16.55,poisson:{simulations:100000,low80:projection-12,high80:projection+12,
+      low95:projection-20,high95:projection+20,probabilities:[]},
+    possession_model:{applied:false}
+  },lines:[{line:206.5}]};
+  const models = classicContext.runClassic(ev,forecast,{ready:false},"match");
+  assert.equal(models.consensus,null,"correlated alternatives must not form an unvalidated consensus");
+  assert.deepEqual(models.groups,[],"model coincidence must not be presented as independent evidence");
+  assert.ok(!models.models.some(x => /Байесовская/.test(x.name)),
+    "the unit-mismatched Bayesian full-match model must be excluded");
+  assert.ok(!models.models.some(x => Math.abs(x.projection-132)<0.2 || Math.abs(x.projection-166.4)<0.2),
+    "the observed Bayesian outlier values must not reappear as alternatives");
+}
 console.log("application forecast regressions passed");
