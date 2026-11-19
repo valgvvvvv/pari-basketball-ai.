@@ -30,7 +30,7 @@ const { chromium } = require("playwright");
       const predictionContracts = [];
       const captureTime = new Date().toISOString();
       const makeContract = (ev, target, forecast, period, clock) => {
-        if (!forecast || !forecast.ready) return null;
+        if (!forecast || !forecast.ready || (target === "match" && forecast.kind === "market_reference")) return null;
         const estimate = target === "match" ? forecast.estimate : forecast;
         if (!estimate || !Number.isFinite(Number(estimate.projection))) return null;
         const distribution = target === "match" ? estimate.poisson : forecast.poisson;
