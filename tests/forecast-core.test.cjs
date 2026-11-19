@@ -149,6 +149,7 @@ assert.ok(appSource.includes("Вероятности показаны тольк
 assert.ok(appSource.includes("unifiedToolsPanelHtml") && appSource.includes("Недоступны / отключены:"), "all tools must be available in one shared registry");
 assert.ok(appSource.includes("formatElapsedClock(posterior.elapsedSeconds)"), "quarter elapsed time must be formatted as mm:ss");
 assert.ok(!appSource.includes('forecastHtml+=\'<span class="live-match-meta forecast-live">ИИ · матч:'), "live cards must not repeat the primary match forecast as an AI forecast");
+assert.ok(appSource.includes("Веса сценариев заданы эвристическим правилом, не обучены"), "scenario weights must be explicitly disclosed as heuristic and untrained");
 assert.ok(!appSource.includes('forecastHtml+=\'<span class="live-match-meta forecast-live">ИИ · Q'), "live cards must not repeat the primary quarter forecast as an AI forecast");
 const applyPoissonStart=appSource.indexOf("function applyPoissonModel(");
 const applyPoissonEnd=appSource.indexOf("function normalCdf(",applyPoissonStart);
@@ -157,7 +158,7 @@ assert.ok(!applyPoissonSource.includes("dataQuality.rolling_snapshot_count="), "
 assert.ok(appSource.includes("priorExposureSeconds:aggregatePriorExposureSeconds"), "missing period splits must use aggregate historical score and exact exposure");
 assert.ok(!appSource.slice(appSource.indexOf("function saveAnalysisHistory("),appSource.indexOf("function clearAnalysisHistory(")).includes("if(!estimate&&!quarter?.ready)return"), "raw snapshot history must persist even when no forecast is available");
 assert.ok(appSource.includes('forecastStatus:estimate||quarter?.ready?"calculated":"not_available"'), "history must distinguish snapshot from forecast availability");
-assert.ok(htmlSource.includes("20261119-integrity-v62"), "history fix must bump frontend cache");
+assert.ok(htmlSource.includes("20261119-integrity-v63"), "history fix must bump frontend cache");
 assert.ok(htmlSource.includes("confirmedIndependentMatches") && htmlSource.includes("Финалы ещё не сверяются автоматически"), "quality panel must show zero confirmed independent finals and not claim accuracy without settlement");
 assert.ok(archivePublisherSource.startsWith("import hashlib"), "permanent archive publisher must import hashlib before calculating checksums");
 assert.ok(archiveCollectorSource.includes("contract.snapshot_id = row.snapshot_id") && archiveCollectorSource.includes("contract.contract_id = crypto.createHash"), "all prediction blocks from one source update must share snapshot_id; target identity uses contract_id");
@@ -166,7 +167,7 @@ assert.ok(!archiveCollectorSource.includes("window.automaticForecast") && archiv
 assert.ok(archiveCollectorSource.includes("result.source_checked_at_utc || row.captured_at_utc") && archiveCollectorSource.includes("String(row.score || \"\"),"), "archive snapshot IDs must use the same source timestamp, score, period and clock key as the UI");
 assert.ok(archiveCollectorSource.includes("source_event_snapshot: JSON.parse(JSON.stringify(rawEvent))") && archiveCollectorSource.includes("model_versions:"), "archive must preserve immutable raw source event and method versions separately from forecasts");
 assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
-assert.ok(htmlSource.includes("20261119-integrity-v62"), "frontend cache must be bumped after display fixes");
+assert.ok(htmlSource.includes("20261119-integrity-v63"), "frontend cache must be bumped after display fixes");
 assert.ok(appSource.includes("Ансамбль сценариев") && appSource.includes("не независимый голос"), "scenario mixture must be shown without counting it as an independent model");
 assert.ok(!appSource.includes('add("Динамика четверти"'), "a duplicate of the primary quarter forecast must not appear as a separate method");
 assert.ok(!appSource.includes("Единый прогноз · повтор основного расчёта"), "duplicate primary forecast cards must stay removed");
