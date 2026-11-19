@@ -3042,6 +3042,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                            ("notstarted", "не начался", "не началась", "ожидает начала")):
                         filter_counts["not_live"] += 1
                         continue
+                    related_rows = collect_related_event_rows(event_id)
+                    repaired_related_rows = repair_nested_encoding(related_rows)
                     score_function_rows = (event, live_info, event_misc, *event_block_rows, *related_rows)
                     explicit_score_functions = [
                         row.get("scoreFunction") for row in score_function_rows
@@ -3065,9 +3067,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         for key, value in source_row.items():
                             if value is not None and (score_source.get(key) is None or key not in score_source):
                                 score_source[key] = value
-                    related_rows = collect_related_event_rows(event_id)
                     repaired_raw = repair_nested_encoding(event)
-                    repaired_related_rows = repair_nested_encoding(related_rows)
                     period_value = next((row.get(key) for row in
                                           (event, live_info, event_misc)
                                           for key in ("period", "currentPeriod", "periodNumber",
