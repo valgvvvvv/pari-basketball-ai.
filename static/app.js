@@ -533,7 +533,7 @@ function advancedMatchCalculations(ev,estimate,period,clock,possession,quarterFo
   const dynamics=liveTempoDynamics(ev,estimate,period,clock,"match");
   if(dynamics.applied){
     out.push({name:"Коэффициент ускорения / спада",value:(dynamics.rawChange>=0?"+":"")+fmt(dynamics.rawChange,1)+"%",
-      detail:"Текущий темп "+fmt(dynamics.currentRate,2)+" · базовый "+fmt(dynamics.baselineRate,2)+" оч./мин"});
+      detail:(dynamics.rolling?"последние 3–5 мин · ":"текущий период · ")+"темп "+fmt(dynamics.currentRate,2)+" · база "+fmt(dynamics.baselineRate,2)+" оч./мин"+(dynamics.recent_tempo?" · команды "+fmt(dynamics.recent_tempo.home_rate,2)+":"+fmt(dynamics.recent_tempo.away_rate,2):"")});
     out.push({name:"Диагностический индекс темпа",value:"×"+fmt(dynamics.factor,3),
       detail:"Не сдвигает средний прогноз. Импульс MC "+(Number(estimate?.poisson?.momentum||0)>=0?"+":"")+fmt(estimate?.poisson?.momentum||0,1)+"% меняет веса сценариев · "+dynamics.confidence});
   }else out.push({name:"Ускорение / спад",value:"не рассчитано",detail:dynamics.reason});
@@ -659,6 +659,14 @@ function possessionModelContext(ev,estimate,period,clock){
 }
 function liveTempoDynamics(ev,estimate,period,clock,kind="match"){
   const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||inferPeriodLengthForForecast(ev||{})?.seconds||0);
+  const recent=recentTempoFromSnapshots(ev,period,clock,length);
+  if(recent.applied){
+    const change=Number(recent.rawChange||0);
+    return {applied:true,rolling:true,source:"rolling_3_5_min",factor:Math.max(0.94,Math.min(1.06,1+change/100*0.12)),
+      acceleration:Math.max(0,change),decline:Math.max(0,-change),rawChange:change,
+      currentRate:recent.recent_rate,baselineRate:recent.baseline_rate,
+      confidence:recent.confidence,recent_tempo:recent};
+  }
   const p=Math.max(1,Number(period)||1),completed=[];
   if(length>0){
     for(let i=0;i<p-1;i++){const q=readPeriodScore(ev,i);if(Number.isFinite(q)&&q>0)completed.push(q);}
