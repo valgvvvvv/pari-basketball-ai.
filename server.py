@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 from html.parser import HTMLParser
 from html import unescape
 import httpx
+import tempfile
 from result_validation import settle_prediction
 from match_identity import match_context_compatible as external_match_context_compatible
 
@@ -2281,6 +2282,13 @@ def _stat_value_for_ui(value):
 # Generic "friendly" and BSKT labels are intentionally NOT assigned a global format:
 # those events require explicit per-event format metadata or remain blocked.
 PARI_COMPETITION_FORMATS = {
+    "37222": {
+        "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "EuroLeague regulation format: four 10-minute quarters; FIBA Article 8.1",
+        "rules_version": "EuroLeague 2026-27 / FIBA playing-time format",
+        "source_url": "https://assets.fiba.basketball/image/upload/documents-corporate-fiba-official-rules-2024-v10a.pdf",
+        "competition_rules_url": "https://mediacentre.euroleague.net/en/app/2/communication/communication/preview/24461",
+    },
     "59836": {
         "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
         "source": "KBL 2026-2027 official game rules, Article 8.1 and 8.7",
@@ -4885,7 +4893,7 @@ async def _schedule_pari_stats_discovery():
 # --- Persistent match research archive ---------------------------------------
 # A mounted Render disk at /var/data makes this durable. Without one, use a
 # clearly marked temporary path; never claim that ephemeral storage is durable.
-_ARCHIVE_DIR = pathlib.Path("/var/data") if pathlib.Path("/var/data").is_dir() else pathlib.Path("/tmp")
+_ARCHIVE_DIR = pathlib.Path("/var/data") if pathlib.Path("/var/data").is_dir() else pathlib.Path(tempfile.gettempdir())
 _ARCHIVE_DB = _ARCHIVE_DIR / "pari_match_archive.sqlite3"
 _ARCHIVE_LOCK = asyncio.Lock()
 _ARCHIVE_LAST = {"checked_at": None, "events": 0, "saved": 0, "error": None}
