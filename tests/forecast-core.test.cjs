@@ -198,6 +198,20 @@ vm.runInNewContext(runtimeSource, runtimeSandbox);
 assert.equal(runtimeSandbox.findLiveClock({period:3,clock:"08:57"}), "08:57");
 assert.equal(runtimeSandbox.inferPeriodLengthForForecast({period:3,league:"Unknown league",clock:"08:57"}), null, "unknown format must not be guessed from period or clock");
 assert.equal(runtimeSandbox.inferPeriodLengthForForecast({period:2,period_length_seconds:1200,external_live:{period_count:2},clock:"15:00"}).periods, 2);
+assert.equal(runtimeSandbox.inferPeriodLengthForForecast({
+  period:3,live_fields:{period_length_seconds:600,period_count:4,period_format_source:{source:"KBL official rules"}}
+}).seconds,600,"PARI live_fields must supply the verified competition format");
+assert.equal(runtimeSandbox.inferPeriodLengthForForecast({
+  period:3,live_fields:{period_length_seconds:600,period_count:4}
+}).periods,4);
+const clockSourceStart=appSource.indexOf("function eventClock(ev)");
+const clockSourceEnd=appSource.indexOf("function findPeriodLengthSeconds(ev)",clockSourceStart);
+const clockSandbox={findLiveClock:()=>null,findPeriodLengthSeconds:()=>null};
+vm.runInNewContext(appSource.slice(clockSourceStart,clockSourceEnd)+"; this.eventClock=eventClock;",clockSandbox);
+assert.match(clockSandbox.eventClock({live_fields:{source_timer_seconds:405}}),/Время получено, длительность периода не подтверждена/);
+assert.match(clockSandbox.eventClock({live_fields:{source_timer_seconds:405}}),/405 с/);
+assert.ok(appSource.includes("ev?.live_fields?.timer_semantics_verified"),"timer semantics must be read from PARI live_fields");
+
 const recentStart = appSource.indexOf("function recentTempoFromSnapshots");
 const recentEnd = appSource.indexOf("function dynamicScenarioMonteCarlo", recentStart);
 const recentSource = appSource.slice(recentStart, recentEnd) +
@@ -271,5 +285,44 @@ const periodEnd = appSource.indexOf("function findLiveClock(ev){", periodStart);
 const periodSandbox = {collectEventObjects:()=>[]};
 vm.runInNewContext(appSource.slice(periodStart, periodEnd) + "; this.findLivePeriod = findLivePeriod;", periodSandbox);
 assert.equal(periodSandbox.findLivePeriod({period:"OT"}), 5);
+
+
+const cardHelpersStart = appSource.indexOf("function quarterForecastMarkup(");
+const cardHelpersEnd = appSource.indexOf("async function refreshLiveMatches()", cardHelpersStart);
+assert.ok(cardHelpersStart >= 0 && cardHelpersEnd > cardHelpersStart,
+  "safe match-card helpers must exist outside the LIVE refresh callback");
+const cardSandbox = {
+  escapeHtml: value => String(value ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;"),
+  findLivePeriod: () => 2,
+  eventScore: () => "50:47",
+  eventPeriod: () => "Q2",
+  eventClock: () => "06:45",
+  console
+};
+vm.runInNewContext(appSource.slice(cardHelpersStart,cardHelpersEnd) +
+  "; this.quarterForecastMarkup=quarterForecastMarkup; this.liveMatchRenderFallback=liveMatchRenderFallback;",cardSandbox);
+const readyQuarterMarkup = cardSandbox.quarterForecastMarkup({
+  ready:true,period:2,projection:42.6,lines:[{direction:"ТБ",line:41.5,pOver:.71,pUnder:.29}]
+},{id:"fixture"});
+assert.match(readyQuarterMarkup,/Прогноз Q2/);
+assert.match(readyQuarterMarkup,/ТБ 41.5/);
+assert.doesNotThrow(() => cardSandbox.quarterForecastMarkup({
+  ready:false,reason:"ошибка модели"
+},{id:"fixture"}));
+const safeFallback = cardSandbox.liveMatchRenderFallback({
+  id:"fixture",team1:"Home",team2:"Away",timer_seconds:405,
+  external_statistics:[{metric_key:"assists",home:2,away:3}],
+  statistics_quality:{available_count:1,expected_count:19},
+  match_total_candidates:[{pt:164.5,v:"1.91"}]
+});
+for (const visibleFact of ["50:47","Q2","06:45","Статистика: 1 показателей","Тотал 164.5"]) {
+  assert.ok(safeFallback.includes(visibleFact), "fallback card must retain " + visibleFact);
+}
+assert.ok(appSource.includes("data.successful_source || data.source_url"),
+  "UI must show the actually successful PARI host");
+assert.ok(!appSource.includes("data.attempts?.[0]?.host"),
+  "UI must not display the first failed host as the successful source");
+assert.ok(appSource.includes("statusLabels[missingStatuses[0]]"),
+  "statistics gaps must show a specific reason rather than a generic no-statistics label");
 
 console.log("forecast core regressions: OK");
