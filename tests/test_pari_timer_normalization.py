@@ -34,6 +34,16 @@ class PariTimerNormalizationTests(unittest.TestCase):
         result = _pari_infer_period_format_from_timeline(3, 900, 480, 4)
         self.assertIsNone(result)
 
+
+    def test_infer_period_from_clock_at_quarter_start_without_match_timer(self):
+        result = _pari_infer_period_format_from_timeline(2, None, 595, 4)
+        self.assertEqual(result["period_length_seconds"], 600)
+
+    def test_infer_q2_countdown_uses_only_future_quarters(self):
+        # 28:00 remain in the match and 8:00 remain in Q2 => 10-minute quarters.
+        result = _pari_infer_period_format_from_timeline(2, 1680, 480, 4)
+        self.assertEqual(result["period_length_seconds"], 600)
+
     def test_count_up_verified_after_two_intervals(self):
         self.assertFalse(self.normalize("up", 100, 1, 1000)["timer_semantics_verified"])
         self.assertFalse(self.normalize("up", 130, 1, 1030)["timer_semantics_verified"])
