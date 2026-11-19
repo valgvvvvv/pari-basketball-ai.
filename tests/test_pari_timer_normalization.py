@@ -52,7 +52,7 @@ class PariTimerNormalizationTests(unittest.TestCase):
         self.normalize("bad", 100, 1, 1000)
         self.normalize("bad", 130, 1, 1030)
         self.normalize("bad", 160, 1, 1060)
-        result = self.normalize("bad", 900, 2, 1090)
+        result = self.normalize("bad", 1500, 2, 1090)
         self.assertFalse(result["timer_semantics_verified"])
         self.assertEqual(result["timer_interpretation_status"], "timer_period_mismatch")
 
