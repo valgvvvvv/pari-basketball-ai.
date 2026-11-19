@@ -198,6 +198,9 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
   const outcomes=new Array(n);
   for(let i=0;i<n;i++){const u=random(),sc=u<pSlow?scenarios[0]:(u<pSlow+pBase?scenarios[1]:scenarios[2]);outcomes[i]=Math.max(current,current+poisson(Math.max(0,mu*sc.factor/norm)));}
   outcomes.sort((a,b)=>a-b);
+  const mean=outcomes.reduce((sum,value)=>sum+value,0)/n;
+  const variance=outcomes.reduce((sum,value)=>sum+(value-mean)*(value-mean),0)/n;
+  const stddev=Math.sqrt(variance);
   const quantile=q=>outcomes[Math.min(n-1,Math.max(0,Math.ceil(q*n)-1))];
   const probabilities=(lines||[]).filter(x=>Number.isFinite(Number(x.line))).map(x=>{
     const line=Number(x.line);let over=0,under=0,push=0;
@@ -206,9 +209,13 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
     const conditionalOver=resolved>0?pOver/resolved:null;
     return {...x,pOver,pUnder,pPush,conditionalOver,
       direction:conditionalOver==null?"возврат":conditionalOver>=0.57?"ТБ":conditionalOver<=0.43?"ТМ":"без выраженного преимущества",
-      edge:conditionalOver==null?0:Math.max(conditionalOver,1-conditionalOver)-0.5};
+      edge:conditionalOver==null?0:Math.max(conditionalOver,1-conditionalOver)-0.5,
+      simulation_se:Math.sqrt(pOver*(1-pOver)/n)};
   });
-  return {simulations:n,mu:Math.round(mu*100)/100,low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),momentum:Math.round(momentum*1000)/10,method:"Динамическая смесь сценариев · темп четвертей · ускорение/замедление"};
+  return {simulations:n,mu:Math.round(mu*100)/100,mean:Math.round(mean*10)/10,stddev:Math.round(stddev*10)/10,
+    low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),
+    probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),
+    momentum:Math.round(momentum*1000)/10,method:"Смесь сценариев Пуассона · прогнозное распределение, не независимая модель"};
 }
 function poissonMonteCarlo(current, mu, lines=[], seedText="") {
   const n=100000;
@@ -649,7 +656,8 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   }
   return {...adjusted,context_factors:factors,context_adjustment:context.adjustment,statistics_adjustment:secondaryAdjustment,
     statistics_quality:statsContext.quality,shooting_efg:statsContext.efg??null,possession_model:possession,
-    poisson:mc,tempo_dynamics:tempoDynamics,low:mc.low80,high:mc.high80,sigma:Math.sqrt(Math.max(mu,0)),projection:Math.round((adjusted.current+mu)*10)/10};
+    poisson:mc,tempo_dynamics:tempoDynamics,low:mc.low80,high:mc.high80,
+    sigma:mc.stddev,projection:mc.mean,distribution_method:mc.method};
 }
 function normalCdf(z){
   const sign=z<0?-1:1,x=Math.abs(z),t=1/(1+0.2316419*x);
