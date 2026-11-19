@@ -3,7 +3,8 @@ import unittest
 from server import (_PARI_TIMER_OBSERVATIONS, _pari_normalize_timer,
                     _pari_infer_period_format_from_timeline,
                     _pari_infer_period_format_from_match_boundary,
-                    _pari_period_from_match_timer)
+                    _pari_period_from_match_timer,
+                    _pari_normalize_match_timer_against_period)
 
 
 class PariTimerNormalizationTests(unittest.TestCase):
@@ -63,6 +64,32 @@ class PariTimerNormalizationTests(unittest.TestCase):
 
     def test_match_timer_resolves_quarter_from_verified_count_down(self):
         self.assertEqual(_pari_period_from_match_timer(1183, 600, 4, "down"), 3)
+
+
+    def test_match_clock_and_quarter_timeline_verify_up_direction(self):
+        result = _pari_normalize_match_timer_against_period(1651, 3, 600, 4)
+        self.assertTrue(result["timer_semantics_verified"])
+        self.assertEqual(result["timer_observed_direction"], "up")
+        self.assertEqual(result["period_elapsed_seconds"], 451)
+        self.assertEqual(result["period_remaining_seconds"], 149)
+
+    def test_match_clock_and_quarter_timeline_verify_down_direction(self):
+        result = _pari_normalize_match_timer_against_period(1183, 3, 600, 4)
+        self.assertTrue(result["timer_semantics_verified"])
+        self.assertEqual(result["timer_observed_direction"], "down")
+        self.assertEqual(result["period_elapsed_seconds"], 51)
+        self.assertEqual(result["period_remaining_seconds"], 549)
+
+    def test_exact_quarter_boundary_is_usable_without_guessing_direction(self):
+        result = _pari_normalize_match_timer_against_period(1200, 3, 600, 4)
+        self.assertTrue(result["timer_semantics_verified"])
+        self.assertEqual(result["timer_observed_direction"], "boundary")
+        self.assertFalse(result["timer_direction_semantics_verified"])
+        self.assertEqual(result["period_remaining_seconds"], 600)
+
+    def test_match_clock_conflicting_with_quarter_timeline_is_not_verified(self):
+        result = _pari_normalize_match_timer_against_period(1149, 4, 600, 4)
+        self.assertIsNone(result)
 
     def test_count_up_verified_after_one_clean_interval(self):
         self.assertFalse(self.normalize("up", 100, 1, 1000)["timer_semantics_verified"])
