@@ -112,5 +112,26 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
 
 
 
+    def test_all_four_period_score_kind_ids_are_mapped_independently(self):
+        source = {"subscores": [
+            {"kindId": "100404", "kindName": "4-я четверть", "c1": "7", "c2": "8"},
+            {"kindId": "100402", "kindName": "2-я четверть", "c1": "5", "c2": "6"},
+            {"kindId": "100401", "kindName": "1-я четверть", "c1": "3", "c2": "4"},
+            {"kindId": "100403", "kindName": "3-я четверть", "c1": "9", "c2": "10"},
+        ]}
+        self.assertEqual(server._pari_period_scores(source), [[3, 4], [5, 6], [9, 10], [7, 8]])
+
+    def test_competition_format_registry_has_rule_provenance(self):
+        for competition_id in ("59836", "13791"):
+            rule = server.PARI_COMPETITION_FORMATS[competition_id]
+            self.assertEqual(rule["period_length_seconds"], 600)
+            self.assertEqual(rule["period_count"], 4)
+            self.assertEqual(rule["overtime_length_seconds"], 300)
+            self.assertTrue(rule["source"])
+            self.assertTrue(rule["rules_version"])
+            self.assertTrue(rule["source_url"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
