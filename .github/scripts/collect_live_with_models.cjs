@@ -204,7 +204,8 @@ const { chromium } = require("playwright");
     result.ui_smoke = { status: "skipped_old_deployment", app_script: appScriptUrl };
     if (appScriptUrl.includes("20261119-integrity-v54")) {
       const smokeRow = result.forecasts.find(row =>
-        row.quarter || (row.match && row.match.kind !== "market_reference")
+        (row.quarter && row.quarter.ready) ||
+        (row.match && row.match.ready && row.match.kind !== "market_reference")
       );
       if (smokeRow) {
         const uiPayload = {
