@@ -1,11 +1,16 @@
+import gzip
+import hashlib
+import json
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
 import server
 from result_validation import settle_prediction
 from match_identity import match_context_compatible
+from restore_daily_archive import restore_archive
 
 
 class ForecastIntegrityTests(unittest.TestCase):
@@ -109,6 +114,45 @@ class ForecastIntegrityTests(unittest.TestCase):
             {"team1": "Lions", "team2": "Tigers"},
             {"home": "Lions", "away": "Tigers"}
         ))
+
+    def test_daily_archive_restore_verifies_and_never_overwrites(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            archive_path = root / "daily.zip"
+            output = root / "restored"
+            compressed = gzip.compress(json.dumps({"events": [{"id": "fixture-1"}]}).encode("utf-8"))
+            member = "snapshots/fixture-1.json.gz"
+            manifest = {
+                "format": "pari-basketball-daily-archive", "version": 2, "snapshot_files": 1,
+                "files": [{"path": member, "sha256": hashlib.sha256(compressed).hexdigest(),
+                           "bytes": len(compressed)}]
+            }
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr(member, compressed)
+                archive.writestr("manifest.json", json.dumps(manifest))
+            first = restore_archive(archive_path, output)
+            self.assertEqual(first["snapshots_restored"], 1)
+            second = restore_archive(archive_path, output)
+            self.assertEqual(second["snapshots_already_present"], 1)
+            restored_file = output / "fixture-1.json.gz"
+            restored_file.write_bytes(b"different")
+            with self.assertRaises(FileExistsError):
+                restore_archive(archive_path, output)
+
+    def test_daily_archive_restore_rejects_checksum_mismatch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            archive_path = root / "bad.zip"
+            compressed = gzip.compress(json.dumps({"events": []}).encode("utf-8"))
+            manifest = {
+                "format": "pari-basketball-daily-archive", "version": 2, "snapshot_files": 1,
+                "files": [{"path": "snapshots/bad.json.gz", "sha256": "0" * 64}]
+            }
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("snapshots/bad.json.gz", compressed)
+                archive.writestr("manifest.json", json.dumps(manifest))
+            with self.assertRaises(ValueError):
+                restore_archive(archive_path, root / "restore")
 
     def test_raw_archive_snapshots_are_append_only(self):
         with tempfile.TemporaryDirectory() as tmp:
