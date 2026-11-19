@@ -271,6 +271,18 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
 
 
 
+    def test_confirmed_pari_value_wins_and_conflicting_external_value_is_preserved(self):
+        event = {"id": "conflict-fixture", "external_statistics": [
+            {"name": "Assists", "metric_key": "assists", "home": 5, "away": 6, "source": "PARI"},
+            {"name": "Assists", "metric_key": "assists", "home": 7, "away": 6, "source": "SofaScore"}
+        ]}
+        server._finalize_live_statistics([event])
+        assists = next(row for row in event["external_statistics"] if row.get("metric_key") == "assists")
+        self.assertEqual(assists["home"], 5)
+        conflict = next(row for row in event["statistics_quality"]["conflicts"] if row["metric"] == "assists")
+        self.assertEqual({item["source"] for item in conflict["values"]}, {"PARI", "SofaScore"})
+
+
 
 if __name__ == "__main__":
     unittest.main()
