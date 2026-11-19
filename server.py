@@ -3753,6 +3753,12 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         else:
                             clock_value = None
 
+                    explicit_clock_seconds = None
+                    if isinstance(clock_value, str):
+                        explicit_match = re.fullmatch(r"(\d{1,2}):([0-5]\d)", clock_value)
+                        if explicit_match:
+                            explicit_clock_seconds = int(explicit_match.group(1)) * 60 + int(explicit_match.group(2))
+
                     # If the event has no league rule, infer 10/12-minute
                     # periods only when match timer arithmetic agrees with PARI's
                     # explicit active-quarter countdown. This carries the same
@@ -3778,11 +3784,6 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         event.get("id"), timer_seconds, timer_direction, explicit_period,
                         period_length_seconds, period_count, timer_paused, overtime_detected
                     )
-                    explicit_clock_seconds = None
-                    if isinstance(clock_value, str):
-                        explicit_match = re.fullmatch(r"(\d{1,2}):([0-5]\d)", clock_value)
-                        if explicit_match:
-                            explicit_clock_seconds = int(explicit_match.group(1)) * 60 + int(explicit_match.group(2))
                     if (clock_was_explicit and explicit_clock_seconds is not None
                             and period_length_seconds and period_count in (2, 4)
                             and explicit_period and 1 <= explicit_period <= period_count
