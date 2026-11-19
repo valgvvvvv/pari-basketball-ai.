@@ -1003,7 +1003,7 @@ function automaticForecast(ev) {
   }
   if(score&&period&&lengthInfo){
     const estimate=estimateLiveTotalFromPeriod(ev,score,period,lengthInfo);
-    if(estimate)return {ready:true,kind:"period_range",estimate:applyPoissonModel(estimate,lines,String(ev.id||"")+"|"+score.join(":")+"|Q"+period,ev,period,clock),lines,message:"Диапазон по номеру периода без подтверждённого таймера"};
+    if(estimate){const modeled=applyPoissonModel(estimate,lines,String(ev.id||"")+"|"+score.join(":")+"|Q"+period,ev,period,clock);return {ready:true,kind:"period_range",preliminary:true,estimate:{...modeled,preliminary:true,confidence:"низкая · нет подтверждённого таймера"},lines,message:"Предварительный диапазон по периоду без точного таймера"};}
   }
   const market=marketReferenceForecast(lines);
   if(market){
