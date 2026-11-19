@@ -195,7 +195,14 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
   for(let i=0;i<n;i++){const u=random(),sc=u<pSlow?scenarios[0]:(u<pSlow+pBase?scenarios[1]:scenarios[2]);outcomes[i]=Math.max(current,current+poisson(Math.max(0,mu*sc.factor/norm)));}
   outcomes.sort((a,b)=>a-b);
   const quantile=q=>outcomes[Math.min(n-1,Math.max(0,Math.ceil(q*n)-1))];
-  const probabilities=(lines||[]).filter(x=>Number.isFinite(Number(x.line))).map(x=>{const line=Number(x.line),over=outcomes.reduce((sum,total)=>sum+(total>line?1:0),0)/n;return {...x,pOver:over,pUnder:1-over,direction:over>=0.57?"ТБ":over<=0.43?"ТМ":"без выраженного преимущества",edge:Math.max(over,1-over)-0.5};});
+  const probabilities=(lines||[]).filter(x=>Number.isFinite(Number(x.line))).map(x=>{
+    const line=Number(x.line);let over=0,under=0,push=0;
+    for(const total of outcomes){if(total>line)over++;else if(total<line)under++;else push++;}
+    const pOver=over/n,pUnder=under/n,pPush=push/n,decisive=over+under,conditionalOver=decisive?over/decisive:0.5;
+    return {...x,pOver,pUnder,pPush,
+      direction:conditionalOver>=0.57?"ТБ":conditionalOver<=0.43?"ТМ":"без выраженного преимущества",
+      edge:Math.abs(conditionalOver-0.5)};
+  });
   return {simulations:n,mu:Math.round(mu*100)/100,low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),momentum:Math.round(momentum*1000)/10,method:"Динамическая смесь сценариев · темп четвертей · ускорение/замедление"};
 }
 function poissonMonteCarlo(current, mu, lines=[], seedText="") {
@@ -708,12 +715,11 @@ function saveAnalysisHistory(ev,score,period,clock,estimate,quarter){
     matchProjection:estimate?.projection??null,quarterProjection:quarter?.ready?quarter.projection:null,
     line:strongest?.line??null,direction:strongest?.direction??null,
     probability:strongest?Math.round(Math.max(strongest.pOver,strongest.pUnder)*1000)/10:null,savedAt:Date.now()};
-  const key=[item.eventId,item.period,item.clock,(item.score||[]).join(":")].join("|");
+  item.snapshotId=[item.eventId,item.savedAt,String(item.score||"").replace(/,/g,":"),item.clock||""].join("|");
   const history=readAnalysisHistory();
-  const oldIndex=history.findIndex(x=>[String(x.eventId||""),x.period||"",x.clock||"",(x.score||[]).join(":")].join("|")===key);
-  if(oldIndex>=0)history.splice(oldIndex,1);
+  // Append-only: a later refresh never overwrites an earlier forecast snapshot.
   history.push(item);
-  try{localStorage.setItem(ANALYSIS_HISTORY_KEY,JSON.stringify(history.slice(-100)));}catch(_){}
+  try{localStorage.setItem(ANALYSIS_HISTORY_KEY,JSON.stringify(history.slice(-500)));}catch(_){}
   renderAnalysisHistory();
 }
 function clearAnalysisHistory(){
@@ -765,12 +771,12 @@ function showSelectedMatch(ev,options={}){
   $("selectedMatchInfo").textContent="Счёт "+(score?score.join(" : "):"—")+" · Q"+(period||"—")+" · "+(clock||"—");
   const lineRows=lines.map(x=>{
     const p=(estimate?.poisson?.probabilities||[]).find(z=>Number(z.line)===Number(x.line));
-    return '<tr><td>'+x.line+'</td><td>'+(p?(p.pOver*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pUnder*100).toFixed(1)+'%':'—')+'</td><td>'+(p?escapeHtml(p.direction):'—')+'</td><td>'+(x.odds?escapeHtml(x.odds):'—')+'</td></tr>';
+    return '<tr><td>'+x.line+'</td><td>'+(p?(p.pOver*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pUnder*100).toFixed(1)+'%':'—')+'</td><td>'+(p?escapeHtml(p.direction):'—')+'</td><td>'+(p?(p.pPush*100).toFixed(1)+'%':'—')+'</td><td>'+(x.odds?escapeHtml(x.odds):'—')+'</td></tr>';
   }).join("");
   $("matchForecast").innerHTML=estimate
     ? '<div class="forecast-main"><b>Тотал матча</b><div class="forecast-number">'+estimate.projection+'</div><p>Сейчас '+estimate.current+' · прошло '+estimate.elapsed_minutes+' мин · осталось '+estimate.remaining_minutes+' мин</p><p>80%: '+(estimate.poisson?.low80??estimate.low)+'–'+(estimate.poisson?.high80??estimate.high)+' · 95%: '+(estimate.poisson?.low95??"—")+'–'+(estimate.poisson?.high95??"—")+'</p></div>'+
       '<h3>Показатели</h3><div class="calc-grid"><div class="calc-card"><span>Очков/мин</span><b>'+estimate.pace_per_min+'</b></div><div class="calc-card"><span>Остаток, оч.</span><b>'+(estimate.poisson?.mu??(estimate.projection-estimate.current))+'</b></div><div class="calc-card"><span>σ</span><b>'+(estimate.sigma??"—")+'</b></div><div class="calc-card"><span>Поправка</span><b>'+((Number(estimate.context_adjustment||1)-1)*100).toFixed(1)+'%</b></div></div>'+
-      '<h3>Вероятности · PARI</h3>'+(lineRows?'<table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Направление</th><th>Коэфф.</th></tr></thead><tbody>'+lineRows+'</tbody></table>':'<p class="muted">Линия не получена</p>')+
+      '<h3>Вероятности · PARI</h3>'+(lineRows?'<table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Направление</th><th>Возврат</th><th>Коэфф.</th></tr></thead><tbody>'+lineRows+'</tbody></table>':'<p class="muted">Линия не получена</p>')+
       '<h3>Владения</h3>'+(possession.applied?'<div class="calc-grid"><div class="calc-card"><span>Команда 1</span><b>'+possession.home+'</b></div><div class="calc-card"><span>Команда 2</span><b>'+possession.away+'</b></div><div class="calc-card"><span>Среднее</span><b>'+possession.average+'</b></div><div class="calc-card"><span>Влад./мин</span><b>'+possession.possPerMinute+'</b></div><div class="calc-card"><span>PPP</span><b>'+possession.pointsPerPossession+'</b></div><div class="calc-card"><span>Разница</span><b>'+possession.imbalance_percent+'%</b></div><div class="calc-card"><span>Покрытие</span><b>'+possession.metric_coverage+'/17</b></div></div>':'<p class="muted">Нет данных владений</p>')+
       '<p>eFG '+(shooting.efg!=null?(shooting.efg*100).toFixed(1)+'%':'—')+' · поправка '+((shooting.adjustment-1)*100).toFixed(1)+'%</p>'+
       (advancedMatchCalculations(ev,estimate,period,clock,possession,quarter).length?'<h3>Дополнительные расчёты</h3><div class="calc-grid">'+advancedMatchCalculations(ev,estimate,period,clock,possession,quarter).map(x=>'<div class="calc-card"><span>'+escapeHtml(x.name)+'</span><b>'+escapeHtml(x.value)+'</b><small>'+escapeHtml(x.detail)+'</small></div>').join("")+'</div>':'')+
@@ -780,7 +786,7 @@ function showSelectedMatch(ev,options={}){
   $("matchForecast").insertAdjacentHTML("beforeend",classicModelPanelHtml(classicMatchModels,"FULL GAME · МОДЕЛИ ПЕРВОГО САЙТА"));
   $("quarterForecast").innerHTML=quarter.ready
     ? '<div class="forecast-main"><b>Тотал Q'+escapeHtml(quarter.period||period||"?")+'</b><div class="forecast-number">'+quarter.projection+'</div><p>Счёт '+(quarter.home==null?"—":quarter.home+" : "+quarter.away)+' · очков '+(quarter.current??"—")+' · прошло '+(quarter.elapsed!=null?quarter.elapsed+" мин":"—")+' · таймер '+(clock||"—")+'</p><p>80%: '+quarter.low80+'–'+quarter.high80+' · 95%: '+quarter.low95+'–'+quarter.high95+(quarter.preliminary?' · предварительно':'')+'</p></div>'+
-      (quarter.lines.length?'<h3>Вероятности · Q'+escapeHtml(quarter.period||period||"?")+'</h3><table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Направление</th><th>Коэфф.</th></tr></thead><tbody>'+quarter.lines.map(x=>'<tr><td>'+x.line+'</td><td>'+(x.pOver*100).toFixed(1)+'%</td><td>'+(x.pUnder*100).toFixed(1)+'%</td><td>'+escapeHtml(x.direction)+'</td><td>'+(x.odds?escapeHtml(x.odds):'—')+'</td></tr>').join('')+'</tbody></table>':'<p class="muted">Линия четверти не получена</p>')+
+      (quarter.lines.length?'<h3>Вероятности · Q'+escapeHtml(quarter.period||period||"?")+'</h3><table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Направление</th><th>Возврат</th><th>Коэфф.</th></tr></thead><tbody>'+quarter.lines.map(x=>'<tr><td>'+x.line+'</td><td>'+(x.pOver*100).toFixed(1)+'%</td><td>'+(x.pUnder*100).toFixed(1)+'%</td><td>'+escapeHtml(x.direction)+'</td><td>'+((x.pPush||0)*100).toFixed(1)+'%</td><td>'+(x.odds?escapeHtml(x.odds):'—')+'</td></tr>').join('')+'</tbody></table>':'<p class="muted">Линия четверти не получена</p>')+
       calculationStepsHtml({kind:"quarter",period:quarter.period,ev,projection:Number(quarter.projection),current:Number(quarter.current),elapsedMinutes:quarter.elapsed,remainingMinutes:clock&&findPeriodLengthSeconds(ev)?Math.max(0,(Number(clock.split(":")[0])*60+Number(clock.split(":")[1]))/60):null,homeScore:quarter.home,awayScore:quarter.away,poss:quarter.possession_model,lines:quarter.lines||[],preliminary:!!quarter.preliminary,clock})
     :'<p class="muted">'+escapeHtml(quarter.reason||"Недостаточно данных")+'</p>';
   $("quarterForecast").insertAdjacentHTML("afterbegin",aiSignalHtml(aiAnalysis.quarter,"ИИ-анализ четверти"));
@@ -1102,10 +1108,10 @@ function classicModelPanelHtml(data,title){
   const groups=(data.groups||[]).map(g=>g.side?g.size+" моделей: "+g.side+" ("+g.count+")":g.size+" моделей: нет совпадения").join(" · ");
   const anomaly=data.anomaly?(data.anomaly.smooth?"Smooth Game: ровная траектория":"Аномалия/неровная траектория")+" · CV "+data.anomaly.cv+"%":"Проверка Smooth Game: мало завершённых четвертей";
   const toolsHtml=(data.tools||[]).map(t=>'<div class="model-tool-row"><b>'+escapeHtml(t.name)+'</b><span>'+escapeHtml(t.status)+'</span><small>'+escapeHtml(t.detail)+'</small></div>').join("");
-  return '<section class="classic-model-panel"><div class="calc-section-head"><div><span class="eyebrow">'+escapeHtml(title)+'</span><h3>Модели расчёта матча</h3></div><span class="calc-live-tag">'+(data.models.length||0)+' активны</span></div>'+
-    (data.consensus?'<div class="classic-consensus"><b>AI Consensus</b><strong>'+data.consensus.projection+'</strong><span>Направление: '+escapeHtml(direction)+(best?' · ТБ '+(best.pOver*100).toFixed(1)+'% / ТМ '+(best.pUnder*100).toFixed(1)+'%':'')+' · уверенность '+escapeHtml(data.consensus.confidence)+'</span></div>':'')+
+  return '<section class="classic-model-panel"><div class="calc-section-head"><div><span class="eyebrow">'+escapeHtml(title)+'</span><h3>Альтернативные оценки · не независимые модели</h3></div><span class="calc-live-tag">'+(data.models.length||0)+' альтернатив</span></div>'+
+    (data.consensus?'<div class="classic-consensus"><b>Единый основной прогноз</b><strong>'+data.consensus.projection+'</strong><span>Направление: '+escapeHtml(direction)+(best?' · ТБ '+(best.pOver*100).toFixed(1)+'% / ТМ '+(best.pUnder*100).toFixed(1)+'%':'')+' · возврат '+((best.pPush||0)*100).toFixed(1)+'% · уверенность '+escapeHtml(data.consensus.confidence)+'</span></div>':'')+
     '<div class="table-scroll"><table class="calc-table"><thead><tr><th>Модель</th><th>Тотал</th><th>Направление</th><th>Вероятность</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
-    '<p class="model-consensus-groups">'+escapeHtml(groups)+'</p><p class="model-anomaly">'+escapeHtml(anomaly)+'</p><div class="model-tool-list">'+toolsHtml+'</div><p class="muted model-training-note">'+escapeHtml(data.mlStatus)+'</p></section>';
+    '<p class="model-consensus-groups">'+(groups?escapeHtml(groups):'Совпадения однотипных методов не считаются независимым подтверждением')+'</p><p class="model-anomaly">'+escapeHtml(anomaly)+'</p><div class="model-tool-list">'+toolsHtml+'</div><p class="muted model-training-note">'+escapeHtml(data.mlStatus)+'</p></section>';
 }
 
 function aiSignalHtml(signal,title){
