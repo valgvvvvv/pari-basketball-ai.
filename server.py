@@ -2457,23 +2457,24 @@ def _pari_infer_period_format_from_timeline(period_number, timer_seconds,
     """
     try:
         period = int(period_number)
-        raw = float(timer_seconds)
+        raw = float(timer_seconds) if timer_seconds is not None else None
         remaining = float(period_remaining_seconds)
         count = int(period_count)
     except (TypeError, ValueError, OverflowError):
         return None
-    if not (1 <= period <= count <= 4 and 0 <= remaining <= 1200 and raw >= 0):
+    if not (1 <= period <= count <= 4 and 0 <= remaining <= 1200):
         return None
 
     candidates = []
-    # timerSeconds counts up from match start.
-    candidates.append((raw + remaining) / period)
-    # timerSeconds counts down to match end.
-    future_periods_after_current = count - period
-    if future_periods_after_current > 0 and raw >= remaining:
-        candidates.append((raw - remaining) / future_periods_after_current)
-    # timerSeconds is elapsed time within the active quarter.
-    candidates.append(raw + remaining)
+    if raw is not None and raw >= 0:
+        # timerSeconds counts up from match start.
+        candidates.append((raw + remaining) / period)
+        # timerSeconds counts down to match end.
+        future_periods_after_current = count - period
+        if future_periods_after_current > 0 and raw >= remaining:
+            candidates.append((raw - remaining) / future_periods_after_current)
+        # timerSeconds is elapsed time within the active quarter.
+        candidates.append(raw + remaining)
 
     supported = []
     for candidate in candidates:
@@ -3628,9 +3629,9 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     timer_source_rows = (live_info, event_misc, event, *repaired_related_rows)
                     clock_value = next((row.get(key) for row in timer_source_rows
                                         if isinstance(row, dict)
-                                        for key in ("clock", "countdown", "timeRemaining",
-                                                    "remainingTime", "periodClock", "period_clock",
-                                                    "time_remaining", "remaining_time")
+                                        for key in ("countdown", "timeRemaining", "remainingTime",
+                                                    "periodClock", "period_clock", "time_remaining",
+                                                    "remaining_time", "clock")
                                         if row.get(key) is not None), None)
                     if isinstance(clock_value, dict):
                         clock_value = next((clock_value.get(key) for key in
