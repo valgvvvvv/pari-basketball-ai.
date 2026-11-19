@@ -3146,7 +3146,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                                 (event, event_misc, live_info)
                                                 for key in ("comment", "scoreComment", "scoreCommentTail", "st3")).casefold()
                     overtime_detected = bool(re.search(r"\bot\b|overtime|овертайм|от\s*[:(]|дополнительн\w*\s+врем", timer_state_text))
-                    timer_paused = bool(re.search(r"timeout|time\\s*out|break|halftime|перерыв|тайм-аут|таймаут", timer_state_text))
+                    timer_paused = bool(re.search(r"timeout|time\s*out|break|halftime|перерыв|тайм-аут|таймаут", timer_state_text))
 
                     if clock_value is not None:
                         clock_text = str(clock_value).strip()
