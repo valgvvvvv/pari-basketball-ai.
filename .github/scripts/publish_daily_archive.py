@@ -84,7 +84,7 @@ def main():
         return
 
     tag = "pari-archive-" + NOW.strftime("%Y%m%d")
-    filename = "pari-basketball-archive-" + NOW.strftime("%Y%m%d") + ".zip"
+    filename = "pari-basketball-archive-" + NOW.strftime("%Y%m%d-%H%M%S") + ".zip"
     output = io.BytesIO()
     manifest = {
         "format": "pari-basketball-daily-archive",
@@ -124,10 +124,8 @@ def main():
             "prerelease": False,
         })
 
-    # Replace the same day's asset safely when the workflow is re-run.
-    for asset in release.get("assets", []):
-        if asset.get("name") == filename:
-            api_json(f"/repos/{REPO}/releases/assets/{asset['id']}", method="DELETE")
+    # Keep every successfully published archive immutable. Re-runs create a
+    # timestamped asset instead of deleting or replacing an earlier backup.
     upload_base = release["upload_url"].split("{", 1)[0]
     upload_url = upload_base + "?" + urllib.parse.urlencode({"name": filename})
     req = urllib.request.Request(upload_url, data=zip_bytes, headers={
