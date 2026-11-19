@@ -2446,6 +2446,67 @@ def _pari_period_score_unmapped_records(source_row):
 
 _PARI_TIMER_OBSERVATIONS = {}
 
+def _pari_infer_period_format_from_timeline(period_number, timer_seconds,
+                                            period_remaining_seconds,
+                                            period_count=4):
+    """
+    Infer only standard quarter lengths when the PARI match timer and explicit
+    quarter countdown independently constrain the same duration.
+    Supports a cumulative match count-up, cumulative match countdown, or
+    period elapsed timer. Ambiguous/non-standard values remain unconfirmed.
+    """
+    try:
+        period = int(period_number)
+        raw = float(timer_seconds)
+        remaining = float(period_remaining_seconds)
+        count = int(period_count)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not (1 <= period <= count <= 4 and 0 <= remaining <= 1200 and raw >= 0):
+        return None
+
+    candidates = []
+    # timerSeconds counts up from match start.
+    candidates.append((raw + remaining) / period)
+    # timerSeconds counts down to match end.
+    future_periods_including_current = count - period + 1
+    if future_periods_including_current > 0 and raw >= remaining:
+        candidates.append((raw - remaining) / future_periods_including_current)
+    # timerSeconds is elapsed time within the active quarter.
+    candidates.append(raw + remaining)
+
+    supported = []
+    for candidate in candidates:
+        for standard in (600, 720):
+            if abs(candidate - standard) <= 18:
+                supported.append(standard)
+    unique = sorted(set(supported))
+    if len(unique) == 1:
+        length = unique[0]
+        return {
+            "period_length_seconds": length,
+            "period_count": count,
+            "source": "PARI match timer + explicit quarter countdown consistency",
+            "rules_version": "event_timeline_inference",
+            "source_url": None,
+        }
+
+    # A clock captured very near a period start is a direct duration bound.
+    # Do not infer from an arbitrary mid-quarter clock value.
+    for standard in (600, 720):
+        if standard - 12 <= remaining <= standard:
+            return {
+                "period_length_seconds": standard,
+                "period_count": count,
+                "source": "PARI explicit quarter clock near period start",
+                "rules_version": "event_timeline_inference",
+                "source_url": None,
+            }
+    return None
+
+
+_PARI_TIMER_OBSERVATIONS = {}
+
 def _pari_normalize_timer(event_id, timer_seconds, timer_direction, period_number,
                           period_length_seconds, period_count, timer_paused=False,
                           overtime_detected=False, now_seconds=None):
@@ -3563,10 +3624,12 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 unique.append(factor)
                         return unique
 
-                    # Only explicit countdown fields are direct quarter clocks.
-                    # PARI's generic "timer" is a match timer; its direction matters.
-                    clock_value = next((row.get(key) for row in
-                                        (live_info, event_misc, event)
+                    # Read timer/clock/format from the root, PARI live objects,
+                    # and related period rows. Some PARI feeds put quarter clocks
+                    # only on child period events.
+                    timer_source_rows = (live_info, event_misc, event, *repaired_related_rows)
+                    clock_value = next((row.get(key) for row in timer_source_rows
+                                        if isinstance(row, dict)
                                         for key in ("clock", "countdown", "timeRemaining",
                                                     "remainingTime", "periodClock", "period_clock",
                                                     "time_remaining", "remaining_time")
@@ -3578,27 +3641,23 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                             if clock_value.get(key) is not None), None)
                     clock_was_explicit = clock_value is not None
 
-                    timer_raw = next((row.get("timerSeconds") for row in
-                                      (live_info, event_misc, event)
-                                      if row.get("timerSeconds") not in (None, 0, "0")), None)
+                    timer_raw = next((row.get("timerSeconds") for row in timer_source_rows
+                                      if isinstance(row, dict) and row.get("timerSeconds") not in (None, 0, "0")), None)
                     if timer_raw is None:
-                        timer_raw = next((row.get("timerSeconds") for row in
-                                          (live_info, event_misc, event)
-                                          if row.get("timerSeconds") is not None), None)
+                        timer_raw = next((row.get("timerSeconds") for row in timer_source_rows
+                                          if isinstance(row, dict) and row.get("timerSeconds") is not None), None)
                     try:
                         timer_seconds = int(float(timer_raw)) if timer_raw is not None else None
                     except (TypeError, ValueError, OverflowError):
                         timer_seconds = None
-                    timer_direction_raw = next((row.get("timerDirection") for row in
-                                                 (live_info, event_misc, event)
-                                                 if row.get("timerDirection") is not None), None)
+                    timer_direction_raw = next((row.get("timerDirection") for row in timer_source_rows
+                                                 if isinstance(row, dict) and row.get("timerDirection") is not None), None)
                     try:
                         timer_direction = int(timer_direction_raw) if timer_direction_raw is not None else None
                     except (TypeError, ValueError, OverflowError):
                         timer_direction = None
-                    timer_timestamp_raw = next((row.get("timerTimestampMsec") for row in
-                                                 (live_info, event_misc, event)
-                                                 if row.get("timerTimestampMsec") is not None), None)
+                    timer_timestamp_raw = next((row.get("timerTimestampMsec") for row in timer_source_rows
+                                                 if isinstance(row, dict) and row.get("timerTimestampMsec") is not None), None)
                     try:
                         timer_timestamp_msec = int(float(timer_timestamp_raw)) if timer_timestamp_raw is not None else None
                     except (TypeError, ValueError, OverflowError):
@@ -3632,7 +3691,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             break
 
                     if period_length_seconds is None:
-                        format_rows = (event, event_misc, live_info)
+                        format_rows = (event, event_misc, live_info, *repaired_related_rows)
                         explicit_length = next((row.get(k) for row in format_rows
                                                 for k in ("periodLengthSeconds", "periodDurationSeconds",
                                                           "quarterLengthSeconds", "quarterDurationSeconds",
@@ -3695,6 +3754,23 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             clock_value = f"{seconds // 60:02d}:{seconds % 60:02d}"
                         else:
                             clock_value = None
+
+                    # If the event has no league rule, infer 10/12-minute
+                    # periods only when match timer arithmetic agrees with PARI's
+                    # explicit active-quarter countdown. This carries the same
+                    # duration into Q2/Q3/Q4 instead of asking for a new format.
+                    if (period_length_seconds is None and explicit_clock_seconds is not None
+                            and explicit_period and 1 <= explicit_period <= 4):
+                        inferred_format = _pari_infer_period_format_from_timeline(
+                            explicit_period, timer_seconds, explicit_clock_seconds, 4
+                        )
+                        if inferred_format:
+                            period_length_seconds = inferred_format["period_length_seconds"]
+                            period_count = inferred_format["period_count"]
+                            period_format_source = {
+                                "competition_id": next((str(x) for x in competition_id_candidates if x is not None), None),
+                                **inferred_format,
+                            }
 
                     # Prefer PARI's explicit per-period countdown when present.
                     # Its field semantics (clock/countdown/periodClock/timeRemaining)
