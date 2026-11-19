@@ -650,14 +650,23 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   const available=Number(ev?.statistics_quality?.available_count||0);
   const expected=Number(ev?.statistics_quality?.expected_count||19);
   const apiAgeMs=Date.parse(ev?.feed_checked_at_utc||"");
+  const playByPlay=ev?.play_by_play||ev?.external_live?.play_by_play;
+  const playByPlayCount=Array.isArray(playByPlay)?playByPlay.length:0;
+  const periodResultCount=Array.from({length:Math.max(0,Number(period||1)-1)},(_,i)=>readPeriodScore(ev,i)).filter(Number.isFinite).length;
+  const mode=playByPlayCount>=8?"full_play_by_play":possession.applied?"score_clock_boxscore_possessions":
+    available>0?"score_clock_partial_statistics":periodResultCount>0?"score_clock_period_results":"score_clock_only";
+  const modeLabel={full_play_by_play:"полный play-by-play",score_clock_boxscore_possessions:"счёт, время и статистика владений",
+    score_clock_partial_statistics:"счёт, время и частичная статистика",score_clock_period_results:"счёт, время и результаты периодов",
+    score_clock_only:"только счёт и время"}[mode];
   const dataQuality={
-    mode:possession.applied?"score_clock_boxscore_possessions":available>0?"score_clock_partial_statistics":"score_clock_only",
-    statisticsAvailable:available,statisticsExpected:expected,
+    mode,modeLabel,statisticsAvailable:available,statisticsExpected:expected,
+    playByPlayEvents:playByPlayCount,periodResultsAvailable:periodResultCount,
+    scoreSource:ev?.score_source||ev?.external_live?.score_source||"не указан",
+    clockSource:ev?.clock_source||ev?.external_live?.clock_source||"не указан",
+    statisticsSource:ev?.statistics_source||"не указан",
     apiResponseAgeSeconds:Number.isFinite(apiAgeMs)?Math.max(0,Math.round((Date.now()-apiAgeMs)/1000)):null,
     providerEventTimestampAvailable:!!(ev?.updated_at||ev?.raw?.updated_at||ev?.raw?.updatedAt),
-    label:available===0?"ограниченная · только счёт и таймер; статистика 0/"+expected:
-      available<expected?"ограниченная · частичная статистика "+available+"/"+expected:
-      "расширенная · статистика "+available+"/"+expected
+    label:modeLabel+" · статистика "+available+"/"+expected
   };
   if(tempoDynamics.applied)factors.push("Динамика темпа: "+(tempoDynamics.acceleration>0?"ускорение ":"спад ")+Math.abs(tempoDynamics.rawChange).toFixed(1)+"% · коэффициент "+tempoFactor.toFixed(3)+" · влияние на оставшийся тотал "+((tempoFactor-1)*100).toFixed(1)+"%");
   else factors.push("Динамика темпа: коэффициент не применён — "+tempoDynamics.reason);
@@ -798,10 +807,10 @@ function showSelectedMatch(ev,options={}){
   const periodStatRows=Array.isArray(ev.period_statistics)?ev.period_statistics:[];
   const periodStatHtml=periodStatRows.length?'<h4>Статистика по четвертям</h4>'+periodStatRows.map(st=>'<p>Q'+escapeHtml(st.period||"—")+' · '+escapeHtml(st.name||st.metric_key||"Показатель")+': <b>'+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+'</b></p>').join(""):'';
   $("selectedMatchMeta").textContent=[ev.league||ev.sport_name].filter(Boolean).join(" · ");
-  $("selectedMatchInfo").textContent="Счёт "+(score?score.join(" : "):"—")+" · Q"+(period||"—")+" · "+(clock||"—");
+  $("selectedMatchInfo").textContent="Счёт "+(score?score.join(" : "):"—")+" · Q"+(period||"—")+" · "+(clock||"—")+" · счёт: "+(ev.score_source||ev.external_live?.score_source||"источник не указан")+" · таймер: "+(ev.clock_source||ev.external_live?.clock_source||"источник не указан");
   const lineRows=lines.map(x=>{
     const p=(estimate?.poisson?.probabilities||[]).find(z=>Number(z.line)===Number(x.line));
-    return '<tr><td>'+x.line+'</td><td>'+(p?(p.pOver*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pUnder*100).toFixed(1)+'%':'—')+'</td><td>'+(p?escapeHtml(p.direction):'—')+'</td><td>'+(p?(p.pPush*100).toFixed(1)+'%':'—')+'</td><td>'+(x.prices?.length?escapeHtml(x.prices.map(p=>p.factorId+': '+p.odds).join(' / ')):(x.prices?.length?escapeHtml(x.prices.map(p=>p.factorId+': '+p.odds).join(' / ')):(x.odds?escapeHtml(x.odds):'—')))+'</td></tr>';
+    return '<tr><td>'+x.line+'</td><td>'+(p?(p.pOver*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pUnder*100).toFixed(1)+'%':'—')+'</td><td>'+(p?escapeHtml(p.direction):'—')+'</td><td>'+(p?(p.pPush*100).toFixed(1)+'%':'—')+'</td><td>'+(x.prices?.length?escapeHtml(x.prices.map(p=>p.factorId+': '+p.odds).join(' / ')):(x.odds?escapeHtml(x.odds):'—'))+'</td></tr>';
   }).join("");
   $("matchForecast").innerHTML=estimate
     ? '<div class="forecast-main"><b>Тотал матча</b><div class="forecast-number">'+estimate.projection+'</div><p>Сейчас '+estimate.current+' · прошло '+estimate.elapsed_minutes+' мин · осталось '+estimate.remaining_minutes+' мин</p><p>ОТ: не включён в расчёт; правило линии PARI не подтверждено.</p><p>Качество: '+escapeHtml(estimate.data_quality?.label||"ограниченное")+(estimate.data_quality?.apiResponseAgeSeconds!=null?" · ответ API "+estimate.data_quality.apiResponseAgeSeconds+" сек. назад":" · время ответа API неизвестно")+(estimate.data_quality?.providerEventTimestampAvailable?" · обновление события получено":" · время обновления события источник не передаёт")+'</p><p>Прогнозный интервал итогового тотала · 80%: '+(estimate.poisson?.low80??estimate.low)+'–'+(estimate.poisson?.high80??estimate.high)+' · 95%: '+(estimate.poisson?.low95??"—")+'–'+(estimate.poisson?.high95??"—")+'</p><p>Неопределённость среднего по сценариям: '+(estimate.poisson?.meanUncertaintySd!=null?"±"+Number(estimate.poisson.meanUncertaintySd).toFixed(1)+" оч.":"не оценена отдельно")+'</p></div>'+
@@ -1281,12 +1290,21 @@ function automaticQuarterForecast(ev) {
   const preliminary=elapsed<180||previousQuarterTotals.length<2||String(info?.method||"").includes("предварительно")||recoveredClock;
   const qAvailable=Number(ev?.statistics_quality?.available_count||0),qExpected=Number(ev?.statistics_quality?.expected_count||19);
   const quarterFeedAt=Date.parse(ev?.feed_checked_at_utc||"");
-  const quarterQuality={mode:qAvailable>0?"score_clock_partial_statistics":"score_clock_only",
-    statisticsAvailable:qAvailable,statisticsExpected:qExpected,
+  const quarterPbp=ev?.play_by_play||ev?.external_live?.play_by_play;
+  const quarterPbpCount=Array.isArray(quarterPbp)?quarterPbp.length:0;
+  const quarterPriorCount=previousQuarterTotals.length;
+  const quarterMode=quarterPbpCount>=8?"full_play_by_play":qAvailable>0?"score_clock_partial_statistics":
+    quarterPriorCount>0?"score_clock_period_results":"score_clock_only";
+  const quarterModeLabel={full_play_by_play:"полный play-by-play",score_clock_partial_statistics:"счёт, время и частичная статистика",
+    score_clock_period_results:"счёт, время и результаты периодов",score_clock_only:"только счёт и время"}[quarterMode];
+  const quarterQuality={mode:quarterMode,modeLabel:quarterModeLabel,
+    statisticsAvailable:qAvailable,statisticsExpected:qExpected,playByPlayEvents:quarterPbpCount,
+    scoreSource:ev?.score_source||ev?.external_live?.score_source||"не указан",
+    clockSource:ev?.clock_source||ev?.external_live?.clock_source||"не указан",
+    statisticsSource:ev?.statistics_source||"не указан",
     apiResponseAgeSeconds:Number.isFinite(quarterFeedAt)?Math.max(0,Math.round((Date.now()-quarterFeedAt)/1000)):null,
     providerEventTimestampAvailable:!!(ev?.updated_at||ev?.raw?.updated_at||ev?.raw?.updatedAt),
-    label:qAvailable===0?"ограниченная · счёт и время; статистика 0/"+qExpected:
-      qAvailable<qExpected?"ограниченная · статистика "+qAvailable+"/"+qExpected:"расширенная · статистика "+qAvailable+"/"+qExpected};
+    label:quarterModeLabel+" · статистика "+qAvailable+"/"+qExpected};
   return {ready:true,period,current:observed??null,projection:Math.round(projection*10)/10,data_quality:quarterQuality,
     home:currentQuarter?.pair?.[0]??null,away:currentQuarter?.pair?.[1]??null,
     score_source:source,elapsed:elapsedMinutes,low80:poisson.low80,high80:poisson.high80,
