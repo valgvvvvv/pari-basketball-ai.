@@ -229,6 +229,8 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
         self.assertIsNone(row["target_period"])
         self.assertEqual(row["match_status"], "exact_event_id_match")
         self.assertEqual(row["observed_at_utc"], "2026-11-19T10:00:00+00:00")
+        self.assertEqual(row["observation_basis"], "pari_feed_snapshot_proxy")
+        self.assertEqual(row["freshness_status"], "source_timestamp_unavailable")
         self.assertTrue(row["received_at_utc"])
 
 
