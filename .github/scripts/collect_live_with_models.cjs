@@ -54,7 +54,7 @@ const { chromium } = require("playwright");
           final_score: null,
           settled_at_utc: null,
           model: target === "match" ? "live-tempo-possession-scenario" : (forecast.distribution || "quarter-model"),
-          model_version: target === "match" ? "match-live-v1" : (forecast.model_version || "unknown"),
+          model_version: target === "match" ? "match-live-v2" : (forecast.model_version || "unknown"),
           current_points: estimate.current ?? null,
           expected_remaining_points: target === "match" ? distribution?.mu_exact ?? estimate.expected_remaining_exact ?? distribution?.mu ?? null : forecast.expected_remaining ?? null,
           projected_total: estimate.projection_exact ?? estimate.projection,
