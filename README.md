@@ -76,6 +76,12 @@
 
 ## Проверки
 
+Восстановление ZIP в новую папку без перезаписи существующих файлов:
+
+```bash
+python .github/scripts/restore_daily_archive.py pari-basketball-archive.zip --output restored-archive
+```
+
 Запуск локально:
 
 ```bash
