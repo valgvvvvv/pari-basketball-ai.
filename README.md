@@ -75,6 +75,7 @@ Render запускает `uvicorn server:app --host 0.0.0.0 --port $PORT`.
 - `GET /api/pari/discover` — исследование публичных маршрутов PARI.
 - `GET /api/archive/status` — локальная SQLite и статус Render-сборщика.
 - `GET /api/archive/export` — ZIP текущей локальной SQLite; это не замена постоянному GitHub-архиву.
+- Восстановление ZIP без удаления/перезаписи: `python .github/scripts/restore_daily_archive.py <archive.zip> --output pari-archive-restored`. Скрипт проверяет ZIP CRC, gzip/JSON и SHA-256 файлов из manifest; конфликтующие существующие файлы не перезаписывает.
 - `POST /api/archive/settle-preview` — проверяет предоставленный финальный результат, но принимает его только при точном ID матча, подтверждённой идентичности, независимом подтверждении, зафиксированной линии и известном правиле ОТ. Это preview, не автоматический сбор финалов и не долговременное сохранение исхода.
 
 ## Запуск
