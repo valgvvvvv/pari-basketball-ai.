@@ -68,7 +68,7 @@ class QuarterAnalyzeRequest(BaseModel):
     clock: str
     period_minutes: int = Field(default=10, ge=5, le=15)
     total_line: float
-    simulations: int = Field(default=10000, ge=1000, le=20000)
+    simulations: int = Field(default=100000, ge=1000, le=100000)
 
 class AnalyzeRequest(BaseModel):
     team1: str = "Команда 1"
@@ -83,7 +83,7 @@ class AnalyzeRequest(BaseModel):
     under_odds: Optional[float] = None
     fouls_total: int = Field(default=0, ge=0, le=100)
     pace_adjustment: float = Field(default=1.0, ge=0.5, le=1.5)
-    simulations: int = Field(default=20000, ge=1000, le=100000)
+    simulations: int = Field(default=100000, ge=1000, le=100000)
 
 def parse_clock(clock: str) -> int:
     try:
