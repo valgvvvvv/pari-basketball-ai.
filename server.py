@@ -2314,6 +2314,27 @@ def _pari_period_score_records(source_row):
                                 "label": label, "source": "PARI.scores[1]", "source_index": index})
     return records
 
+def _pari_period_score_unmapped_records(source_row):
+    """Expose unknown subscores in diagnostics without assigning them a meaning."""
+    if not isinstance(source_row, dict) or not isinstance(source_row.get("subscores"), (list, tuple)):
+        return []
+    result = []
+    for index, item in enumerate(source_row["subscores"]):
+        if not isinstance(item, dict):
+            continue
+        kind_id = str(item.get("kindId") or item.get("kind_id") or "")
+        if not kind_id or kind_id in PARI_PERIOD_SCORE_KIND_IDS or kind_id in PARI_STATISTIC_KIND_IDS:
+            continue
+        result.append({
+            "kind_id": kind_id,
+            "name": str(item.get("kindName") or item.get("name") or item.get("title") or ""),
+            "home": item.get("c1"), "away": item.get("c2"),
+            "source": "PARI.subscores", "source_index": index,
+            "reason": "Неизвестный kindId: значение сохранено только для диагностики",
+        })
+    return result
+
+
 def _pari_period_scores(source_row):
     """Sparse quarter scores; unknown periods remain None, never fabricated as zero."""
     records = _pari_period_score_records(source_row)
@@ -3159,9 +3180,12 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # Period score extraction is centralized and kind-ID aware.
                     # Shot-stat rows cannot become quarter points by label collision.
                     period_score_records = []
+                    period_score_unmapped = []
                     for score_source_row, source_name in ((live_info, "live_info"), (event_misc, "event_misc"), (event, "event")):
                         candidate_records = _pari_period_score_records(score_source_row)
                         period_score_records.extend({**record, "source_object": source_name} for record in candidate_records)
+                        period_score_unmapped.extend({**record, "source_object": source_name}
+                                                      for record in _pari_period_score_unmapped_records(score_source_row))
                     period_score_by_number = {}
                     period_score_conflicts = []
                     for record in period_score_records:
@@ -3241,6 +3265,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "period_scores": period_scores,
                         "period_score_sources": list(period_score_by_number.values()),
                         "period_score_conflicts": period_score_conflicts,
+                        "period_score_unmapped": period_score_unmapped[:40],
                         "match_timeline": [
                             {"period": index + 1, "home": pair[0], "away": pair[1],
                              "total": pair[0] + pair[1],
