@@ -2549,7 +2549,9 @@ def _pari_normalize_timer(event_id, timer_seconds, timer_direction, period_numbe
                 "timer_block_reason": "Нормализованное время не попадает в текущий период"}
     period_remaining = max(0, allowed_period_length - period_elapsed)
     return {"timer_semantics_verified": True, "timer_interpretation_status": "verified_" + observed_direction,
-            "timer_observed_direction": observed_direction, "match_elapsed_seconds": int(match_elapsed),
+            "timer_observed_direction": observed_direction,
+            "timer_direction_semantics_verified": timer_direction is not None,
+            "match_elapsed_seconds": int(match_elapsed),
             "period_elapsed_seconds": int(period_elapsed), "period_remaining_seconds": int(period_remaining),
             "timer_state": "stoppage" if (timer_paused or paused_by_snapshots) else ("overtime" if is_ot else "running"),
             "timer_block_reason": None, "timer_snapshot_count": len(history),
@@ -2569,6 +2571,7 @@ def _pari_timer_metadata(timer_seconds, timer_direction, timer_timestamp_msec,
         "period_remaining_seconds": normalized_timer.get("period_remaining_seconds"),
         "timer_direction": timer_direction,
         "timer_observed_direction": normalized_timer.get("timer_observed_direction"),
+        "timer_direction_semantics_verified": bool(normalized_timer.get("timer_direction_semantics_verified")),
         "timer_timestamp_msec": timer_timestamp_msec,
         "timer_paused": bool(timer_paused or normalized_timer.get("timer_state") == "stoppage"),
         "overtime_detected": bool(overtime_detected or normalized_timer.get("timer_state") == "overtime"),
