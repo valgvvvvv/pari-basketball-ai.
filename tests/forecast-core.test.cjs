@@ -48,10 +48,26 @@ assert.equal(nanjingOldSnapshot.priorIsAggregate, true);
 assert.equal(nanjingOldSnapshot.completedPoints, 90);
 assert.ok(Math.abs(nanjingOldSnapshot.projection - 39.9038004751) < 1e-8,
   "fixed Nanjing-Xinjiang snapshot must use 90 prior points over 20 minutes");
-const nanjingDistribution = core.simulateQuarter(nanjingOldSnapshot, [{line:40.5}], "nanjing-xinjiang-fixed-snapshot", 100000);
-assert.ok(nanjingDistribution.probabilities[0].pUnder < 1,
-  "fixed Nanjing snapshot must not claim TM 100% from one early point");
-assert.ok(Math.abs(nanjingDistribution.probabilities[0].pOver + nanjingDistribution.probabilities[0].pUnder - 1) < 1e-9);
+assert.equal(nanjingOldSnapshot.elapsedSeconds, 63);
+assert.ok(Math.abs(nanjingOldSnapshot.beta - 21.05) < 1e-9);
+const nanjingDistribution = core.simulateQuarter(nanjingOldSnapshot, [{line:40.5},{line:40}], "nanjing-xinjiang-fixed-snapshot", 100000);
+assert.ok(Math.abs(nanjingDistribution.mu - nanjingOldSnapshot.expectedRemaining) < 1e-9,
+  "predictive distribution mean must equal posterior expected remaining points");
+assert.equal(nanjingDistribution.low80, 30);
+assert.equal(nanjingDistribution.high80, 50);
+assert.ok(Math.abs(nanjingDistribution.variance - nanjingDistribution.mu - nanjingDistribution.meanUncertaintyVariance) < 1e-8,
+  "predictive variance must equal Poisson variance plus posterior mean uncertainty");
+const nanjingHalfLine = nanjingDistribution.probabilities.find(x => x.line === 40.5);
+const nanjingIntegerLine = nanjingDistribution.probabilities.find(x => x.line === 40);
+assert.ok(nanjingHalfLine.pUnder < 1, "fixed Nanjing snapshot must not claim TM 100% from one early point");
+assert.equal(nanjingHalfLine.pPush, 0);
+assert.equal(nanjingHalfLine.direction, "без выраженного преимущества");
+assert.ok(nanjingOldSnapshot.projection < 40.5, "numeric center must remain separately below the 40.5 line");
+assert.ok(nanjingIntegerLine.pPush > 0, "integer market line must retain push probability");
+for (const row of [nanjingHalfLine,nanjingIntegerLine]) {
+  assert.ok(Math.abs(row.pOver + row.pUnder + row.pPush - 1) < 1e-9,
+    "over/under/push probabilities must sum to one for the fixed snapshot");
+}
 
 const illawarraQ3 = core.quarterPosterior({
   current: 11, elapsedSeconds: 149, periodLengthSeconds: 600,
