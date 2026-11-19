@@ -32,9 +32,9 @@
     return sorted[Math.min(sorted.length-1,Math.max(0,Math.ceil(q*sorted.length)-1))];
   }
   function simulateQuarter(input){
-    const current=Number(input.current),periodSeconds=Number(input.periodSeconds),elapsedSeconds=Number(input.elapsedSeconds);
+    const current=input.current==null||input.current===""?NaN:Number(input.current),periodSeconds=Number(input.periodSeconds),elapsedSeconds=input.elapsedSeconds==null||input.elapsedSeconds===""?NaN:Number(input.elapsedSeconds);
     const scores=(Array.isArray(input.priorQuarterTotals)?input.priorQuarterTotals:[])
-      .map(Number).filter(x=>Number.isFinite(x)&&x>=0);
+      .filter(x=>x!=null&&x!=="").map(Number).filter(x=>Number.isFinite(x)&&x>=0);
     const simulations=Math.max(1000,Math.min(100000,Math.floor(Number(input.simulations)||100000)));
     if(!Number.isFinite(current)||current<0||!Number.isFinite(periodSeconds)||periodSeconds<300||
        !Number.isFinite(elapsedSeconds)||elapsedSeconds<0||elapsedSeconds>periodSeconds){
