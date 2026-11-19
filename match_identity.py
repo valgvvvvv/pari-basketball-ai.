@@ -122,5 +122,6 @@ def match_context_compatible(pari: dict, external: dict,
         ta, tb = set(re.findall(r"[a-z0-9]{2,}", a)), set(re.findall(r"[a-z0-9]{2,}", b))
         overlap = len(ta & tb) / max(1, min(len(ta), len(tb)))
         similarity = SequenceMatcher(None, a, b).ratio() if a and b else 0.0
-        return overlap >= 0.5 or similarity >= 0.45
+        suffix_match = len(min(a, b, key=len)) >= 3 and (a.endswith(b) or b.endswith(a))
+        return overlap >= 0.5 or similarity >= 0.45 or suffix_match
     return same_fixture_window
