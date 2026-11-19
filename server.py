@@ -2277,11 +2277,10 @@ def _stat_value_for_ui(value):
 
 # Confirmed PARI match-centre score/statistic kinds. Unknown kind IDs are
 # diagnostic-only; their meaning is never inferred from a matching label.
-# Competition IDs are populated only from the live PARI catalogue and official
-# competition rulebooks. Empty until a specific ID/rules version is verified.
+# PARI leaf competition IDs with independently supported playing-time rules.
+# Generic "friendly" and BSKT labels are intentionally NOT assigned a global format:
+# those events require explicit per-event format metadata or remain blocked.
 PARI_COMPETITION_FORMATS = {
-    # PARI sportId is the leaf competition/category ID in the live catalogue.
-    # The IDs below were read from live PARI snapshots on 2026-11-19.
     "59836": {
         "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
         "source": "KBL 2026-2027 official game rules, Article 8.1 and 8.7",
@@ -2293,6 +2292,18 @@ PARI_COMPETITION_FORMATS = {
         "source": "FIBA Official Basketball Rules 2026, Article 8.1 and 8.7; NBL27 uses FIBA rules",
         "rules_version": "FIBA OBR 2026 v1.1 / NBL27",
         "source_url": "https://assets.fiba.basketball/image/upload/documents-corporate-fiba-official-rules-2026-v1-1.pdf",
+    },
+    "116676": {
+        "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "CBA Club Cup competition format: four 10-minute quarters; FIBA playing-time rules",
+        "rules_version": "CBA Club Cup 2025-2026 / FIBA OBR",
+        "source_url": "https://sports.cctv.cn/2025/11/27/ARTIsKBjB5BmBI14DTB7OuUk251127.shtml",
+    },
+    "59149": {
+        "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "VTB United Youth League 2025-2026 official regulations; FIBA Official Basketball Rules",
+        "rules_version": "VTB Youth League 2025-2026",
+        "source_url": "https://vtbyouth-league.com/ru/pages/about-docs/",
     },
 }
 
@@ -2438,7 +2449,11 @@ _PARI_TIMER_OBSERVATIONS = {}
 def _pari_normalize_timer(event_id, timer_seconds, timer_direction, period_number,
                           period_length_seconds, period_count, timer_paused=False,
                           overtime_detected=False, now_seconds=None):
-    """Infer PARI timer semantics only after two consistent real snapshot intervals."""
+    """
+    Verify PARI timer direction from source snapshots. Direction survives clock
+    stoppages and consecutive period transitions; contradictory same-period
+    movement invalidates it and requires fresh evidence.
+    """
     now_seconds = float(now_seconds if now_seconds is not None else datetime.now(timezone.utc).timestamp())
     if timer_seconds is None:
         return {"timer_semantics_verified": False, "timer_interpretation_status": "timer_not_received",
@@ -2447,119 +2462,152 @@ def _pari_normalize_timer(event_id, timer_seconds, timer_direction, period_numbe
         return {"timer_semantics_verified": False, "timer_interpretation_status": "received_period_format_unconfirmed",
                 "timer_block_reason": "Нет подтверждённой длительности и количества периодов"}
     if not isinstance(period_number, int) or period_number < 1:
-        return {"timer_semantics_verified": False, "timer_interpretation_status": "received_period_format_unconfirmed",
+        return {"timer_semantics_verified": False, "timer_interpretation_status": "period_unconfirmed",
                 "timer_block_reason": "Не определён текущий период"}
+
     overtime_length = 300
     is_ot = bool(overtime_detected or period_number > period_count)
-    allowed_period_length = overtime_length if is_ot else int(period_length_seconds)
     if is_ot and period_number <= period_count:
         return {"timer_semantics_verified": False, "timer_interpretation_status": "overtime_unconfirmed",
                 "timer_block_reason": "Овертайм обозначен текстом, но номер дополнительного периода не подтверждён"}
-    if is_ot and period_number > period_count:
-        allowed_period_length = overtime_length
+    allowed_period_length = overtime_length if is_ot else int(period_length_seconds)
     raw = float(timer_seconds)
-    if raw < 0 or raw > (period_length_seconds * period_count + 600):
+    maximum = int(period_length_seconds) * int(period_count) + 600
+    if raw < 0 or raw > maximum:
         return {"timer_semantics_verified": False, "timer_interpretation_status": "timer_value_out_of_range",
                 "timer_block_reason": "timerSeconds вне допустимого диапазона"}
+
     key = str(event_id or "unknown")
-    history = _PARI_TIMER_OBSERVATIONS.setdefault(key, [])
-    signature = (int(period_number), int(period_length_seconds), int(period_count), timer_direction, bool(is_ot))
-    if history and history[-1].get("signature") != signature:
-        history.clear()
-    history.append({"value": raw, "at": now_seconds, "signature": signature})
-    del history[:-4]
-    observed_direction = None
-    paused_by_snapshots = False
+    state = _PARI_TIMER_OBSERVATIONS.setdefault(key, {
+        "history": [], "direction": None, "format": None, "period": None,
+        "scope": None, "contradiction_count": 0,
+    })
+    fmt = (int(period_length_seconds), int(period_count))
+    if state.get("format") != fmt:
+        state.update({"history": [], "direction": None, "format": fmt,
+                      "period": None, "scope": None, "contradiction_count": 0})
+    history = state["history"]
+    previous = history[-1] if history else None
+    # A normal next-quarter transition is not a timer-direction reversal: the
+    # clock may reset to 10:00/00:00 or continue as a match timer.
+    period_changed = previous is not None and int(previous["period"]) != int(period_number)
+    if previous is not None and int(period_number) < int(previous["period"]):
+        state.update({"history": [], "direction": None, "period": None,
+                      "scope": None, "contradiction_count": 0})
+        history = state["history"]
+        previous = None
+        period_changed = False
+
+    entry = {"value": raw, "at": now_seconds, "period": int(period_number),
+             "paused": bool(timer_paused), "signature": fmt}
+    history.append(entry)
+    del history[:-12]
+
     intervals = []
-    for previous, current in zip(history, history[1:]):
-        dt = current["at"] - previous["at"]
-        delta = current["value"] - previous["value"]
-        if dt < 12 or dt > 180:
+    for a, b in zip(history, history[1:]):
+        if a["period"] != b["period"]:
+            continue
+        dt = b["at"] - a["at"]
+        delta = b["value"] - a["value"]
+        if dt < 8 or dt > 240:
             continue
         if abs(delta) <= 1:
-            paused_by_snapshots = True
             intervals.append("paused")
-            continue
-        if abs(abs(delta) - dt) <= max(5.0, dt * 0.75):
+        elif abs(abs(delta) - dt) <= max(5.0, dt * 0.35):
             intervals.append("up" if delta > 0 else "down")
         else:
             intervals.append("inconsistent")
-    moving = [x for x in intervals if x in ("up", "down")]
-    recent_intervals = intervals[-2:]
-    if (len(recent_intervals) >= 2 and moving and len(set(moving)) == 1
-            and all(item in (moving[-1], "paused") for item in recent_intervals)):
-        observed_direction = moving[-1]
-    if timer_paused:
-        paused_by_snapshots = True
-    if observed_direction is None and not paused_by_snapshots:
-        return {"timer_semantics_verified": False, "timer_interpretation_status": "awaiting_sequential_snapshots",
-                "timer_block_reason": "Нужно ещё два согласованных интервала PARI (минимум 3 снимка)",
-                "timer_observed_direction": None, "timer_snapshot_count": len(history)}
-    if observed_direction is None and paused_by_snapshots:
-        # A stopped clock is usable only after its count-up/count-down semantics
-        # were already established; an unchanged value alone cannot reveal direction.
-        prior = [x for x in history[:-1]]
-        if len(prior) < 3:
-            return {"timer_semantics_verified": False, "timer_interpretation_status": "stoppage_direction_unverified",
-                    "timer_block_reason": "Часы стоят, но направление не было подтверждено до остановки",
-                    "timer_snapshot_count": len(history)}
-        return {"timer_semantics_verified": False, "timer_interpretation_status": "stoppage_direction_unverified",
-                "timer_block_reason": "Для остановленных часов нет ранее подтверждённого направления",
+
+    moving = [v for v in intervals if v in ("up", "down")]
+    observed = None
+    if len(moving) >= 2 and moving[-1] == moving[-2]:
+        # Require the last two informative intervals to agree. Intervening
+        # pauses are permitted; a contradictory moving interval is not.
+        last_two = intervals[-4:]
+        informative = [v for v in last_two if v in ("up", "down", "inconsistent")]
+        if len(informative) >= 2 and informative[-1] == informative[-2] and informative[-1] in ("up", "down"):
+            observed = informative[-1]
+
+    confirmed = state.get("direction")
+    if confirmed and observed and observed != confirmed:
+        state["contradiction_count"] = int(state.get("contradiction_count", 0)) + 1
+        if state["contradiction_count"] >= 2:
+            state["direction"] = None
+            state["contradiction_count"] = 0
+            confirmed = None
+    elif confirmed and observed == confirmed:
+        state["contradiction_count"] = 0
+    elif not confirmed and observed:
+        state["direction"] = observed
+        confirmed = observed
+
+    if not confirmed:
+        status = "awaiting_sequential_snapshots"
+        reason = "Нужно два согласованных интервала часов в одном периоде (минимум 3 снимка)"
+        return {"timer_semantics_verified": False, "timer_interpretation_status": status,
+                "timer_block_reason": reason, "timer_observed_direction": observed,
                 "timer_snapshot_count": len(history)}
-    if observed_direction == "up":
-        if raw <= allowed_period_length:
-            period_elapsed = int(round(raw))
-        else:
-            match_elapsed_raw = raw
-            regulation_elapsed = (period_number - 1) * int(period_length_seconds) + allowed_period_length
-            if is_ot:
-                match_elapsed = int(period_length_seconds) * period_count + (period_number - period_count - 1) * overtime_length + int(round(raw))
-                period_elapsed = int(round(raw))
-                return {"timer_semantics_verified": True, "timer_interpretation_status": "verified_count_up_overtime",
-                        "timer_observed_direction": observed_direction,
-                        "timer_direction_semantics_verified": timer_direction is not None,
-                        "match_elapsed_seconds": match_elapsed,
-                        "period_elapsed_seconds": period_elapsed, "period_remaining_seconds": max(0, overtime_length-period_elapsed),
-                        "timer_state": "overtime", "timer_block_reason": None, "timer_snapshot_count": len(history)}
-            if match_elapsed_raw > period_length_seconds * period_count:
-                return {"timer_semantics_verified": False, "timer_interpretation_status": "timer_value_out_of_range",
-                        "timer_block_reason": "Нарастающий таймер превышает подтверждённую длительность матча"}
-            period_elapsed = int(round(match_elapsed_raw - (period_number - 1) * period_length_seconds))
-        match_elapsed = ((period_number - 1) * int(period_length_seconds) + period_elapsed) if not is_ot else (
-            int(period_length_seconds) * period_count + (period_number-period_count-1)*overtime_length + period_elapsed)
+
+    # Detect per-period versus cumulative-match timer from actual period
+    # transitions. Never infer clock direction from timer magnitude.
+    scope = state.get("scope")
+    if raw > allowed_period_length:
+        scope = "match"
+    elif period_changed and previous is not None:
+        delta = raw - float(previous["value"])
+        dt = now_seconds - float(previous["at"])
+        if confirmed == "up" and delta < -max(3.0, dt * 0.25):
+            scope = "period"
+        elif confirmed == "down" and delta > max(3.0, dt * 0.25):
+            scope = "period"
+        elif scope is None:
+            # The same timer continued through the quarter boundary.
+            scope = "match"
+    if scope is None:
+        scope = "period"
+    state["scope"] = scope
+    state["period"] = int(period_number)
+
+    if timer_paused or (intervals and intervals[-1] == "paused"):
+        timer_state = "stoppage"
     else:
-        if raw <= allowed_period_length:
-            period_remaining = int(round(raw))
-            period_elapsed = allowed_period_length - period_remaining
+        timer_state = "overtime" if is_ot else "running"
+
+    if confirmed == "up":
+        if scope == "match" and not is_ot:
+            match_elapsed = int(round(raw))
+            period_elapsed = match_elapsed - (int(period_number) - 1) * int(period_length_seconds)
         else:
-            total = int(period_length_seconds) * period_count
-            if is_ot:
-                return {"timer_semantics_verified": False, "timer_interpretation_status": "overtime_timer_ambiguous",
-                        "timer_block_reason": "Таймер ОТ превышает длительность одного дополнительного периода"}
+            period_elapsed = int(round(raw))
+            match_elapsed = (int(period_length_seconds) * int(period_count)
+                             + (int(period_number) - int(period_count) - 1) * overtime_length
+                             + period_elapsed) if is_ot else (
+                                 (int(period_number) - 1) * int(period_length_seconds) + period_elapsed)
+    else:
+        if scope == "match" and not is_ot:
             match_remaining = int(round(raw))
+            total = int(period_length_seconds) * int(period_count)
             match_elapsed = total - match_remaining
-            period_elapsed = match_elapsed - (period_number - 1) * int(period_length_seconds)
-            if period_elapsed < 0 or period_elapsed > period_length_seconds:
-                return {"timer_semantics_verified": False, "timer_interpretation_status": "timer_period_mismatch",
-                        "timer_block_reason": "Таймер не соответствует номеру периода"}
-            period_remaining = int(period_length_seconds) - period_elapsed
-        if is_ot:
-            match_elapsed = int(period_length_seconds) * period_count + (period_number-period_count-1)*overtime_length + period_elapsed
+            period_elapsed = match_elapsed - (int(period_number) - 1) * int(period_length_seconds)
         else:
-            match_elapsed = (period_number - 1) * int(period_length_seconds) + period_elapsed
+            period_elapsed = allowed_period_length - int(round(raw))
+            match_elapsed = (int(period_length_seconds) * int(period_count)
+                             + (int(period_number) - int(period_count) - 1) * overtime_length
+                             + period_elapsed) if is_ot else (
+                                 (int(period_number) - 1) * int(period_length_seconds) + period_elapsed)
+
     if period_elapsed < 0 or period_elapsed > allowed_period_length:
         return {"timer_semantics_verified": False, "timer_interpretation_status": "timer_period_mismatch",
-                "timer_block_reason": "Нормализованное время не попадает в текущий период"}
-    period_remaining = max(0, allowed_period_length - period_elapsed)
-    return {"timer_semantics_verified": True, "timer_interpretation_status": "verified_" + observed_direction,
-            "timer_observed_direction": observed_direction,
-            "timer_direction_semantics_verified": timer_direction is not None,
-            "match_elapsed_seconds": int(match_elapsed),
+                "timer_block_reason": "Нормализованное время не попадает в текущий период",
+                "timer_observed_direction": confirmed, "timer_snapshot_count": len(history)}
+    period_remaining = max(0, allowed_period_length - int(period_elapsed))
+    return {"timer_semantics_verified": True, "timer_interpretation_status": "verified_" + confirmed,
+            "timer_observed_direction": confirmed, "timer_direction_semantics_verified": True,
+            "timer_scope": scope, "match_elapsed_seconds": int(match_elapsed),
             "period_elapsed_seconds": int(period_elapsed), "period_remaining_seconds": int(period_remaining),
-            "timer_state": "stoppage" if (timer_paused or paused_by_snapshots) else ("overtime" if is_ot else "running"),
-            "timer_block_reason": None, "timer_snapshot_count": len(history),
+            "timer_state": timer_state, "timer_block_reason": None,
+            "timer_snapshot_count": len(history),
             "overtime_length_seconds": overtime_length if is_ot else None}
-
 
 def _pari_timer_metadata(timer_seconds, timer_direction, timer_timestamp_msec,
                           period_length_seconds=None, period_format_source=None,
@@ -3543,8 +3591,9 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     except (TypeError, ValueError, OverflowError):
                         timer_timestamp_msec = None
 
-                    # Competition format is resolved only by the shared ID registry.
-                    # A league label or timer magnitude is not sufficient evidence.
+                    # Resolve the format from a competition-specific rule first.
+                    # Friendly/BSKT categories have no global default: only explicit
+                    # per-event format fields may establish their period duration.
                     period_length_seconds = None
                     period_count = None
                     period_format_source = None
@@ -3565,8 +3614,35 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 "competition_id": str(candidate_id),
                                 "source": rule["source"],
                                 "rules_version": rule["rules_version"],
+                                "source_url": rule.get("source_url"),
                             }
                             break
+
+                    if period_length_seconds is None:
+                        format_rows = (event, event_misc, live_info)
+                        explicit_length = next((row.get(k) for row in format_rows
+                                                for k in ("periodLengthSeconds", "periodDurationSeconds",
+                                                          "quarterLengthSeconds", "quarterDurationSeconds",
+                                                          "period_length_seconds", "quarter_length_seconds")
+                                                if row.get(k) is not None), None)
+                        explicit_count = next((row.get(k) for row in format_rows
+                                               for k in ("periodCount", "quarterCount", "period_count",
+                                                         "quarter_count", "numberOfPeriods")
+                                               if row.get(k) is not None), None)
+                        try:
+                            candidate_length = int(float(explicit_length)) if explicit_length is not None else None
+                            candidate_count = int(float(explicit_count)) if explicit_count is not None else 4
+                        except (TypeError, ValueError, OverflowError):
+                            candidate_length, candidate_count = None, None
+                        if candidate_length in (300, 600, 720) and candidate_count in (2, 4):
+                            period_length_seconds = candidate_length
+                            period_count = candidate_count
+                            period_format_source = {
+                                "competition_id": next((str(x) for x in competition_id_candidates if x is not None), None),
+                                "source": "PARI event-specific explicit period format fields",
+                                "rules_version": "source_event_metadata",
+                                "source_url": None,
+                            }
 
                     def _period_number(value):
                         if value is None:
