@@ -90,7 +90,7 @@ assert.equal(secondHalf.ready,true,"explicit 2x20 format may forecast in the sec
 assert.equal(estimateCalls,1);
 
 const mcStart=app.indexOf("function dynamicScenarioMonteCarlo(");
-const mcEnd=app.indexOf("\nfunction poissonMonteCarlo",mcStart);
+const mcEnd=app.indexOf("\nfunction clampForecast",mcStart);
 assert.ok(mcStart>=0&&mcEnd>mcStart);
 const mcContext={
   Number,Math,Array,String,Object,
