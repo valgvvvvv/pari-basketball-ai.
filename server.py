@@ -2562,6 +2562,11 @@ def _pari_timer_metadata(timer_seconds, timer_direction, timer_timestamp_msec,
     """Expose raw and normalized timer values plus the actual verification reason."""
     normalized_timer = normalized_timer or {}
     has_timer = timer_seconds is not None
+    default_interpretation_status = (
+        "timer_not_received" if not has_timer else
+        "received_timer_semantics_unverified" if period_length_seconds is not None else
+        "received_period_format_unconfirmed"
+    )
     return {
         "source_timer_seconds": timer_seconds,
         "match_elapsed_seconds": normalized_timer.get("match_elapsed_seconds"),
@@ -2577,7 +2582,7 @@ def _pari_timer_metadata(timer_seconds, timer_direction, timer_timestamp_msec,
         "timer_semantics_verified": bool(normalized_timer.get("timer_semantics_verified")),
         "timer_snapshot_count": normalized_timer.get("timer_snapshot_count", 0),
         "timer_block_reason": normalized_timer.get("timer_block_reason"),
-        "timer_interpretation_status": normalized_timer.get("timer_interpretation_status", "timer_not_received"),
+        "timer_interpretation_status": normalized_timer.get("timer_interpretation_status", default_interpretation_status),
     }
 
 
