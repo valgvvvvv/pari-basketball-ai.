@@ -910,8 +910,7 @@ function showSelectedMatch(ev,options={}){
       calculationStepsHtml({kind:"quarter",projection:Number(quarter.projection),current:Number(quarter.current),posterior:quarter.posterior,lines:qProb,preliminary:!!quarter.preliminary})+
       '<details class="technical-details"><summary>Технические подробности</summary><p>σ остатка: '+(quarter.poisson?.variance!=null?Math.sqrt(quarter.poisson.variance).toFixed(2):'—')+' · диапазон 95%: '+quarter.low95+'–'+quarter.high95+' · симуляций: '+(quarter.poisson?.simulations??100000)+'</p><p>'+escapeHtml((quarter.context_factors||[]).join(' · '))+'</p></details>'
     : '<p class="muted">'+escapeHtml(quarter.reason||"Недостаточно данных")+'</p>';
-  $("matchForecast").insertAdjacentHTML("afterbegin",classicModelPanelHtml(classicMatchModels,"FULL GAME · ИНСТРУМЕНТЫ"));
-  $("quarterForecast").insertAdjacentHTML("afterbegin",classicModelPanelHtml(classicQuarterModels,"Q"+(quarter.period||period||"?")+" · ИНСТРУМЕНТЫ"));
+  $("matchForecast").insertAdjacentHTML("beforeend",unifiedToolsPanelHtml(ev,classicMatchModels,classicQuarterModels,matchForecast,quarter));
   const statsMeta=statsQuality?'<p>Покрытие: <b>'+Number(statsQuality.coverage_percent||0)+'%</b> · источники: '+escapeHtml(ev.statistics_source||"нет")+'</p>':'';
   const missingStats=statsQuality?.missing_metrics?.length?'<p class="muted">Нет данных: '+escapeHtml(statsQuality.missing_metrics.join(", "))+'</p>':'';
   const statsConflicts=statsQuality?.conflicts?.length?'<p class="warn">Расхождения источников: '+statsQuality.conflicts.length+' · значения не скрыты</p>':'';
@@ -1232,14 +1231,44 @@ function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="m
   return {models,consensus,groups,anomaly,tools,
     mlStatus:"Основной прогноз единственный. Вероятности не калиброваны: нет независимой размеченной выборки."};
 }
-function classicModelPanelHtml(data,title){
-  if(!data)return "";
-  const rows=(data.models||[]).map(m=>'<tr><td>'+escapeHtml(m.name)+'</td><td>'+Number(m.projection).toFixed(1)+'</td><td>числовой центр · не вероятность</td></tr>').join("");
-  const hidden=(data.tools||[]).map(t=>'<tr><td>'+escapeHtml(t.name)+'</td><td>'+escapeHtml(t.status)+'</td><td>'+escapeHtml(t.detail)+'</td></tr>').join("");
-  return '<section class="classic-model-panel"><div class="calc-section-head"><div><span class="eyebrow">'+escapeHtml(title)+'</span><h3>Инструменты расчёта</h3></div></div>'+
-    '<div class="table-scroll"><table class="calc-table"><thead><tr><th>Инструмент</th><th>Тотал</th><th>Статус / роль</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
-    (hidden?'<details><summary>Недоступны / отключены: '+(data.tools||[]).length+' — раскрыть</summary><div class="table-scroll"><table class="calc-table"><tbody>'+hidden+'</tbody></table></div></details>':'')+
-    '<p class="muted">Числовой уклон не является вероятностью или доказанным преимуществом. Зависимые методы не считаются независимыми голосами.</p></section>';
+function classicModelPanelHtml(){return "";}
+function unifiedToolsPanelHtml(ev,matchData,quarterData,matchForecast,quarterForecast){
+  const m=matchForecast?.ready&&matchForecast.kind!=="market_reference"?matchForecast.estimate:null,q=quarterForecast?.ready?quarterForecast:null;
+  const md=m?.poisson||null,qd=q?.poisson||null;
+  const pick=(d,c)=>Array.isArray(d?.probabilities)?d.probabilities.slice().sort((a,b)=>Math.abs(Number(a.line)-Number(c))-Math.abs(Number(b.line)-Number(c)))[0]||null:null;
+  const ml=pick(md,m?.projection),ql=pick(qd,q?.projection),mln=ml?.line??null,qln=ql?.line??null;
+  const numeric=(v,l)=>{if(!Number.isFinite(Number(v)))return "—";if(!Number.isFinite(Number(l)))return Number(v).toFixed(1)+" · линия отсутствует";const d=Number(v)-Number(l);return Number(v).toFixed(1)+" · "+(Math.abs(d)<.05?"центр на линии":d>0?"центр выше линии на "+d.toFixed(1):"центр ниже линии на "+Math.abs(d).toFixed(1))+" · числовой уклон, не вероятность";};
+  const prob=(d,l,c)=>!d?"—":!l?numeric(c,null):"ТБ "+(l.pOver*100).toFixed(1)+"% / ТМ "+(l.pUnder*100).toFixed(1)+"% / возврат "+((l.pPush||0)*100).toFixed(1)+"%";
+  const find=(d,n)=>d?.models?.find(x=>x.name===n)||null;
+  const reg=[
+    {id:"primary",name:"Единый основной прогноз",role:"единственный основной расчёт",mv:m?{projection:m.projection}:null,qv:q?{projection:q.projection}:null,status:"активен"},
+    {id:"linear-pace",name:"Линейный темп",role:"числовой центр по очкам и времени",mv:find(matchData,"Линейный темп"),qv:find(quarterData,"Линейный темп"),status:"числовой центр"},
+    {id:"poisson",name:"Пуассон",role:"механизм генерации распределения; не отдельный голос",mv:md?{distribution:true}:null,qv:qd?{distribution:true}:null,status:"часть распределения"},
+    {id:"monte-carlo",name:"Монте‑Карло",role:"способ симуляции распределения",mv:md?{distribution:true}:null,qv:qd?{distribution:true}:null,status:"симулятор, не отдельная модель"},
+    {id:"dynamic-tempo",name:"Динамика темпа / концовки",role:"зависимая эвристическая оценка",mv:find(matchData,"Динамический темп")||find(matchData,"Модель концовки"),qv:find(quarterData,"Динамика четверти"),status:"эвристика"},
+    {id:"possessions",name:"Модель владений",role:"ожидаемые владения × PPP",mv:find(matchData,"Модель владений"),qv:null,status:m?.possession_model?.reason||"нет владений"},
+    {id:"gamma-poisson",name:"Gamma‑Poisson",role:"апостериорное распределение темпа четверти",mv:null,qv:q?.posterior?.ready?{distribution:true}:null,status:q?.posterior?.ready?"активна для Qn":"нет данных для распределения Qn"},
+    {id:"kalman",name:"Фильтр Калмана",role:"сглаживание скрытого темпа",mv:null,qv:null,status:"отключён · нет проверенной реализации"},
+    {id:"smooth-game",name:"Smooth Game",role:"диагностика траектории, не прогноз",mv:matchData?.anomaly||null,qv:null,status:matchData?.anomaly?"диагностика":"нет истории завершённых четвертей"},
+    {id:"bayesian-legacy",name:"Прежняя Байесовская",role:"исключена после проверки",mv:null,qv:null,status:"исключена · смешивала несовместимые цели"},
+    {id:"dynamic-regression",name:"Динамическая регрессия",role:"требует обученных коэффициентов",mv:null,qv:null,status:"не обучена"},
+    {id:"markov",name:"Марковская модель владений",role:"переходы состояний владений",mv:null,qv:null,status:"отключена · нет play-by-play и матрицы переходов"},
+    {id:"catboost",name:"CatBoost / LightGBM",role:"обучаемые ML-модели",mv:null,qv:null,status:"не обучены · нет размеченной выборки"},
+    {id:"calibration",name:"Калибровка вероятностей",role:"Brier score / reliability",mv:null,qv:null,status:"не активна · мало независимых исходов"}
+  ];
+  const active=[],inactive=[];
+  for(const t of reg){
+    const mv=t.mv,qv=t.qv;
+    t.match=mv?(mv.distribution?prob(md,ml,m?.projection):numeric(mv.projection,mln)):(t.id==="gamma-poisson"?"не поддерживает цель матча":"не выдаёт отдельный прогноз");
+    t.quarter=qv?(qv.distribution?prob(qd,ql,q?.projection):numeric(qv.projection,qln)):(t.id==="possessions"?"не поддерживает цель четверти":"не выдаёт отдельный прогноз");
+    if(t.id==="smooth-game"&&matchData?.anomaly)t.status=(matchData.anomaly.smooth?"ровная траектория":"неровная траектория")+" · CV "+matchData.anomaly.cv+"%";
+    (mv||qv?active:inactive).push(t);
+  }
+  const row=t=>'<tr><td data-label="Инструмент"><b>'+escapeHtml(t.name)+'</b><small>'+escapeHtml(t.id)+'</small></td><td data-label="Статус / роль">'+escapeHtml(t.status)+'<small>'+escapeHtml(t.role)+'</small></td><td data-label="Матч">'+escapeHtml(t.match)+'</td><td data-label="Четверть">'+escapeHtml(t.quarter)+'</td></tr>';
+  return '<section class="classic-model-panel unified-tools-panel"><div class="calc-section-head"><div><span class="eyebrow">MODEL REGISTRY</span><h3>Все инструменты · общий реестр</h3></div><span class="calc-live-tag">'+active.length+' активных</span></div>'+
+    '<table class="calc-table unified-tools-table"><thead><tr><th>Инструмент</th><th>Статус / роль</th><th>Матч: тотал, уклон</th><th>Q'+escapeHtml(q?.period||findLivePeriod(ev)||"n")+': тотал, уклон</th></tr></thead><tbody>'+active.map(row).join("")+'</tbody></table>'+
+    '<details><summary>Недоступны / отключены: '+inactive.length+' — раскрыть</summary><table class="calc-table unified-tools-table"><tbody>'+inactive.map(row).join("")+'</tbody></table></details>'+
+    '<p class="muted">Вероятности показаны только из собственного распределения. Числовой уклон не является вероятностью или доказанным преимуществом; зависимые методы не считаются независимыми голосами.</p></section>';
 }
 
 function aiSignalHtml(signal,title){
