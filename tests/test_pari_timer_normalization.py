@@ -101,6 +101,21 @@ class PariTimerNormalizationTests(unittest.TestCase):
         result = _pari_infer_period_format_from_period_timer(3, 1743, 4)
         self.assertIsNone(result)
 
+
+    def test_overtime_clock_is_verified_after_regulation(self):
+        result = _pari_normalize_match_timer_against_period(2477, 4, 600, 4)
+        self.assertTrue(result["timer_semantics_verified"])
+        self.assertEqual(result["timer_scope"], "overtime")
+        self.assertEqual(result["overtime_period_index"], 1)
+        self.assertEqual(result["period_elapsed_seconds"], 77)
+        self.assertEqual(result["period_remaining_seconds"], 223)
+
+    def test_second_overtime_period_is_normalized(self):
+        result = _pari_normalize_match_timer_against_period(2720, 4, 600, 4)
+        self.assertEqual(result["overtime_period_index"], 2)
+        self.assertEqual(result["period_elapsed_seconds"], 20)
+        self.assertEqual(result["period_remaining_seconds"], 280)
+
     def test_count_up_verified_after_one_clean_interval(self):
         self.assertFalse(self.normalize("up", 100, 1, 1000)["timer_semantics_verified"])
         result = self.normalize("up", 130, 1, 1030)
