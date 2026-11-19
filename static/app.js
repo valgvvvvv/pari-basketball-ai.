@@ -893,13 +893,13 @@ function showSelectedMatch(ev,options={}){
   }).join("");
   const matchProb=estimate?.poisson?.probabilities||[];
   const nearestMarket=(rows,center)=>Array.isArray(rows)?rows.filter(x=>Number.isFinite(Number(x?.line))).slice().sort((a,b)=>Math.abs(Number(a.line)-Number(center))-Math.abs(Number(b.line)-Number(center)))[0]||null:null;
-  const matchLine=matchProb.slice().sort((a,b)=>Math.abs(Number(a.line)-Number(estimate?.projection||0))-Math.abs(Number(b.line)-Number(estimate?.projection||0)))[0]||null;
   const matchMarketLine=nearestMarket(lines,estimate?.projection);
-  const matchLineValue=matchLine?.line??matchMarketLine?.line??null;
+  const matchLine=matchMarketLine?matchProb.find(x=>Number(x.line)===Number(matchMarketLine.line))||null:matchProb.slice().sort((a,b)=>Math.abs(Number(a.line)-Number(estimate?.projection||0))-Math.abs(Number(b.line)-Number(estimate?.projection||0)))[0]||null;
+  const matchLineValue=matchMarketLine?.line??matchLine?.line??null;
   const qProb=quarter?.lines||[];
-  const qLine=qProb.slice().sort((a,b)=>Math.abs(Number(a.line)-Number(quarter?.projection||0))-Math.abs(Number(b.line)-Number(quarter?.projection||0)))[0]||null;
   const qMarketLine=nearestMarket(quarter?.market_lines,quarter?.projection);
-  const qLineValue=qLine?.line??qMarketLine?.line??null;
+  const qLine=qMarketLine?qProb.find(x=>Number(x.line)===Number(qMarketLine.line))||null:qProb.slice().sort((a,b)=>Math.abs(Number(a.line)-Number(quarter?.projection||0))-Math.abs(Number(b.line)-Number(quarter?.projection||0)))[0]||null;
+  const qLineValue=qMarketLine?.line??qLine?.line??null;
   const numericBias=(center,line)=>line==null?"линия не получена":Math.abs(Number(center)-Number(line))<.05?"центр на линии":Number(center)>Number(line)?"центр выше линии на "+(Number(center)-Number(line)).toFixed(1)+" · числовой уклон, не вероятность":"центр ниже линии на "+(Number(line)-Number(center)).toFixed(1)+" · числовой уклон, не вероятность";
   const probText=p=>p?'модельные: ТБ '+(Number(p.pOver)*100).toFixed(1)+'% · ТМ '+(Number(p.pUnder)*100).toFixed(1)+'% · возврат '+(Number(p.pPush||0)*100).toFixed(1)+'% · не калиброваны':'вероятности не рассчитаны';
   $("matchForecast").innerHTML=estimate
@@ -1251,7 +1251,7 @@ function unifiedToolsPanelHtml(ev,matchData,quarterData,matchForecast,quarterFor
   const md=m?.poisson||null,qd=q?.poisson||null;
   const nearest=(rows,c)=>Array.isArray(rows)?rows.filter(x=>Number.isFinite(Number(x?.line))).slice().sort((a,b)=>Math.abs(Number(a.line)-Number(c))-Math.abs(Number(b.line)-Number(c)))[0]||null:null;
   const marketM=nearest(matchMarketLines,m?.projection),marketQ=nearest(q?.market_lines,q?.projection);
-  const pick=(d,market,c)=>Array.isArray(d?.probabilities)?(d.probabilities.find(x=>market&&Number(x.line)===Number(market.line))||d.probabilities.slice().sort((a,b)=>Math.abs(Number(a.line)-Number(c))-Math.abs(Number(b.line)-Number(c)))[0]||null):null;
+  const pick=(d,market,c)=>Array.isArray(d?.probabilities)?(market?d.probabilities.find(x=>Number(x.line)===Number(market.line))||null:d.probabilities.slice().sort((a,b)=>Math.abs(Number(a.line)-Number(c))-Math.abs(Number(b.line)-Number(c)))[0]||null):null;
   const ml=pick(md,marketM,m?.projection),ql=pick(qd,marketQ,q?.projection),mln=marketM?.line??ml?.line??null,qln=marketQ?.line??ql?.line??null;
   const numeric=(v,l)=>{if(!Number.isFinite(Number(v)))return "—";if(!Number.isFinite(Number(l)))return Number(v).toFixed(1)+" · линия отсутствует";const d=Number(v)-Number(l);return Number(v).toFixed(1)+" · "+(Math.abs(d)<.05?"центр на линии":d>0?"центр выше линии на "+d.toFixed(1):"центр ниже линии на "+Math.abs(d).toFixed(1))+" · числовой уклон, не вероятность";};
   const prob=(d,l,c,line)=>!d?"—":!l?numeric(c,line):"ТБ "+(l.pOver*100).toFixed(1)+"% / ТМ "+(l.pUnder*100).toFixed(1)+"% / возврат "+((l.pPush||0)*100).toFixed(1)+"%";
