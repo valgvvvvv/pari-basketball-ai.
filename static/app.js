@@ -239,31 +239,7 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
     probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),
     momentum:Math.round(momentum*1000)/10,method:"Смесь сценариев Пуассона · прогнозное распределение, не независимая модель"};
 }
-function poissonMonteCarlo(current, mu, lines=[], seedText="") {
-  const n=100000;
-  let seed=2166136261;
-  for(const ch of String(seedText)) seed=Math.imul(seed^ch.charCodeAt(0),16777619)>>>0;
-  const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return (seed+1)/4294967297;};
-  const outcomes=[];
-  for(let i=0;i<n;i++){
-    const limit=Math.exp(-Math.max(0,mu));let product=1,k=0;
-    do{k++;product*=random();}while(product>limit&&k<1000);
-    outcomes.push(current+k-1);
-  }
-  outcomes.sort((a,b)=>a-b);
-  const quantile=q=>outcomes[Math.min(n-1,Math.max(0,Math.ceil(q*n)-1))];
-  const probs=(lines||[]).map(x=>{
-    const line=Number(x.line);let over=0,under=0,push=0;
-    for(const total of outcomes){if(total>line)over++;else if(total<line)under++;else push++;}
-    const pOver=over/n,pUnder=under/n,pPush=push/n,resolved=pOver+pUnder;
-    const conditionalOver=resolved>0?pOver/resolved:null;
-    return {...x,pOver,pUnder,pPush,conditionalOver,
-      direction:conditionalOver==null?"возврат":conditionalOver>=0.57?"ТБ":(conditionalOver<=0.43?"ТМ":"без выраженного преимущества"),
-      edge:conditionalOver==null?0:Math.max(conditionalOver,1-conditionalOver)-0.5};
-  });
-  return {simulations:n,mu:Math.round(mu*100)/100,low80:quantile(.10),high80:quantile(.90),
-    low95:quantile(.025),high95:quantile(.975),probabilities:probs};
-}
+
 function clampForecast(value,min,max){return Math.max(min,Math.min(max,value));}
 function readPeriodScorePair(ev,index){
   const parsePair=row=>{
