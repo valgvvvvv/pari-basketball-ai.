@@ -77,8 +77,8 @@ class PariTimerNormalizationTests(unittest.TestCase):
         result = _pari_normalize_match_timer_against_period(1183, 3, 600, 4)
         self.assertTrue(result["timer_semantics_verified"])
         self.assertEqual(result["timer_observed_direction"], "down")
-        self.assertEqual(result["period_elapsed_seconds"], 51)
-        self.assertEqual(result["period_remaining_seconds"], 549)
+        self.assertEqual(result["period_elapsed_seconds"], 17)
+        self.assertEqual(result["period_remaining_seconds"], 583)
 
     def test_exact_quarter_boundary_is_usable_without_guessing_direction(self):
         result = _pari_normalize_match_timer_against_period(1200, 3, 600, 4)
