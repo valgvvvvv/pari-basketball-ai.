@@ -986,7 +986,7 @@ function findPeriodLengthSeconds(ev) {
     ev?.live_fields?.periodLength,ev?.live_fields?.period_length];
   for(const value of candidates){
     if(value==null||value==="")continue;
-    if(typeof value==="string"&&/^\\d{1,2}:[0-5]\\d$/.test(value.trim())){
+    if(typeof value==="string"&&/^\d{1,2}:[0-5]\d$/.test(value.trim())){
       const [m,s]=value.trim().split(":").map(Number),seconds=m*60+s;
       if(seconds>=300&&seconds<=1200)return seconds;
     }
