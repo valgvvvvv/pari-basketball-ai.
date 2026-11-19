@@ -2856,7 +2856,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         repair_team_encoding(event.get(key) or "")
                         for key in ("team1", "team2", "name", "competitionName", "sportName")
                     ).casefold()
-                    if re.search(r"\b(women|woman|female|ladies|girls|wbb|womens)\b|женск|девуш", pari_gender_text):
+                    if re.search(r"\b(women|woman|female|ladies|girls|wbb|womens|lpbl)\b|женск|девуш|\bcater\b", pari_gender_text):
                         filter_counts["excluded_by_name"] += 1
                         continue
                     filter_counts["accepted_live_roots"] += 1
