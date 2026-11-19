@@ -40,14 +40,14 @@ assert.ok(Math.abs(riverportQ2.projection - 46.85) < 0.03,
 
 const nanjingOldSnapshot = core.quarterPosterior({
   current: 1, elapsedSeconds: 63, periodLengthSeconds: 600,
-  priorPoints: 90, priorExposureSeconds: 1200, priorQuarterCount: 2
+  priorPoints: 38 + 53, priorExposureSeconds: 1200, priorQuarterCount: 2
 });
 assert.equal(nanjingOldSnapshot.ready, true);
 assert.equal(nanjingOldSnapshot.priorQuarterCount, 2);
 assert.equal(nanjingOldSnapshot.priorIsAggregate, true);
-assert.equal(nanjingOldSnapshot.completedPoints, 90);
-assert.ok(Math.abs(nanjingOldSnapshot.projection - 39.9038004751) < 1e-8,
-  "fixed Nanjing-Xinjiang snapshot must use 90 prior points over 20 minutes");
+assert.equal(nanjingOldSnapshot.completedPoints, 91);
+assert.ok(Math.abs(nanjingOldSnapshot.projection - 40.32897862232779) < 1e-8,
+  "fixed Nanjing-Xinjiang snapshot must use the 38:53 halftime score (91 prior points) over 20 minutes");
 assert.equal(nanjingOldSnapshot.elapsedSeconds, 63);
 assert.ok(Math.abs(nanjingOldSnapshot.beta - 21.05) < 1e-9);
 const nanjingDistribution = core.simulateQuarter(nanjingOldSnapshot, [{line:40.5},{line:40}], "nanjing-xinjiang-fixed-snapshot", 100000);
