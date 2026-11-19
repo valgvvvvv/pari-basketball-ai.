@@ -3625,6 +3625,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                           for key in ("period", "currentPeriod", "periodNumber",
                                                       "quarter", "currentQuarter", "periodName")
                                           if row.get(key) is not None), None)
+                    period_value_is_direct = period_value is not None
                     if period_value is None:
                         for child_row in repaired_related_rows:
                             child_name = str(child_row.get("name", ""))
@@ -3755,7 +3756,6 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         return None
 
                     explicit_period = _period_number(period_value)
-                    period_value_is_direct = period_value is not None
                     if explicit_period is None:
                         score_groups = live_info.get("scores")
                         if isinstance(score_groups, list) and len(score_groups) > 1 and isinstance(score_groups[1], list):
