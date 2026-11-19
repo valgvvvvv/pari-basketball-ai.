@@ -72,4 +72,22 @@ assert.ok(!appSource.includes('const bayes=linear*0.68+prior*0.32'),
   "legacy Bayesian calculation that mixed full-game and quarter totals must stay removed");
 assert.ok(appSource.includes("One canonical forecast drives every headline block"));
 
+
+const scoreStart = appSource.indexOf("function validateScoreTimeline(ev,matchScore,period){");
+const scoreEnd = appSource.indexOf("function currentQuarterScore(", scoreStart);
+assert.ok(scoreStart >= 0 && scoreEnd > scoreStart);
+const scoreSandbox = {readPeriodScorePair:(_ev,index)=>[[25,22],[24,26],[1,0]][index] || null};
+vm.runInNewContext(appSource.slice(scoreStart, scoreEnd) + "; this.validateScoreTimeline = validateScoreTimeline;", scoreSandbox);
+assert.equal(scoreSandbox.validateScoreTimeline({}, [50,48], 3).valid, true);
+assert.equal(scoreSandbox.validateScoreTimeline({}, [51,48], 3).valid, false,
+  "period sum mismatch must block a forecast");
+assert.ok(appSource.includes("(periodCount===2||explicit===1200)?2:4"),
+  "20-minute halves must not be normalized as four quarters");
+
+const periodStart = appSource.indexOf("function findLivePeriod(ev){");
+const periodEnd = appSource.indexOf("function findLiveClock(ev){", periodStart);
+const periodSandbox = {collectEventObjects:()=>[]};
+vm.runInNewContext(appSource.slice(periodStart, periodEnd) + "; this.findLivePeriod = findLivePeriod;", periodSandbox);
+assert.equal(periodSandbox.findLivePeriod({period:"OT"}), 5);
+
 console.log("forecast core regressions: OK");
