@@ -5,6 +5,16 @@ on:
     - cron: "*/5 * * * *"
     - cron: "23 0 * * *"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "Collect a snapshot, publish retained backlog, or both"
+        type: choice
+        options: [both, collect, publish]
+        default: both
+      ui_smoke:
+        description: "Run optional UI acceptance checks after saving the snapshot"
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -26,7 +36,7 @@ concurrency:
 
 jobs:
   collect-live-snapshot:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.schedule == '*/5 * * * *'
+    if: (github.event_name == 'workflow_dispatch' && inputs.mode != 'publish') || github.event_name == 'push' || github.event.schedule == '*/5 * * * *'
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
@@ -46,25 +56,29 @@ jobs:
         env:
           SITE_URL: https://pari-basketball-ai.onrender.com/
           NODE_PATH: /tmp/pari-playwright/node_modules
+          RUN_UI_SMOKE: ${{ inputs.ui_smoke && 'true' || 'false' }}
+          ARCHIVE_CODE_SHA: ${{ github.sha }}
         run: node .github/scripts/collect_live_with_models.cjs
       - name: Store snapshot temporarily until daily consolidation
+        if: ${{ always() && hashFiles('archive-snapshot/*.json.gz') != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: pari-live-snapshot-${{ github.run_id }}
+          name: pari-live-snapshot-${{ github.run_id }}-${{ github.run_attempt }}
           path: archive-snapshot/
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 7
 
   publish-daily-archive:
-    if: github.event_name == 'schedule' && github.event.schedule == '23 0 * * *'
+    needs: collect-live-snapshot
+    if: ${{ always() && ((github.event_name == 'schedule' && github.event.schedule == '23 0 * * *') || (github.event_name == 'workflow_dispatch' && inputs.mode != 'collect')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: write
-      actions: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
-      - name: Publish the previous 24 hours as a permanent ZIP release
+      - name: Publish all retained unarchived snapshots as a verified ZIP release
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python .github/scripts/publish_daily_archive.py
