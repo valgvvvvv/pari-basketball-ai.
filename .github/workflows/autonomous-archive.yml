@@ -9,6 +9,12 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/autonomous-archive.yml"
+      - ".github/scripts/collect_live_with_models.cjs"
+      - ".github/scripts/publish_daily_archive.py"
+      - "static/app.js"
+      - "static/forecast-core.js"
+      - "static/index.html"
+      - "server.py"
 
 permissions:
   contents: read
