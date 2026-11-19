@@ -62,6 +62,33 @@ const unverifiedFormat = context.runQuarter({
 });
 assert.equal(unverifiedFormat.ready,false,"a guessed period format must not produce an ordinary quarter forecast");
 
+const autoStart=app.indexOf("function automaticForecast(ev) {");
+const autoEnd=app.indexOf("\nfunction quarterHighlightInfo",autoStart);
+assert.ok(autoStart>=0&&autoEnd>autoStart);
+let estimateCalls=0;
+const autoContext={
+  Number,Math,Array,String,Object,
+  getMatchTotalLines:()=>[],
+  findLiveScore:ev=>ev.score,
+  findLivePeriod:ev=>ev.period,
+  findLiveClock:ev=>ev.clock,
+  inferPeriodLengthForForecast:ev=>({seconds:ev.period_length_seconds,periods:ev.external_live.period_count,method:ev.format_method||"confirmed"}),
+  marketReferenceForecast:()=>null,
+  estimateLiveTotal:()=>{estimateCalls++;return {current:80,projection:160,elapsed_seconds:1260,remaining_seconds:1140,elapsed_minutes:21,remaining_minutes:19,sigma:12};},
+  applyPoissonModel:(estimate)=>({...estimate,poisson:{simulations:100000,probabilities:[],low80:140,high80:180},possession_model:{applied:false}}),
+  estimateLiveTotalFromPeriod:()=>null,
+  readPeriodScore:()=>null
+};
+vm.runInNewContext(app.slice(autoStart,autoEnd)+"\nthis.runAuto=automaticForecast;",autoContext);
+const firstHalf=autoContext.runAuto({id:"q2-before-halftime",score:[40,40],period:2,clock:"05:00",
+  period_length_seconds:600,external_live:{period_count:4}});
+assert.equal(firstHalf.ready,false,"4-period full-game forecast must wait until Q3");
+assert.equal(estimateCalls,0);
+const secondHalf=autoContext.runAuto({id:"half2-start",score:[40,40],period:2,clock:"19:00",
+  period_length_seconds:1200,external_live:{period_count:2}});
+assert.equal(secondHalf.ready,true,"explicit 2x20 format may forecast in the second half");
+assert.equal(estimateCalls,1);
+
 assert.ok(!app.includes('add("Байесовская",bayes'),
   "the old full-match/quarter-unit Bayesian blend must not re-enter the model list");
 assert.ok(!app.includes('history.splice(oldIndex,1)'),
