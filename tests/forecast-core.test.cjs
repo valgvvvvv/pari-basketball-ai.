@@ -5,6 +5,7 @@ const vm = require("node:vm");
 const appSource = fs.readFileSync(require("node:path").join(__dirname, "../static/app.js"), "utf8");
 const htmlSource = fs.readFileSync(require("node:path").join(__dirname, "../static/index.html"), "utf8");
 const archivePublisherSource = fs.readFileSync(require("node:path").join(__dirname, "../.github/scripts/publish_daily_archive.py"), "utf8");
+const archiveCollectorSource = fs.readFileSync(require("node:path").join(__dirname, "../.github/scripts/collect_live_with_models.cjs"), "utf8");
 
 const earlyQ3 = core.quarterPosterior({
   current: 1, elapsedSeconds: 63, periodLengthSeconds: 600,
@@ -135,6 +136,7 @@ assert.ok(!appSource.slice(appSource.indexOf("function saveAnalysisHistory("),ap
 assert.ok(appSource.includes('forecastStatus:estimate||quarter?.ready?"calculated":"not_available"'), "history must distinguish snapshot from forecast availability");
 assert.ok(htmlSource.includes("20261119-integrity-v55"), "history fix must bump frontend cache");
 assert.ok(archivePublisherSource.startsWith("import hashlib"), "permanent archive publisher must import hashlib before calculating checksums");
+assert.ok(archiveCollectorSource.includes("contract.snapshot_id = row.snapshot_id") && archiveCollectorSource.includes("contract.contract_id = crypto.createHash"), "all prediction blocks from one source update must share snapshot_id; target identity uses contract_id");
 assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
 assert.ok(htmlSource.includes("20261119-integrity-v55"), "frontend cache must be bumped after display fixes");
 assert.ok(appSource.includes("Ансамбль сценариев") && appSource.includes("не независимый голос"), "scenario mixture must be shown without counting it as an independent model");
