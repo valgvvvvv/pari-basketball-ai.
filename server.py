@@ -3696,33 +3696,60 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         else:
                             clock_value = None
 
-                    # Infer direction empirically from consecutive PARI snapshots;
-                    # timerDirection itself is retained but never guessed as an enum.
+                    # Prefer PARI's explicit per-period countdown when present.
+                    # Its field semantics (clock/countdown/periodClock/timeRemaining)
+                    # are already specific to the active period; generic timerSeconds
+                    # is a separate match timer and must not override it.
                     normalized_timer = _pari_normalize_timer(
                         event.get("id"), timer_seconds, timer_direction, explicit_period,
                         period_length_seconds, period_count, timer_paused, overtime_detected
                     )
-                    timer_semantics_verified = bool(normalized_timer.get("timer_semantics_verified"))
-                    timer_interpretation_status = normalized_timer.get("timer_interpretation_status")
-                    if timer_semantics_verified:
+                    explicit_clock_seconds = None
+                    if isinstance(clock_value, str):
+                        explicit_match = re.fullmatch(r"(\d{1,2}):([0-5]\d)", clock_value)
+                        if explicit_match:
+                            explicit_clock_seconds = int(explicit_match.group(1)) * 60 + int(explicit_match.group(2))
+                    if (clock_was_explicit and explicit_clock_seconds is not None
+                            and period_length_seconds and period_count in (2, 4)
+                            and explicit_period and 1 <= explicit_period <= period_count
+                            and 0 <= explicit_clock_seconds <= int(period_length_seconds)):
+                        explicit_elapsed = int(period_length_seconds) - explicit_clock_seconds
+                        explicit_match_elapsed = ((explicit_period - 1) * int(period_length_seconds)
+                                                  + explicit_elapsed)
+                        # Direct quarter clock is the primary normalized source.
+                        # Keep generic match timer raw; cross-check only when its
+                        # already verified interpretation is available.
+                        normalized_timer = {
+                            **normalized_timer,
+                            "timer_semantics_verified": True,
+                            "timer_interpretation_status": "verified_explicit_period_countdown",
+                            "timer_observed_direction": "down",
+                            "timer_direction_semantics_verified": True,
+                            "timer_scope": "period",
+                            "match_elapsed_seconds": explicit_match_elapsed,
+                            "period_elapsed_seconds": explicit_elapsed,
+                            "period_remaining_seconds": explicit_clock_seconds,
+                            "timer_state": "stoppage" if timer_paused else ("overtime" if overtime_detected else "running"),
+                            "timer_block_reason": None,
+                            "timer_source": "PARI explicit period clock",
+                        }
+                        clock_value = f"{explicit_clock_seconds//60:02d}:{explicit_clock_seconds%60:02d}"
+                    elif normalized_timer.get("timer_semantics_verified"):
                         remaining_value = normalized_timer.get("period_remaining_seconds")
                         if remaining_value is not None:
                             normalized_clock = f"{int(remaining_value)//60:02d}:{int(remaining_value)%60:02d}"
-                            if clock_was_explicit and isinstance(clock_value, str):
-                                explicit_match = re.fullmatch(r"(\\d{1,2}):([0-5]\\d)", clock_value)
-                                if explicit_match:
-                                    explicit_seconds = int(explicit_match.group(1))*60 + int(explicit_match.group(2))
-                                    if abs(explicit_seconds-int(remaining_value)) > 2:
-                                        normalized_timer["timer_semantics_verified"] = False
-                                        normalized_timer["timer_interpretation_status"] = "explicit_clock_conflict"
-                                        normalized_timer["timer_block_reason"] = (
-                                            f"Явные часы PARI ({clock_value}) расходятся с нормализованным timerSeconds ({normalized_clock})"
-                                        )
-                                        timer_semantics_verified = False
-                                    else:
-                                        clock_value = normalized_clock
+                            if clock_was_explicit and explicit_clock_seconds is not None:
+                                if abs(explicit_clock_seconds-int(remaining_value)) > 2:
+                                    normalized_timer["timer_semantics_verified"] = False
+                                    normalized_timer["timer_interpretation_status"] = "explicit_clock_conflict"
+                                    normalized_timer["timer_block_reason"] = (
+                                        f"Явные часы PARI ({clock_value}) расходятся с нормализованным timerSeconds ({normalized_clock})"
+                                    )
+                                else:
+                                    clock_value = normalized_clock
                             else:
                                 clock_value = normalized_clock
+                    timer_semantics_verified = bool(normalized_timer.get("timer_semantics_verified"))
                     timer_interpretation_status = normalized_timer.get("timer_interpretation_status")
 
                     # Period score extraction is centralized and kind-ID aware.
