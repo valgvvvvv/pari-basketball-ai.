@@ -280,7 +280,8 @@ const { chromium } = require("playwright");
       events: result.event_count,
       forecasts: result.forecast_count,
       prediction_contracts: result.prediction_contract_count,
-      forecast_errors: result.forecasts.filter(x => x.errors.length).length
+      forecast_errors: result.forecasts.filter(x => x.errors.length).length,
+      ui_smoke: result.ui_smoke || { status: "not_run" }
     }));
   } finally {
     await browser.close();
