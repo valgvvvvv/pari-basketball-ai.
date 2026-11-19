@@ -83,12 +83,14 @@ function findLiveClock(ev){
     findPeriodLengthSeconds(ev)||0);
   const elapsedRaw=ev?.match_elapsed_seconds??ev?.external_live?.match_elapsed_seconds;
   const elapsedBase=Number(elapsedRaw);
-  if(ev?.clock_source==="PARI_timer_and_period_consistency"&&
+  if((ev?.clock_source||ev?.live_fields?.clock_source)==="PARI_timer_and_period_consistency"&&
      Number.isFinite(elapsedBase)&&length>=300&&length<=1200&&period>=1&&period<=4){
     let elapsed=elapsedBase;
-    const timestamp=Number(ev?.timer_timestamp_msec||ev?.external_live?.timer_timestamp_msec||0);
+    const timestamp=Number(ev?.timer_timestamp_msec||ev?.live_fields?.timer_timestamp_msec||
+      ev?.external_live?.timer_timestamp_msec||0);
     const stateText=String(ev?.live_fields?.st3||ev?.live_fields?.status||ev?.live_fields?.comment||"").toLowerCase();
-    if(timestamp>0&&!ev?.timer_paused&&!/timeout|break|halftime|перерыв|тайм-аут|таймаут/.test(stateText)){
+    if(timestamp>0&&!(ev?.timer_paused??ev?.live_fields?.timer_paused)&&
+       !/timeout|break|halftime|перерыв|тайм-аут|таймаут/.test(stateText)){
       const age=(Date.now()-timestamp)/1000;
       if(Number.isFinite(age)&&age>=0&&age<=60)elapsed+=age;
     }
@@ -970,8 +972,10 @@ function eventPeriod(ev) {
 function eventClock(ev) {
   const clock=findLiveClock(ev);
   if(clock)return clock;
-  const raw=ev?.source_timer_seconds??ev?.external_live?.source_timer_seconds??
-    ev?.timer_seconds??ev?.match_elapsed_seconds??ev?.external_live?.match_elapsed_seconds;
+  const raw=ev?.source_timer_seconds??ev?.live_fields?.source_timer_seconds??
+    ev?.external_live?.source_timer_seconds??ev?.timer_seconds??
+    ev?.match_elapsed_seconds??ev?.live_fields?.match_elapsed_seconds??
+    ev?.external_live?.match_elapsed_seconds;
   if(raw!=null&&raw!==""){
     const value=Number(raw);
     const rawLabel=Number.isFinite(value)?" · исходное значение "+Math.round(value)+" с":"";
@@ -984,7 +988,8 @@ function eventClock(ev) {
 
 function findPeriodLengthSeconds(ev) {
   const raw=ev?.raw||{};
-  const candidates=[ev?.period_length_seconds,ev?.external_live?.period_length_seconds,
+  const candidates=[ev?.period_length_seconds,ev?.live_fields?.period_length_seconds,
+    ev?.external_live?.period_length_seconds,ev?.external_live?.live_fields?.period_length_seconds,
     raw.periodLength,raw.period_length,raw.periodDuration,raw.period_duration,
     ev?.live_fields?.periodLength,ev?.live_fields?.period_length];
   for(const value of candidates){
@@ -1035,7 +1040,8 @@ function getMatchTotalLines(ev) {
 }
 function inferPeriodLengthForForecast(ev) {
   const explicit=findPeriodLengthSeconds(ev);
-  const periodCount=Number(ev?.period_count||ev?.external_live?.period_count||0);
+  const periodCount=Number(ev?.period_count||ev?.live_fields?.period_count||
+    ev?.external_live?.period_count||ev?.external_live?.live_fields?.period_count||0);
   if(!explicit||![2,4].includes(periodCount))return null;
   return {seconds:explicit,periods:periodCount,
     method:ev?.period_format_source?.source||"подтверждённый формат по ID соревнования"};
@@ -1304,7 +1310,7 @@ function aiSignalHtml(signal,title){
     '<small>'+escapeHtml(signal.drivers.join(" · "))+'</small><small>Это тот же основной прогноз, а не независимая ИИ-модель.</small></div>';
 }
 function findQuarterClockFromElapsed(ev,period,length){
-  if(ev?.timer_semantics_verified!==true)return null;
+  if(ev?.timer_semantics_verified!==true&&ev?.live_fields?.timer_semantics_verified!==true)return null;
   if(!Number.isInteger(Number(period))||!Number.isFinite(Number(length))||Number(length)<300)return null;
   const candidates=[ev?.match_elapsed_seconds,ev?.external_live?.match_elapsed_seconds,
     ev?.live_fields?.timerSeconds,ev?.live_fields?.timer_seconds,
@@ -1457,6 +1463,34 @@ window.addEventListener("keydown",event=>{
 });
 let liveRefreshInFlight = false;
 let nextLiveRefreshDelay = 30000;
+function quarterForecastMarkup(quarterForecast, ev) {
+  if (!quarterForecast?.ready) {
+    return '<span class="live-match-meta forecast-pending">Прогноз четверти: '+escapeHtml(quarterForecast?.reason||"расчёт недоступен")+'</span>';
+  }
+  const qLines=(quarterForecast.lines?.length
+    ? quarterForecast.lines.map(x => x.direction+" "+x.line+" · ТБ "+(x.pOver*100).toFixed(1)+"% / ТМ "+(x.pUnder*100).toFixed(1)+"%").join(" | ")
+    : "линия четверти пока не найдена")+" · модельная вероятность не калибрована";
+  return '<span class="live-match-meta forecast-live">Прогноз Q'+escapeHtml(quarterForecast.period||findLivePeriod(ev)||"?")+': '+escapeHtml(quarterForecast.projection)+' очков за четверть · '+escapeHtml(qLines)+(quarterForecast.preliminary?' · предварительно':'')+'</span>';
+}
+function liveMatchRenderFallback(ev) {
+  const safe = value => escapeHtml(String(value ?? ""));
+  const safePart = (fn, fallback) => { try { return fn() || fallback; } catch (error) {
+    console.error("LIVE_MATCH_FIELD_RENDER_ERROR", ev?.id, error); return fallback;
+  }};
+  const title = [ev?.team1 || "Команда 1", ev?.team2 || "Команда 2"].map(safe).join(" — ");
+  const scoreText = safePart(() => eventScore(ev), "Счёт пока не подтверждён");
+  const periodText = safePart(() => eventPeriod(ev), "Период не определён");
+  const clockText = safePart(() => eventClock(ev), (ev?.timer_seconds??ev?.match_elapsed_seconds) != null
+    ? "Время получено, длительность периода не подтверждена" : "Таймер пока не получен");
+  const stats = Array.isArray(ev?.external_statistics) ? ev.external_statistics : [];
+  const statsText = stats.length ? "Статистика: "+stats.length+" показателей"+(ev?.statistics_quality
+    ? " · покрытие "+ev.statistics_quality.available_count+"/"+ev.statistics_quality.expected_count : "")
+    : "Статистика: подтверждённых значений пока нет";
+  const markets = (ev?.match_total_candidates || []).map(f =>
+    f?.pt ? "Тотал "+f.pt+" · "+(f.v ?? "коэффициент не указан") : null).filter(Boolean);
+  const details = [scoreText,periodText,clockText,statsText,...markets].filter(Boolean).map(safe).join(" · ");
+  return '<button type="button" class="live-match" data-event-id="' + safe(ev?.id) + '><span class="live-match-title">' + title + '</span><span class="live-match-meta">' + details + '</span><span class="live-match-meta forecast-pending">Прогноз недоступен: ошибка одного из расчётных блоков. Подробности — в диагностике.</span></button>';
+}
 async function refreshLiveMatches() {
   nextLiveRefreshDelay = 30000;
   if (liveRefreshInFlight) return;
@@ -1526,10 +1560,18 @@ async function refreshLiveMatches() {
       liveBadge.className = "pill " + (count ? "success" : "warn");
     }
     const liveScoreSource = data.live_score_source || {};
+    const enrichmentStatus = liveScoreSource.status || "not_started";
+    const enrichmentText = enrichmentStatus === "cached" ? "дополнительная статистика обновлена из кэша"
+      : enrichmentStatus === "background_queued" || enrichmentStatus === "background_running" ? "обогащение статистики выполняется отдельно, список не ожидает его завершения"
+      : enrichmentStatus === "no_confident_match" ? "точное соответствие матча не найдено"
+      : enrichmentStatus === "no_live_events" ? "внешний LIVE-список не содержит подходящих матчей"
+      : enrichmentStatus === "timeout" ? "источник превысил свой тайм-аут"
+      : enrichmentStatus === "error" ? "ошибка внешнего источника"
+      : "статус дополнительного источника: " + enrichmentStatus;
     if (liveMessage) liveMessage.textContent = count
-      ? "PARI: " + data.total_events + " событий, LIVE-матчей: " + count + ". Независимый источник счёта: " + (liveScoreSource.status === "ok" ? "получен, совпадений " + (liveScoreSource.matched || 0) : liveScoreSource.status === "no_live_events" ? "ответил, но не вернул LIVE-матчи" : "недоступен (" + (liveScoreSource.errors || []).join(", ") + ")") + ". Счёт и таймер отображаются только при подтверждённом совпадении команд."
+      ? "PARI: " + data.total_events + " событий, LIVE-матчей: " + count + ". " + enrichmentText + ". PARI остаётся основным источником счёта и линий."
       : "API PARI отвечает (" + data.total_events + " событий), но сейчас не найдено LIVE-событий мужского баскетбола после фильтрации лиг.";
-    if (liveUpdated) liveUpdated.textContent = "Обновлено: " + new Date(data.checked_at_utc).toLocaleTimeString("ru-RU") + " · " + (data.attempts?.[0]?.host || "PARI");
+    if (liveUpdated) liveUpdated.textContent = "Обновлено: " + new Date(data.checked_at_utc).toLocaleTimeString("ru-RU") + " · источник: " + (data.successful_source || data.source_url || "PARI");
     if (liveList) {
       liveList.innerHTML = count ? window.pariLiveEvents.map(ev => {
         try {
@@ -1537,8 +1579,12 @@ async function refreshLiveMatches() {
           const score = eventScore(ev);
           const totalMarkets = (ev.match_total_candidates || []).map(f => f.pt ? ("Тотал " + f.pt + " · фактор " + f.f + " (ТБ/ТМ неизвестно) · " + f.v) : ("Коэф. " + f.v));
           const statCount = (ev.external_statistics || []).length;
-          const coverage = ev.statistics_quality ? (" · покрытие " + ev.statistics_quality.available_count + "/" + ev.statistics_quality.expected_count) : "";
-          const statsLabel = statCount ? ("Статистика: " + statCount + " показателей" + coverage + " · " + (ev.statistics_source || "источник не указан")) : "Статистика: нет подтверждённых значений PARI/внешнего источника";
+          const quality = ev.statistics_quality || {};
+          const coverage = quality.expected_count ? (" · покрытие " + quality.available_count + "/" + quality.expected_count) : "";
+          const statusLabels = {field_absent_from_returned_sources:"поле отсутствует в полученных данных",unknown_metric_code:"неизвестен код показателя",no_exact_match:"не найдено точное соответствие матча",source_unavailable:"источник недоступен",timeout:"превышен тайм-аут источника",stale:"данные устарели",parse_error:"ошибка разбора",conflict:"данные противоречивы"};
+          const missingStatuses = Object.values(quality.missing_status || {});
+          const missingReason = missingStatuses.length ? (statusLabels[missingStatuses[0]] || missingStatuses[0]) : "показатели пока не получены";
+          const statsLabel = statCount ? ("Статистика: " + statCount + " показателей" + coverage + " · " + (ev.statistics_source || "источник не указан")) : "Статистика: " + missingReason;
           const details = [ev.league || ev.sport_name, score, eventPeriod(ev), eventClock(ev), statsLabel, ...totalMarkets].filter(Boolean).map(escapeHtml).join(" · ");
           const forecast = automaticForecast(ev);
           const quarterForecast = automaticQuarterForecast(ev);
@@ -1565,14 +1611,7 @@ async function refreshLiveMatches() {
           } else {
             forecastHtml = '<span class="live-match-meta forecast-pending">Прогноз матча ожидает данные: ' + escapeHtml(forecast.reason) + '</span>';
           }
-          if (quarterForecast.ready) {
-            const qLines=(quarterForecast.lines.length
-              ? quarterForecast.lines.map(x => x.direction+" "+x.line+" · ТБ "+(x.pOver*100).toFixed(1)+"% / ТМ "+(x.pUnder*100).toFixed(1)+"%").join(" | ")
-              : "линия четверти пока не найдена")+" · модельная вероятность не калибрована";
-            forecastHtml += '<span class="live-match-meta forecast-live">Прогноз Q'+escapeHtml(quarterForecast.period||findLivePeriod(ev)||"?")+': '+escapeHtml(quarterForecast.projection)+' очков за четверть · '+escapeHtml(qLines)+(quarterForecast.preliminary?' · предварительно':'')+'</span>';
-          } else {
-            forecastHtml += '<span class="live-match-meta forecast-pending">Прогноз четверти: '+escapeHtml(quarterForecast.reason)+'</span>';
-          }
+          forecastHtml += quarterForecastMarkup(quarterForecast,ev);
           const quarterHighlight=quarterHighlightInfo(ev);
           const highlightTag=quarterHighlight?'<span class="quarter-highlight-tag">★ ВЫДЕЛЕН: '+quarterHighlight.minute+'–8 мин Q'+quarterHighlight.period+'</span>':"";
           return '<button type="button" class="live-match'+(quarterHighlight?' live-match-quarter-window':'')+'" data-event-id="' + escapeHtml(ev.id) + '">' +
@@ -1582,24 +1621,7 @@ async function refreshLiveMatches() {
           // A failed forecast/AI submodel must not hide source facts from the card.
           // Keep the full exception in the browser diagnostic console.
           console.error("LIVE_MATCH_RENDER_ERROR", ev?.id, renderError);
-          const safe = value => escapeHtml(String(value ?? ""));
-          const safePart = (fn, fallback) => { try { return fn() || fallback; } catch (error) {
-            console.error("LIVE_MATCH_FIELD_RENDER_ERROR", ev?.id, error); return fallback;
-          }};
-          const title = [ev?.team1 || "Команда 1", ev?.team2 || "Команда 2"].map(safe).join(" — ");
-          const scoreText = safePart(() => eventScore(ev), "Счёт пока не подтверждён");
-          const periodText = safePart(() => eventPeriod(ev), "Период не определён");
-          const clockText = safePart(() => eventClock(ev), (ev?.timer_seconds??ev?.match_elapsed_seconds) != null
-            ? "Время получено, длительность периода не подтверждена" : "Таймер пока не получен");
-          const stats = Array.isArray(ev?.external_statistics) ? ev.external_statistics : [];
-          const statsText = stats.length
-            ? "Статистика: "+stats.length+" показателей"+(ev?.statistics_quality
-              ? " · покрытие "+ev.statistics_quality.available_count+"/"+ev.statistics_quality.expected_count : "")
-            : "Статистика: подтверждённых значений пока нет";
-          const markets = (ev?.match_total_candidates || []).map(f =>
-            f?.pt ? "Тотал "+f.pt+" · "+(f.v ?? "коэффициент не указан") : null).filter(Boolean);
-          const details = [scoreText,periodText,clockText,statsText,...markets].filter(Boolean).map(safe).join(" · ");
-          return '<button type="button" class="live-match" data-event-id="' + safe(ev?.id) + '><span class="live-match-title">' + title + '</span><span class="live-match-meta">' + details + '</span><span class="live-match-meta forecast-pending">Прогноз недоступен: ошибка одного из расчётных блоков. Подробности — в диагностике.</span></button>';
+          return liveMatchRenderFallback(ev);
         }
       }).join("") : '<p class="muted">В текущем ответе нет подтверждённых баскетбольных LIVE-матчей.</p>';
       liveList.querySelectorAll(".live-match").forEach(el => el.addEventListener("click", () => {
