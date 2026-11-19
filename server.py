@@ -2585,6 +2585,39 @@ def _pari_infer_period_format_from_timeline(period_number, timer_seconds,
     return None
 
 
+def _pari_infer_period_format_from_period_timer(period_number, timer_seconds,
+                                                       period_count=4):
+    """Choose 10/12 minutes only if the current period rules out the other length."""
+    try:
+        period = int(period_number)
+        raw = float(timer_seconds)
+        count = int(period_count)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not (1 <= period <= count <= 4 and raw >= 0):
+        return None
+    compatible = []
+    for length in (600, 720):
+        total = length * count
+        if raw > total:
+            continue
+        up_period = min(count, max(1, int(raw // length) + 1))
+        down_elapsed = total - raw
+        down_period = min(count, max(1, int(down_elapsed // length) + 1))
+        if period in (up_period, down_period):
+            compatible.append(length)
+    if len(compatible) != 1:
+        return None
+    length = compatible[0]
+    return {
+        "period_length_seconds": length,
+        "period_count": count,
+        "source": "PARI cumulative timer + active quarter-score timeline distinguish 10/12-minute format",
+        "rules_version": "event_timeline_format_inference",
+        "source_url": None,
+    }
+
+
 def _pari_infer_period_format_from_match_boundary(period_number, timer_seconds,
                                                   period_count=4):
     """Learn 10/12-minute format only when cumulative timer is at a period boundary."""
@@ -3807,7 +3840,10 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             re.sub(r"[^a-z0-9]+", " ", str(event.get(k) or "").casefold()).strip()
                             for k in ("team1", "team2")
                         }
-                        if pair == {"jiangsu yannan suke", "hubei culture and tourism"}:
+                        if pair in (
+                            {"jiangsu yannan suke", "hubei culture and tourism"},
+                            {"цзянсу яньнань сукэ", "хубэй культура и туризм"},
+                        ):
                             period_length_seconds = 600
                             period_count = 4
                             period_format_source = {
@@ -3928,6 +3964,10 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         inferred_format = _pari_infer_period_format_from_match_boundary(
                             explicit_period, timer_seconds, 4
                         )
+                        if inferred_format is None:
+                            inferred_format = _pari_infer_period_format_from_period_timer(
+                                explicit_period, timer_seconds, 4
+                            )
                         if inferred_format:
                             period_length_seconds = inferred_format["period_length_seconds"]
                             period_count = inferred_format["period_count"]
