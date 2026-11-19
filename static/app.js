@@ -724,7 +724,8 @@ function renderAnalysisHistory(){
     const score=row.score?row.score.join(" : "):"счёт —";
     const projection=row.matchProjection!=null?"Матч "+row.matchProjection:(row.quarterProjection!=null?"Q"+row.period+" "+row.quarterProjection:"Прогноз —");
     const signal=row.direction?row.direction+(row.line!=null?" "+row.line:"")+(row.probability!=null?" · "+row.probability+"%":""):"без линии";
-    return '<div class="history-row"><b>'+escapeHtml(row.teams||"Матч")+'</b><span>'+escapeHtml(when+" · "+score+" · Q"+(row.period||"—")+" "+(row.clock||"—"))+'</span><span>'+escapeHtml(projection)+'</span><span>'+escapeHtml(signal)+'</span></div>';
+    const outcome=row.outcomeStatus==="settled"?(row.outcomeResult||"рассчитан"):"не подтверждён";
+    return '<div class="history-row"><b>'+escapeHtml(row.teams||"Матч")+'</b><span>'+escapeHtml(when+" · "+score+" · Q"+(row.period||"—")+" "+(row.clock||"—"))+'</span><span>'+escapeHtml(projection)+'</span><span>'+escapeHtml(signal)+'</span><span>Исход: '+escapeHtml(outcome)+'</span></div>';
   }).join("");
 }
 function saveAnalysisHistory(ev,score,period,clock,estimate,quarter){
@@ -735,7 +736,8 @@ function saveAnalysisHistory(ev,score,period,clock,estimate,quarter){
     score:Array.isArray(score)?score.map(Number):null,period:period||null,clock:clock||null,
     matchProjection:estimate?.projection??null,quarterProjection:quarter?.ready?quarter.projection:null,
     line:strongest?.line??null,direction:strongest?.direction??null,
-    probability:strongest?Math.round(Math.max(strongest.pOver,strongest.pUnder)*1000)/10:null,savedAt:Date.now()};
+    probability:strongest?Math.round(Math.max(strongest.pOver,strongest.pUnder)*1000)/10:null,
+    outcomeStatus:"unresolved",savedAt:Date.now()};
   item.snapshotId=[item.eventId,item.savedAt,String(item.score||"").replace(/,/g,":"),item.clock||""].join("|");
   const history=readAnalysisHistory();
   // Append-only: a later refresh never overwrites an earlier forecast snapshot.
