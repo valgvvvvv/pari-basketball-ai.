@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Optional
-import math, random, os, hashlib, re, asyncio, json, sqlite3, zlib, io, zipfile, pathlib, traceback
+import math, random, os, hashlib, re, asyncio, json, sqlite3, zlib, io, zipfile, pathlib, copy, traceback
 from datetime import datetime, timezone, timedelta
 from html.parser import HTMLParser
 from html import unescape
