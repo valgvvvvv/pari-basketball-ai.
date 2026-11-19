@@ -189,8 +189,15 @@ const { chromium } = require("playwright");
       throw new Error("Collector returned an invalid result");
     }
     for (const row of result.forecasts) {
-      const basis = [row.event_id, row.captured_at_utc, JSON.stringify(row.score), row.period, row.clock].join("|");
-      row.snapshot_id = crypto.createHash("sha256").update(basis).digest("hex");
+      // Match the UI's event snapshot key exactly: one ID for score, clock,
+      // forecast cards, registry rows, history and all target contracts.
+      row.snapshot_id = [
+        row.event_id,
+        result.source_checked_at_utc || row.captured_at_utc,
+        String(row.score || ""),
+        String(row.period || ""),
+        String(row.clock || "")
+      ].join("|");
       for (const contract of row.prediction_contracts || []) {
         // Every forecast block from one captured event update shares the same snapshot ID.
         // Target-specific identity is separate and never replaces the source snapshot ID.
