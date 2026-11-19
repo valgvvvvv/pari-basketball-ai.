@@ -2597,17 +2597,38 @@ def _finalize_live_statistics(events):
         normalized = expanded
         observed_at = event.get("feed_checked_at_utc") or event.get("checked_at_utc")
         received_at = datetime.now(timezone.utc).isoformat()
+        external_match = event.get("external_live") if isinstance(event.get("external_live"), dict) else {}
         for stat_row in normalized:
             source_name = str(stat_row.get("source") or "unknown")
             stat_row.setdefault("event_id", str(event.get("id") or ""))
             if source_name == "PARI":
                 stat_row.setdefault("source_event_id", str(event.get("id") or ""))
                 stat_row.setdefault("match_status", "pari_event_id")
+                if stat_row.get("observed_at_utc") is None:
+                    stat_row["observed_at_utc"] = observed_at
+            else:
+                if stat_row.get("source_event_id") is None and external_match.get("source") == source_name:
+                    stat_row["source_event_id"] = external_match.get("event_id")
+                if stat_row.get("match_status") is None:
+                    stat_row["match_status"] = "matched_external_event" if external_match.get("source") == source_name else "not_confirmed"
             stat_row.setdefault("target", "period" if stat_row.get("period") is not None else "match")
             stat_row.setdefault("target_period", stat_row.get("period"))
-            stat_row.setdefault("observed_at_utc", observed_at)
             stat_row.setdefault("received_at_utc", received_at)
             stat_row.setdefault("availability", "available")
+            observed_value = stat_row.get("observed_at_utc")
+            stat_row["freshness_seconds"] = None
+            if observed_value:
+                try:
+                    observed_dt = datetime.fromisoformat(str(observed_value).replace("Z", "+00:00"))
+                    if observed_dt.tzinfo is None:
+                        observed_dt = observed_dt.replace(tzinfo=timezone.utc)
+                    age = max(0, int((datetime.now(timezone.utc) - observed_dt).total_seconds()))
+                    stat_row["freshness_seconds"] = age
+                    stat_row["freshness_status"] = "fresh" if age <= 60 else "stale"
+                except (TypeError, ValueError, OverflowError):
+                    stat_row["freshness_status"] = "timestamp_unparseable"
+            else:
+                stat_row["freshness_status"] = "source_timestamp_unavailable"
         by_key = {}
         for row in normalized:
             if row.get("metric_key") and row["metric_key"] not in by_key:
