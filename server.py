@@ -1216,6 +1216,8 @@ async def _enrich_with_sofascore_live(events):
                         str(k) for obj in identity_sources if isinstance(obj, dict) for k in obj.keys()
                     ))[:50],
                     "period_length_seconds": None, "detail_source": None,
+                    "league": first_identity(("league", "competition", "tournament", "competitionName", "tournamentName")) or "",
+                    "start_time": first_identity(("start_time", "startTime", "kickoff", "scheduled_at", "scheduledAt", "date", "timestamp")),
                 })
 
             # ESPN's public NBA scoreboard is an independent fallback for NBA fixtures.
@@ -1288,7 +1290,7 @@ async def _enrich_with_sofascore_live(events):
                             "period": period, "clock": clock, "status": "NBA live",
                             "id": "espn:" + str(espn_event.get("id")),
                             "provider_id": str(espn_event.get("id")),
-                            "period_length_seconds": 720, "period_count": 4, "detail_source": "ESPN NBA scoreboard",
+                            "period_length_seconds": 720, "period_count": 4, "detail_source": "ESPN NBA scoreboard", "league": "NBA", "start_time": espn_event.get("date"),
                         })
                         espn_diagnostics["live_events"] += 1
                     espn_diagnostics["status"] = "ok"
@@ -1354,7 +1356,7 @@ async def _enrich_with_sofascore_live(events):
                             "period": period, "clock": clock, "status": "NCAA men's live",
                             "id": "espn-ncaa:" + str(ncaa_event.get("id")),
                             "provider_id": str(ncaa_event.get("id")),
-                            "period_length_seconds": 1200, "period_count": 2,
+                            "period_length_seconds": 1200, "period_count": 2, "league": "NCAA men", "start_time": ncaa_event.get("date"),
                             "detail_source": "ESPN men's college basketball scoreboard",
                         })
                         espn_ncaa_diagnostics["live_events"] += 1
@@ -1522,7 +1524,7 @@ async def _enrich_with_sofascore_live(events):
                         "period_scores": ss_period_scores, "period": ss_period,
                         "clock": ss_clock, "period_length_seconds": ss_length,
                         "status": ss_desc, "id": "sofascore:" + str(ss_item.get("id")),
-                        "detail_source": "SofaScore",
+                        "detail_source": "SofaScore", "league": str((ss_item.get("tournament") or {}).get("name") or ""), "start_time": ss_item.get("startTimestamp") or ss_item.get("startTime"),
                     }
                     duplicate = next((r for r in external_rows
                                       if pair_score(ss_home_name, ss_away_name, r["home"], r["away"]) >= 0.94), None)
@@ -2050,6 +2052,7 @@ async def _enrich_with_sofascore_live(events):
             "clock": clock,
             "status": description,
             "league": str(tournament.get("name") or ""),
+            "start_time": item.get("startTimestamp") or item.get("startTime"),
             "id": item.get("id"),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         })
