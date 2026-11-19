@@ -263,8 +263,8 @@ vm.runInNewContext(appSource.slice(scoreStart, scoreEnd) + "; this.validateScore
 assert.equal(scoreSandbox.validateScoreTimeline({}, [50,48], 3).valid, true);
 assert.equal(scoreSandbox.validateScoreTimeline({}, [51,48], 3).valid, false,
   "period sum mismatch must block a forecast");
-assert.ok(appSource.includes("(periodCount===2||explicit===1200)?2:4"),
-  "20-minute halves must not be normalized as four quarters");
+assert.ok(appSource.includes("if(!explicit||![2,4].includes(periodCount))return null") && appSource.includes("seconds:explicit,periods:periodCount"),
+  "period duration and period count must both be confirmed independently");
 
 const periodStart = appSource.indexOf("function findLivePeriod(ev){");
 const periodEnd = appSource.indexOf("function findLiveClock(ev){", periodStart);
