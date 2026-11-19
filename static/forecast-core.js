@@ -21,10 +21,12 @@
     const alpha=priorAlpha+current,beta=priorExposure+elapsedMinutes;
     if(!(alpha>0)||!(beta>0))return {ready:false,reason:"недостаточная экспозиция для оценки темпа"};
     const expectedRemaining=alpha/beta*remainingMinutes;
-    const varianceRemaining=expectedRemaining+(expectedRemaining*expectedRemaining)/alpha;
+    const meanUncertaintyVariance=(expectedRemaining*expectedRemaining)/alpha;
+    const meanUncertaintySd=Math.sqrt(meanUncertaintyVariance);
+    const varianceRemaining=expectedRemaining+meanUncertaintyVariance;
     const priorMean=completed.length?completed.reduce((sum,x)=>sum+x,0)/completed.length:null;
     return {ready:true,current,elapsedSeconds,remainingSeconds:periodLengthSeconds-elapsedSeconds,
-      alpha,beta,remainingMinutes,expectedRemaining,varianceRemaining,
+      alpha,beta,remainingMinutes,expectedRemaining,varianceRemaining,meanUncertaintyVariance,meanUncertaintySd,
       projection:current+expectedRemaining,priorQuarterCount:completed.length,priorQuarterMean:priorMean,
       quality:completed.length>=2&&elapsedSeconds>=180?"ограниченная · prior по двум и более четвертям":
         completed.length===1?"низкая · prior по одной четверти":"низкая · только текущий темп",
@@ -76,6 +78,7 @@
         edge:Math.abs(conditionalOver-0.5)};
     });
     return {simulations:count,mu:posterior.expectedRemaining,variance:posterior.varianceRemaining,
+      meanUncertaintyVariance:posterior.meanUncertaintyVariance,meanUncertaintySd:posterior.meanUncertaintySd,
       low80:quantile(outcomes,.10),high80:quantile(outcomes,.90),low95:quantile(outcomes,.025),high95:quantile(outcomes,.975),
       probabilities,method:posterior.method,distribution:"negative-binomial predictive (Gamma-Poisson)"};
   }
