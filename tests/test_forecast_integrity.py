@@ -73,6 +73,8 @@ class ForecastIntegrityTests(unittest.TestCase):
         self.assertNotIn('/releases/assets/', publisher)
         self.assertIn("prediction_contracts", collector)
         self.assertIn("snapshot_id", collector)
+        self.assertIn("mean_uncertainty_sd", collector)
+        self.assertIn('interval_type: "predictive_total_interval"', collector)
         self.assertIn('status: "unresolved"', collector)
         self.assertIn("#selectedMatch", collector)
         self.assertIn("#historyCount", collector)
