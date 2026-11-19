@@ -1586,7 +1586,7 @@ async function refreshLiveMatches() {
           const title = [ev?.team1 || "Команда 1", ev?.team2 || "Команда 2"].map(safe).join(" — ");
           const scoreText = safePart(() => eventScore(ev), "Счёт пока не подтверждён");
           const periodText = safePart(() => eventPeriod(ev), "Период не определён");
-          const clockText = safePart(() => eventClock(ev), ev?.timer_seconds != null
+          const clockText = safePart(() => eventClock(ev), (ev?.timer_seconds??ev?.match_elapsed_seconds) != null
             ? "Время получено, длительность периода не подтверждена" : "Таймер пока не получен");
           const stats = Array.isArray(ev?.external_statistics) ? ev.external_statistics : [];
           const statsText = stats.length
