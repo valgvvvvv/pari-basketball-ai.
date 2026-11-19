@@ -3675,12 +3675,12 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         ) else None,
                         "period": period_value,
                         "period_source": "PARI_timer_and_period_consistency" if (
-                            not clock_was_explicit and timer_seconds is not None and period_length_seconds
+                            timer_semantics_verified and not clock_was_explicit
                             and clock_value is not None
                         ) else ("PARI_event" if period_value is not None else None),
                         "clock": clock_value,
                         "clock_source": "PARI_timer_and_period_consistency" if (
-                            not clock_was_explicit and timer_seconds is not None and period_length_seconds
+                            timer_semantics_verified and not clock_was_explicit
                             and clock_value is not None
                         ) else ("PARI_explicit_countdown" if clock_value is not None else None),
                         "period_length_seconds": period_length_seconds,
