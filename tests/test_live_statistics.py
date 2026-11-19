@@ -309,7 +309,7 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
         with patch.object(server, "_enrich_with_sofascore_live", side_effect=fake_provider):
             asyncio.run(server._refresh_live_enrichment_background(events))
         diag = server._LIVE_ENRICHMENT_CACHE["pari-only"]["statistics_source_diagnostics"]
-        self.assertEqual(diag["match_status"], "no_exact_match")
+        self.assertEqual(diag["match_status"], "source_no_live_events")
 
 
     def test_period_statistics_are_not_merged_into_match_or_each_other(self):
