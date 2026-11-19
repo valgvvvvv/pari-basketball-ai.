@@ -1190,7 +1190,6 @@ function automaticQuarterForecast(ev) {
   const period=findLivePeriod(ev),timelineScore=findLiveScore(ev);
   const scoreCheck=validateScoreTimeline(ev,timelineScore,period);
   if(!scoreCheck.valid)return {ready:false,reason:"Конфликт счёта: "+scoreCheck.reason};
-  const periodUnused=period;
   const info=inferPeriodLengthForForecast(ev);
   const length=findPeriodLengthSeconds(ev)||info?.seconds;
   const directClock=findLiveClock(ev);
