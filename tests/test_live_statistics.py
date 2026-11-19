@@ -133,5 +133,25 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
 
 
 
+    def test_raw_timer_is_not_mislabelled_as_elapsed_or_remaining(self):
+        unknown = server._pari_timer_metadata(405, 0, 1795086000000)
+        self.assertEqual(unknown["source_timer_seconds"], 405)
+        self.assertIsNone(unknown["match_elapsed_seconds"])
+        self.assertIsNone(unknown["period_elapsed_seconds"])
+        self.assertIsNone(unknown["period_remaining_seconds"])
+        self.assertEqual(unknown["timer_state"], "source_status_unconfirmed")
+        self.assertEqual(unknown["timer_interpretation_status"], "received_period_format_unconfirmed")
+
+    def test_known_format_does_not_imply_timer_direction(self):
+        rule = server.PARI_COMPETITION_FORMATS["59836"]
+        metadata = server._pari_timer_metadata(420, 0, None,
+            rule["period_length_seconds"], rule, False, False)
+        self.assertEqual(metadata["source_timer_seconds"], 420)
+        self.assertIsNone(metadata["period_remaining_seconds"])
+        self.assertEqual(metadata["timer_interpretation_status"], "received_timer_semantics_unverified")
+        self.assertEqual(metadata["overtime_length_seconds"], 300)
+
+
+
 if __name__ == "__main__":
     unittest.main()
