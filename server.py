@@ -219,10 +219,10 @@ def api_analyze(req: AnalyzeRequest):
 @app.post("/api/analyze-quarter")
 def api_analyze_quarter(req: QuarterAnalyzeRequest):
     period_sec = req.period_minutes * 60
-    remaining_sec = parse_clock(req.clock)  # LIVE clock is a countdown (MM:SS remaining).
-    if remaining_sec > period_sec:
-        raise ValueError("Оставшееся время превышает длительность четверти.")
-    elapsed_sec = period_sec - remaining_sec
+    elapsed_sec = parse_clock(req.clock)  # Manual API accepts elapsed-up MM:SS, matching /api/analyze.
+    if elapsed_sec > period_sec:
+        raise ValueError("Прошедшее время превышает длительность четверти.")
+    remaining_sec = period_sec - elapsed_sec
     current = req.score1 + req.score2
     prior = [int(x) for x in req.prior_quarter_totals if isinstance(x, int) and x >= 0]
     prior_points = sum(prior)
