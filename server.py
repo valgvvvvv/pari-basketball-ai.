@@ -3920,6 +3920,7 @@ def archive_recent(minutes: int = 10, event_ids: str = ""):
     ids = [value.strip() for value in str(event_ids or "").split(",") if value.strip()][:100]
     since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
     conn = _archive_connect()
+    conn.row_factory = sqlite3.Row
     try:
         sql = "SELECT event_id,captured_at,quarter,clock,score FROM snapshots WHERE captured_at>=?"
         params = [since]
