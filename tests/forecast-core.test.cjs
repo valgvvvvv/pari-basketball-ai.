@@ -97,6 +97,8 @@ assert.ok(htmlSource.indexOf("forecast-core.js") < htmlSource.indexOf("app.js"),
 assert.ok(appSource.includes("market.prices.push"), "quarter market prices must preserve both factor IDs");
 assert.ok(appSource.includes('outcomeStatus:"unresolved"'), "unconfirmed history outcomes must not be shown as settled");
 assert.ok(appSource.includes('overtime_policy:"not_included_market_rule_unverified"'), "regulation-only forecasts must not imply overtime inclusion");
+assert.ok(!appSource.includes('add("Smooth Game Q"'), "a diagnostic must not be counted as a forecast model");
+assert.ok(appSource.includes("эвристика концовки"), "endgame adjustment must be labeled as a heuristic");
 
 
 const scoreStart = appSource.indexOf("function validateScoreTimeline(ev,matchScore,period){");
