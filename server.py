@@ -2655,6 +2655,14 @@ def _finalize_live_statistics(events):
             freshness = {"fresh": 3, "source_timestamp_unavailable": 1, "timestamp_unparseable": 0, "stale": 0}.get(row.get("freshness_status"), 1)
             match_quality = {"pari_event_id": 3, "exact_event_id_match": 3, "matched_external_event": 2, "not_confirmed": 0}.get(row.get("match_status"), 1)
             return (freshness, match_quality, source_priority)
+        # Keep all source rows for diagnostics, but order the best-supported value
+        # first within each metric/target so consumers cannot silently pick an older row.
+        normalized.sort(key=lambda row: (
+            str(row.get("metric_key") or ""),
+            str(row.get("target") or "match"),
+            int(row.get("target_period") or 0),
+            tuple(-part for part in source_rank(row)),
+        ))
         by_key = {}
         for row in normalized:
             metric = row.get("metric_key")
