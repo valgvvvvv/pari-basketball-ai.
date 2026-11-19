@@ -3841,6 +3841,19 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         if timer_period is not None:
                             explicit_period = timer_period
                             period_value = timer_period
+                            # Correct earlier snapshots that were assigned to a
+                            # future quarter only because a child 0:0 row existed.
+                            # Reclassify from the same verified cumulative timer
+                            # so a valid direction is not discarded as a false reset.
+                            if timer_state.get("history") and timer_state.get("direction"):
+                                for observation in timer_state["history"]:
+                                    corrected_period = _pari_period_from_match_timer(
+                                        observation.get("value"), period_length_seconds,
+                                        period_count, timer_state.get("direction")
+                                    )
+                                    if corrected_period is not None:
+                                        observation["period"] = corrected_period
+                                timer_state["period"] = timer_period
 
                     # Prefer PARI's explicit per-period countdown when present.
                     # Its field semantics (clock/countdown/periodClock/timeRemaining)
