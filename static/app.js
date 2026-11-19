@@ -1377,7 +1377,7 @@ function automaticQuarterForecast(ev) {
     home:currentQuarter?.pair?.[0]??null,away:currentQuarter?.pair?.[1]??null,
     score_source:source,elapsed:elapsedMinutes,low80:poisson.low80,high80:poisson.high80,
     low95:poisson.low95,high95:poisson.high95,poisson,lines:poisson.probabilities,
-    preliminary,context_factors:[source,"распределение Gamma-Poisson учитывает неопределённость темпа",...(quarterDynamics.applied?["диагностика темпа ×"+quarterTempoFactor.toFixed(3)+" · изменение "+quarterDynamics.rawChange.toFixed(1)+"%"]:["ускорение/спад не применены: "+quarterDynamics.reason]),...(possessionModel?["модель владений матча доступна отдельно, но не подменяет прогноз четверти"]:[])],
+    preliminary,context_factors:[source,"распределение Gamma-Poisson учитывает неопределённость темпа",...(quarterDynamics.applied?["диагностика темпа "+(quarterDynamics.rolling?"по окну 3–5 мин":"по периодам")+" · индекс ×"+quarterTempoFactor.toFixed(3)+" · изменение "+quarterDynamics.rawChange.toFixed(1)+"% · не добавляется повторно к Gamma-Poisson"]:["ускорение/спад не применены: "+quarterDynamics.reason]),...(possessionModel?["модель владений матча доступна отдельно, но не подменяет прогноз четверти"]:[])],
     possession_model:possessionModel, possession_projection:possessionQuarterProjection,
     statistics_adjustment:quarterStatsAdjustment,tempo_dynamics:quarterDynamics,posterior,distribution:poisson.distribution};
 }
