@@ -2445,6 +2445,10 @@ def _pari_period_score_unmapped_records(source_row):
 
 
 _PARI_TIMER_OBSERVATIONS = {}
+# Per-event format evidence survives normal polling and quarter transitions.
+# It is intentionally in-memory; each new snapshot can independently re-derive
+# the format from the source timer if the service has restarted.
+_PARI_PERIOD_FORMAT_OBSERVATIONS = {}
 
 def _pari_infer_period_format_from_timeline(period_number, timer_seconds,
                                             period_remaining_seconds,
@@ -3760,10 +3764,24 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         if explicit_match:
                             explicit_clock_seconds = int(explicit_match.group(1)) * 60 + int(explicit_match.group(2))
 
-                    # If the event has no league rule, infer 10/12-minute
-                    # periods only when match timer arithmetic agrees with PARI's
-                    # explicit active-quarter countdown. This carries the same
-                    # duration into Q2/Q3/Q4 instead of asking for a new format.
+                    # Reuse a format already observed in this same match. A
+                    # quarter does not get a new duration merely because Q1 ended.
+                    format_memory_key = str(event.get("id") or "")
+                    remembered_format = _PARI_PERIOD_FORMAT_OBSERVATIONS.get(format_memory_key)
+                    if (period_length_seconds is None and remembered_format
+                            and explicit_period and 1 <= explicit_period <= 4):
+                        period_length_seconds = int(remembered_format["period_length_seconds"])
+                        period_count = int(remembered_format["period_count"])
+                        period_format_source = {
+                            "competition_id": next((str(x) for x in competition_id_candidates if x is not None), None),
+                            "source": "PARI: format remembered from an earlier quarter of this match",
+                            "rules_version": "same_event_observed_format",
+                            "source_url": None,
+                        }
+
+                    # If no format has been seen yet, infer 10/12-minute periods
+                    # only when match timer arithmetic agrees with the explicit
+                    # active-quarter countdown, or the clock is near period start.
                     if (period_length_seconds is None and explicit_clock_seconds is not None
                             and explicit_period and 1 <= explicit_period <= 4):
                         inferred_format = _pari_infer_period_format_from_timeline(
@@ -3776,6 +3794,12 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 "competition_id": next((str(x) for x in competition_id_candidates if x is not None), None),
                                 **inferred_format,
                             }
+
+                    if period_length_seconds in (600, 720) and period_count == 4:
+                        _PARI_PERIOD_FORMAT_OBSERVATIONS[format_memory_key] = {
+                            "period_length_seconds": int(period_length_seconds),
+                            "period_count": int(period_count),
+                        }
 
                     # Prefer PARI's explicit per-period countdown when present.
                     # Its field semantics (clock/countdown/periodClock/timeRemaining)
