@@ -2302,8 +2302,8 @@ PARI_COMPETITION_FORMATS = {
     "59149": {
         "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
         "source": "VTB United Youth League 2025-2026 official regulations; FIBA Official Basketball Rules",
-        "rules_version": "VTB Youth League 2025-2026",
-        "source_url": "https://vtbyouth-league.com/ru/pages/about-docs/",
+        "rules_version": "VTB Youth League 2026-2027 (approved 09.07.2026, amended 17.08.2026)",
+        "source_url": "https://vtbyouth-league.com/docs/2026-2027/%D0%A0%D0%B5%D0%B3%D0%BB%D0%B0%D0%BC%D0%B5%D0%BD%D1%82%20%D0%A7%D0%B5%D0%BC%D0%BF%D0%B8%D0%BE%D0%BD%D0%B0%D1%82%D0%B0%20%D0%95%D0%B4%D0%B8%D0%BD%D0%BE%D0%B9%20%D0%9C%D0%BE%D0%BB%D0%BE%D0%B4%D0%B5%D0%B6%D0%BD%D0%BE%D0%B9%20%D0%9B%D0%B8%D0%B3%D0%B8%20%D0%92%D0%A2%D0%91%202026-2027%20%D0%B8%D0%B7%D0%BC.%20%D1%83%D1%82%D0%B2.%20%D0%A1%D0%BE%D0%B2%D0%B5%D1%82%D0%BE%D0%BC%20%D0%9B%D0%B8%D0%B3%D0%B8%2017.08.2026%20(%D1%81%20%D0%B8%D0%B7%D0%BC.).pdf",
     },
 }
 
