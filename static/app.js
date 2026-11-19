@@ -82,9 +82,12 @@ function findLiveClock(ev){
     let elapsed=elapsedBase;
     const timestamp=Number(ev?.timer_timestamp_msec||ev?.external_live?.timer_timestamp_msec||0);
     const stateText=String(ev?.live_fields?.st3||ev?.live_fields?.status||ev?.live_fields?.comment||"").toLowerCase();
-    if(timestamp>0&&!ev?.timer_paused&&!/timeout|break|halftime|перерыв|тайм-аут|таймаут/.test(stateText)){
+    const paused=!!ev?.timer_paused||/timeout|break|halftime|перерыв|тайм-аут|таймаут/.test(stateText);
+    if(!paused){
+      if(!(timestamp>0))return null;
       const age=(Date.now()-timestamp)/1000;
-      if(Number.isFinite(age)&&age>=0&&age<=60)elapsed+=age;
+      if(!Number.isFinite(age)||age<0||age>90)return null;
+      elapsed+=age;
     }
     const elapsedPeriod=elapsed-(period-1)*length;
     if(elapsedPeriod>=0&&elapsedPeriod<=length+2){
@@ -783,7 +786,9 @@ function showSelectedMatch(ev,options={}){
   const periodStatRows=Array.isArray(ev.period_statistics)?ev.period_statistics:[];
   const periodStatHtml=periodStatRows.length?'<h4>Статистика по четвертям</h4>'+periodStatRows.map(st=>'<p>Q'+escapeHtml(st.period||"—")+' · '+escapeHtml(st.name||st.metric_key||"Показатель")+': <b>'+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+'</b></p>').join(""):'';
   $("selectedMatchMeta").textContent=[ev.league||ev.sport_name].filter(Boolean).join(" · ");
-  $("selectedMatchInfo").textContent="Счёт "+(score?score.join(" : "):"—")+" · Q"+(period||"—")+" · "+(clock||"—");
+  $("selectedMatchInfo").textContent="Счёт "+(score?score.join(" : "):"—")+" · Q"+(period||"—")+" · "+(clock||"—")+
+    " · снимок "+(ev.feed_fetched_at_utc?new Date(ev.feed_fetched_at_utc).toLocaleTimeString("ru-RU"):"время снимка неизвестно")+
+    " · свежесть события "+(ev.event_freshness_status==="provider_timestamp_available"?"есть отметка источника":"не подтверждена источником");
   const lineRows=lines.map(x=>{
     const p=(estimate?.poisson?.probabilities||[]).find(z=>Number(z.line)===Number(x.line));
     return '<tr><td>'+x.line+'</td><td>'+(p?(p.pOver*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pUnder*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pPush*100).toFixed(1)+'%':'—')+'</td><td>'+(p?escapeHtml(p.direction):'—')+'</td><td>'+(x.prices?.length?escapeHtml(x.prices.map(v=>"f"+v.factorId+": "+v.price).join(" · ")):(x.odds?escapeHtml(x.odds):"—"))+'</td></tr>';
