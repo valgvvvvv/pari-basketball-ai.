@@ -2317,6 +2317,12 @@ PARI_COMPETITION_FORMATS = {
         "rules_version": "BSKT CUP 5x5 format",
         "source_url": "https://europeangaming.eu/portal/latest-news/2023/05/24/136146/beter-expands-basketball-portfolio-with-bskt-cup/",
     },
+    "33225": {
+        "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "Hong Kong A1 men's competition; Hong Kong Basketball Association applies FIBA playing rules",
+        "rules_version": "FIBA four 10-minute quarters",
+        "source_url": "https://www.basketball.org.hk/images/referee/2021/FIBAOfficialBasketballRules2020_v1_0a%287_4_2021%29.pdf",
+    },
 }
 
 PARI_PERIOD_SCORE_KIND_IDS = {
