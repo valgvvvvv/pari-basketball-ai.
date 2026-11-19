@@ -2469,9 +2469,9 @@ def _pari_infer_period_format_from_timeline(period_number, timer_seconds,
     # timerSeconds counts up from match start.
     candidates.append((raw + remaining) / period)
     # timerSeconds counts down to match end.
-    future_periods_including_current = count - period + 1
-    if future_periods_including_current > 0 and raw >= remaining:
-        candidates.append((raw - remaining) / future_periods_including_current)
+    future_periods_after_current = count - period
+    if future_periods_after_current > 0 and raw >= remaining:
+        candidates.append((raw - remaining) / future_periods_after_current)
     # timerSeconds is elapsed time within the active quarter.
     candidates.append(raw + remaining)
 
