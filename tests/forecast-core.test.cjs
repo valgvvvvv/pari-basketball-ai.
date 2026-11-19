@@ -80,6 +80,17 @@ const clockEnd = appSource.indexOf("function estimateLiveTotal(ev", clockStart);
 assert.ok(clockStart >= 0 && clockEnd > clockStart);
 assert.ok(!appSource.slice(clockStart, clockEnd).includes("inferPeriodLengthForForecast("),
   "clock parsing must not recursively call format inference");
+const periodSourceStart = appSource.indexOf("function findLivePeriod(ev){");
+const periodSourceEnd = appSource.indexOf("function estimateLiveTotal(ev", periodSourceStart);
+const formatSourceStart = appSource.indexOf("function findPeriodLengthSeconds(ev)");
+const formatSourceEnd = appSource.indexOf("function estimateLiveTotalFromPeriod(", formatSourceStart);
+const runtimeSource = appSource.slice(periodSourceStart, periodSourceEnd) +
+  appSource.slice(formatSourceStart, formatSourceEnd) +
+  "; this.findLiveClock=findLiveClock; this.inferPeriodLengthForForecast=inferPeriodLengthForForecast;";
+const runtimeSandbox = {collectEventObjects:()=>[], localStorage:{setItem(){}}};
+vm.runInNewContext(runtimeSource, runtimeSandbox);
+assert.equal(runtimeSandbox.findLiveClock({period:3,clock:"08:57"}), "08:57");
+assert.equal(runtimeSandbox.inferPeriodLengthForForecast({period:3,league:"Unknown league",clock:"08:57"}).seconds, 600);
 assert.ok(htmlSource.indexOf("forecast-core.js") < htmlSource.indexOf("app.js"),
   "the tested forecast core must load before the UI code");
 
