@@ -21,7 +21,8 @@ concurrency:
 jobs:
   collect-live-snapshot:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.schedule == '*/5 * * * *'
-    runs-on: ubuntu-latest
+    # Playwright 1.57 does not ship Chromium for Ubuntu 26.04; pin a supported runner.
+    runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
       - uses: actions/setup-node@v4
