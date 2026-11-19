@@ -208,6 +208,11 @@ const { chromium } = require("playwright");
       }
     }
     result.prediction_contract_count = result.forecasts.reduce((sum, row) => sum + (row.prediction_contracts || []).length, 0);
+    for (const row of result.forecasts) {
+      if ((row.prediction_contracts || []).some(contract => contract.snapshot_id !== row.snapshot_id)) {
+        throw new Error("Forecast contracts from one event update do not share the source snapshot_id");
+      }
+    }
 
     const appScriptUrl = await page.evaluate(() =>
       Array.from(document.scripts).map(script => script.src).find(src => src.includes("/static/app.js")) || ""
@@ -260,6 +265,8 @@ const { chromium } = require("playwright");
         if (!historyText.includes(smokeRow.teams)) throw new Error("Selected match was not saved in forecast history");
         const toolRows = await page.locator("#toolsRegistry .unified-tools-table tbody tr").count();
         if (toolRows < 1) throw new Error("Unified calculation tool registry is empty");
+        const registryText = await page.locator("#toolsRegistry").innerText();
+        if (!registryText.includes("Недоступны / отключены:")) throw new Error("Inactive tools are not exposed in the collapsed shared registry");
         for (const selector of ["#matchForecast", "#quarterForecast"]) {
           const headlineCount = await page.locator(selector + " .forecast-main").count();
           if (headlineCount > 1) throw new Error("Duplicate primary forecast in " + selector);
