@@ -2566,6 +2566,11 @@ def _pari_timer_metadata(timer_seconds, timer_direction, timer_timestamp_msec,
     """Expose raw and normalized timer values plus the actual verification reason."""
     normalized_timer = normalized_timer or {}
     has_timer = timer_seconds is not None
+    default_interpretation_status = (
+        "timer_not_received" if not has_timer else
+        "received_timer_semantics_unverified" if period_length_seconds is not None else
+        "received_period_format_unconfirmed"
+    )
     return {
         "source_timer_seconds": timer_seconds,
         "match_elapsed_seconds": normalized_timer.get("match_elapsed_seconds"),
@@ -2577,12 +2582,15 @@ def _pari_timer_metadata(timer_seconds, timer_direction, timer_timestamp_msec,
         "timer_timestamp_msec": timer_timestamp_msec,
         "timer_paused": bool(timer_paused or normalized_timer.get("timer_state") == "stoppage"),
         "overtime_detected": bool(overtime_detected or normalized_timer.get("timer_state") == "overtime"),
-        "overtime_length_seconds": normalized_timer.get("overtime_length_seconds"),
+        "overtime_length_seconds": normalized_timer.get(
+            "overtime_length_seconds",
+            period_format_source.get("overtime_length_seconds") if isinstance(period_format_source, dict) else None,
+        ),
         "timer_state": normalized_timer.get("timer_state", "source_status_unconfirmed" if has_timer else "not_received"),
         "timer_semantics_verified": bool(normalized_timer.get("timer_semantics_verified")),
         "timer_snapshot_count": normalized_timer.get("timer_snapshot_count", 0),
         "timer_block_reason": normalized_timer.get("timer_block_reason"),
-        "timer_interpretation_status": normalized_timer.get("timer_interpretation_status", "timer_not_received"),
+        "timer_interpretation_status": normalized_timer.get("timer_interpretation_status", default_interpretation_status),
     }
 
 
@@ -3034,6 +3042,18 @@ async def _refresh_live_enrichment_background(events_snapshot):
 
 
 # PARI public LIVE events feed. The endpoint is read-only; no account or betting actions.
+def _pari_successful_source(response):
+    """Return the actual final response origin, including redirects."""
+    response_url = getattr(response, "url", None)
+    scheme = getattr(response_url, "scheme", None)
+    host = getattr(response_url, "host", None)
+    if not scheme or not host:
+        return None
+    port = getattr(response_url, "port", None)
+    default_port = 443 if scheme == "https" else 80
+    return f"{scheme}://{host}" + (f":{port}" if port and port != default_port else "")
+
+
 async def _fetch_pari_live_events(catalog_only: bool = False):
     from urllib.parse import urljoin
     # Try the host that most recently returned a valid feed first.
@@ -3113,6 +3133,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     item["body_preview"] = (response.text or "")[:240]
                     attempts.append(item)
                     continue
+                successful_feed_url = str(response.url)
+                successful_source = _pari_successful_source(response) or successful_feed_url.split("/events/list", 1)[0]
                 all_events = payload["events"]
                 # PARI/Fonbet-style feeds keep live scoreboard data in top-level
                 # eventMiscs/liveEventInfos arrays, keyed by event id, not inside
@@ -3873,7 +3895,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     }
                     print("PARI_LIVE_DIAG " + json.dumps({
                         "ok": True,
-                        "host": host,
+                        "host": successful_source,
                         "total_events": len(all_events),
                         "payload_keys": list(payload.keys())[:60],
                         "event_miscs_count": len(payload.get("eventMiscs", [])) if isinstance(payload.get("eventMiscs"), list) else None,
@@ -3937,10 +3959,10 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     return {
                         "ok": True,
                         "connected": True,
-                        "source": url + "?lang=ru&scopeMarket=2300",
+                        "source": successful_feed_url,
                         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
-                        "source_url": url,
-                        "successful_source": host,
+                        "source_url": successful_feed_url,
+                        "successful_source": successful_source,
                         "total_events": len(all_events),
                         "basketball_events": len(basketball),
                         "events": basketball,

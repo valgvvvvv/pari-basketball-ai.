@@ -328,6 +328,17 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
         self.assertEqual(event["statistics_quality"]["conflicts"], [])
 
 
+    def test_successful_pari_host_comes_from_final_response_url(self):
+        response = server.httpx.Response(
+            200,
+            request=server.httpx.Request("GET", "https://line-vk02-w.pb06e2-resources.ru/events/list?lang=ru"),
+        )
+        self.assertEqual(
+            server._pari_successful_source(response),
+            "https://line-vk02-w.pb06e2-resources.ru",
+        )
+
+
 
 if __name__ == "__main__":
     unittest.main()
