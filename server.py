@@ -2339,6 +2339,27 @@ def _pari_period_score_records(source_row):
             if pair is not None and match and not kind_id:
                 records.append({"period": int(match.group(1)), "score": pair, "kind_id": None,
                                 "label": label, "source": "PARI.scores[1]", "source_index": index})
+        # PARI sometimes labels every row in scores[1] simply "четверть".
+        # Only map by position when the complete group is unambiguously a list
+        # of 1..4 quarter-score rows; never use this rule for subscores/statistics.
+        quarter_rows = [item for item in scores[1] if isinstance(item, dict)]
+        generic_quarter_group = (
+            1 <= len(quarter_rows) <= 4
+            and all(
+                str(item.get("title") or item.get("kindName") or item.get("name") or "").strip().casefold()
+                in {"четверть", "quarter"}
+                and not (item.get("kindId") or item.get("kind_id"))
+                for item in quarter_rows
+            )
+        )
+        if generic_quarter_group:
+            for index, item in enumerate(quarter_rows):
+                pair = _pari_score_pair_from_row(item)
+                if pair is not None:
+                    records.append({"period": index + 1, "score": pair, "kind_id": None,
+                                    "label": str(item.get("title") or "четверть"),
+                                    "source": "PARI.scores[1] positional quarter group",
+                                    "source_index": index})
     return records
 
 def _pari_period_score_unmapped_records(source_row):
