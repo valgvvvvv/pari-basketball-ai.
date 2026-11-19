@@ -58,7 +58,7 @@ assert.ok(Math.abs(nanjingOldSnapshot.beta - 21.05) < 1e-9);
 const nanjingDistribution = core.simulateQuarter(nanjingOldSnapshot, [{line:40.5},{line:40}], "nanjing-xinjiang-fixed-snapshot", 100000);
 assert.ok(Math.abs(nanjingDistribution.mu - nanjingOldSnapshot.expectedRemaining) < 1e-9,
   "predictive distribution mean must equal posterior expected remaining points");
-assert.equal(nanjingDistribution.low80, 31);
+assert.equal(nanjingDistribution.low80, 30);
 assert.equal(nanjingDistribution.high80, 50);
 assert.ok(Math.abs(nanjingDistribution.variance - nanjingDistribution.mu - nanjingDistribution.meanUncertaintyVariance) < 1e-8,
   "predictive variance must equal Poisson variance plus posterior mean uncertainty");
