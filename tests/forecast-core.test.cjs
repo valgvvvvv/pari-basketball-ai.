@@ -75,6 +75,11 @@ assert.ok(appSource.includes("One canonical forecast drives every headline block
 assert.ok(appSource.includes("Date.now()-feedChecked>120000"), "stale API snapshots must be rejected");
 assert.ok(appSource.includes("validateScoreTimeline"), "period sums must be checked against the match score");
 assert.ok(appSource.includes("providerEventTimestampAvailable"), "provider event freshness must be distinguished from API response age");
+const clockStart = appSource.indexOf("function findLiveClock(ev){");
+const clockEnd = appSource.indexOf("function estimateLiveTotal(ev", clockStart);
+assert.ok(clockStart >= 0 && clockEnd > clockStart);
+assert.ok(!appSource.slice(clockStart, clockEnd).includes("inferPeriodLengthForForecast("),
+  "clock parsing must not recursively call format inference");
 assert.ok(htmlSource.indexOf("forecast-core.js") < htmlSource.indexOf("app.js"),
   "the tested forecast core must load before the UI code");
 
