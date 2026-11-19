@@ -158,7 +158,7 @@ assert.ok(!applyPoissonSource.includes("dataQuality.rolling_snapshot_count="), "
 assert.ok(appSource.includes("priorExposureSeconds:aggregatePriorExposureSeconds"), "missing period splits must use aggregate historical score and exact exposure");
 assert.ok(!appSource.slice(appSource.indexOf("function saveAnalysisHistory("),appSource.indexOf("function clearAnalysisHistory(")).includes("if(!estimate&&!quarter?.ready)return"), "raw snapshot history must persist even when no forecast is available");
 assert.ok(appSource.includes('forecastStatus:estimate||quarter?.ready?"calculated":"not_available"'), "history must distinguish snapshot from forecast availability");
-assert.ok(htmlSource.includes("20261119-integrity-v71"), "history fix must bump frontend cache");
+assert.ok(htmlSource.includes("20261119-integrity-v72"), "history fix must bump frontend cache");
 assert.ok(htmlSource.includes("confirmedIndependentMatches") && htmlSource.includes("Финалы ещё не сверяются автоматически"), "quality panel must show zero confirmed independent finals and not claim accuracy without settlement");
 assert.ok(archivePublisherSource.startsWith("import hashlib"), "permanent archive publisher must import hashlib before calculating checksums");
 assert.ok(archiveCollectorSource.includes("contract.snapshot_id = row.snapshot_id") && archiveCollectorSource.includes("contract.contract_id = crypto.createHash"), "all prediction blocks from one source update must share snapshot_id; target identity uses contract_id");
@@ -167,7 +167,7 @@ assert.ok(!archiveCollectorSource.includes("window.automaticForecast") && archiv
 assert.ok(archiveCollectorSource.includes("result.source_checked_at_utc || row.captured_at_utc") && archiveCollectorSource.includes("String(row.score || \"\"),"), "archive snapshot IDs must use the same source timestamp, score, period and clock key as the UI");
 assert.ok(archiveCollectorSource.includes("source_event_snapshot: JSON.parse(JSON.stringify(rawEvent))") && archiveCollectorSource.includes("model_versions:"), "archive must preserve immutable raw source event and method versions separately from forecasts");
 assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
-assert.ok(htmlSource.includes("20261119-integrity-v71"), "frontend cache must be bumped after display fixes");
+assert.ok(htmlSource.includes("20261119-integrity-v72"), "frontend cache must be bumped after display fixes");
 assert.ok(appSource.includes("const qLines=") && !appSource.includes("qLines+="), "quarter forecast text must be immutable after declaration");
 assert.ok(appSource.includes("timer_semantics_verified!==true"), "unverified PARI timer values must not be converted into a quarter countdown");
 
@@ -285,5 +285,43 @@ const periodEnd = appSource.indexOf("function findLiveClock(ev){", periodStart);
 const periodSandbox = {collectEventObjects:()=>[]};
 vm.runInNewContext(appSource.slice(periodStart, periodEnd) + "; this.findLivePeriod = findLivePeriod;", periodSandbox);
 assert.equal(periodSandbox.findLivePeriod({period:"OT"}), 5);
+
+const cardHelpersStart = appSource.indexOf("function quarterForecastMarkup(");
+const cardHelpersEnd = appSource.indexOf("async function refreshLiveMatches()", cardHelpersStart);
+assert.ok(cardHelpersStart >= 0 && cardHelpersEnd > cardHelpersStart,
+  "safe match-card helpers must exist outside the LIVE refresh callback");
+const cardSandbox = {
+  escapeHtml: value => String(value ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;"),
+  findLivePeriod: () => 2,
+  eventScore: () => "50:47",
+  eventPeriod: () => "Q2",
+  eventClock: () => "06:45",
+  console
+};
+vm.runInNewContext(appSource.slice(cardHelpersStart,cardHelpersEnd) +
+  "; this.quarterForecastMarkup=quarterForecastMarkup; this.liveMatchRenderFallback=liveMatchRenderFallback;",cardSandbox);
+const readyQuarterMarkup = cardSandbox.quarterForecastMarkup({
+  ready:true,period:2,projection:42.6,lines:[{direction:"ТБ",line:41.5,pOver:.71,pUnder:.29}]
+},{id:"fixture"});
+assert.match(readyQuarterMarkup,/Прогноз Q2/);
+assert.match(readyQuarterMarkup,/ТБ 41.5/);
+assert.doesNotThrow(() => cardSandbox.quarterForecastMarkup({
+  ready:false,reason:"ошибка модели"
+},{id:"fixture"}));
+const safeFallback = cardSandbox.liveMatchRenderFallback({
+  id:"fixture",team1:"Home",team2:"Away",timer_seconds:405,
+  external_statistics:[{metric_key:"assists",home:2,away:3}],
+  statistics_quality:{available_count:1,expected_count:19},
+  match_total_candidates:[{pt:164.5,v:"1.91"}]
+});
+for (const visibleFact of ["50:47","Q2","06:45","Статистика: 1 показателей","Тотал 164.5"]) {
+  assert.ok(safeFallback.includes(visibleFact), "fallback card must retain " + visibleFact);
+}
+assert.ok(appSource.includes("data.successful_source || data.source_url"),
+  "UI must show the actually successful PARI host");
+assert.ok(!appSource.includes("data.attempts?.[0]?.host"),
+  "UI must not display the first failed host as the successful source");
+assert.ok(appSource.includes("statusLabels[missingStatuses[0]]"),
+  "statistics gaps must show a specific reason rather than a generic no-statistics label");
 
 console.log("forecast core regressions: OK");
