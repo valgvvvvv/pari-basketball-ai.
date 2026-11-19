@@ -126,6 +126,8 @@ const { chromium } = require("playwright");
                 research_scheme: distribution.research_scheme ?? false,
                 calibration_status: distribution.calibration_status || "not_calibrated",
                 momentum: distribution.momentum ?? null,
+                momentum_source: distribution.momentum_source || null,
+                recent_tempo: distribution.recent_tempo || null,
                 momentum_rule: distribution.momentum_rule || null,
                 scenario_weight_rule: distribution.scenario_weight_rule || null,
                 scenarios: distribution.scenarios || [],
