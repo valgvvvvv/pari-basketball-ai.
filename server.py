@@ -3845,8 +3845,10 @@ def archive_status():
     return {"ok":True,"matches":matches,"snapshots":snapshots,"database_bytes":size,
             "storage_path":str(_ARCHIVE_DB),"persistent":str(_ARCHIVE_DB).startswith("/var/data/"),
             "collector":dict(_ARCHIVE_LAST),"interval_seconds":30,
-            "scope":"Local SQLite stores raw PARI snapshots while Render is awake; an independent GitHub Actions collector stores live snapshots and the site model forecasts every five minutes, then publishes daily ZIP releases.",
-            "prediction_capture":"Autonomous GitHub archive includes the complete normalized event, available score/clock/market/statistics fields, AI analysis, match and quarter model outputs, consensus groups, and advanced calculations. The local Render SQLite database still stores raw event snapshots only."}
+            "scope":"Render-local SQLite is a temporary cache while the web process is awake. GitHub Actions is the durable archive path: immutable source/forecast snapshots every five minutes, consolidated into timestamped daily ZIP assets in GitHub Releases.",
+            "render_local_storage_note":"Render Free has no persistent disk attached; /tmp SQLite may be lost on restart or redeploy and is not a durable database.",
+            "github_archive":{"interval_seconds":300,"format":"timestamped daily ZIP release assets","append_only":True,"contains_prediction_contracts":True,"final_outcomes":"unresolved unless an independent final result is confirmed"},
+            "prediction_capture":"GitHub archive includes normalized source snapshots, immutable event/snapshot IDs, primary match and period forecasts, model version, expected remaining points, predictive distribution parameters, intervals, market factor prices, source timestamps and quality restrictions. The local Render SQLite database stores raw source snapshots only."}
 
 @app.get("/api/archive/export")
 def archive_export():
