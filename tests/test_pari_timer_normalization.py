@@ -1,6 +1,6 @@
 import unittest
 
-from server import (_PARI_TIMER_OBSERVATIONS, _pari_normalize_timer,
+from server import (PARI_COMPETITION_FORMATS, _PARI_TIMER_OBSERVATIONS, _pari_normalize_timer,
                     _pari_infer_period_format_from_timeline,
                     _pari_infer_period_format_from_match_boundary,
                     _pari_infer_period_format_from_period_timer,
@@ -9,6 +9,12 @@ from server import (_PARI_TIMER_OBSERVATIONS, _pari_normalize_timer,
 
 
 class PariTimerNormalizationTests(unittest.TestCase):
+    def test_euroleague_format_is_available_before_observing_a_period_boundary(self):
+        rule = PARI_COMPETITION_FORMATS["37222"]
+        result = _pari_normalize_match_timer_against_period(1708, 3, rule["period_length_seconds"], rule["period_count"])
+        self.assertEqual(result["period_remaining_seconds"], 92)
+        self.assertTrue(result["timer_semantics_verified"])
+
     def setUp(self):
         _PARI_TIMER_OBSERVATIONS.clear()
 
