@@ -40,10 +40,10 @@ class ForecastIntegrityTests(unittest.TestCase):
         )
 
     def test_settlement_requires_confirmed_identity_and_overtime_rule(self):
-        contract = {"event_id": "game-1", "snapshot_id": "snap-1", "target": {"type": "match"}}
+        contract = {"event_id": "game-1", "snapshot_id": "snap-1", "target": {"type": "match"}, "market": {"lines": [{"line": 205}]}}
         base = {
             "event_id": "game-1", "final_status": "finished", "confirmed": True,
-            "identity_verified": True, "source": "independent-final-feed",
+            "identity_verified": True, "independent_confirmation": True, "source": "independent-final-feed",
             "regulation_total": 200, "total_with_overtime": 210, "line": 205,
             "includes_overtime": True
         }
@@ -56,9 +56,9 @@ class ForecastIntegrityTests(unittest.TestCase):
 
     def test_period_settlement_requires_exact_period(self):
         contract = {"event_id": "game-2", "snapshot_id": "snap-2",
-                    "target": {"type": "period", "number": 3}}
+                    "target": {"type": "period", "number": 3}, "market": {"lines": [{"line": 42}]}}
         final = {"event_id": "game-2", "final_status": "finished", "confirmed": True,
-                 "identity_verified": True, "source": "official-feed",
+                 "identity_verified": True, "independent_confirmation": True, "source": "official-feed",
                  "period_number": 3, "period_total": 42, "line": 42}
         self.assertEqual(settle_prediction(contract, final)["result"], "push")
         self.assertEqual(settle_prediction(contract, {**final, "period_number": 2})["status"], "disputed")
