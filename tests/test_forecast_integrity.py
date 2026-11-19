@@ -74,6 +74,9 @@ class ForecastIntegrityTests(unittest.TestCase):
         self.assertIn("prediction_contracts", collector)
         self.assertIn("snapshot_id", collector)
         self.assertIn('status: "unresolved"', collector)
+        self.assertIn("#selectedMatch", collector)
+        self.assertIn("#historyCount", collector)
+        self.assertIn("/api/archive/settle-preview", collector)
 
     def test_external_match_requires_competition_gender_date_and_format_context(self):
         pari = {
