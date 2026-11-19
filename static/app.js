@@ -1349,7 +1349,25 @@ async function refreshLiveMatches() {
       return;
     }
     const count = (data.events || []).length;
-    window.pariLiveEvents = (data.events || []).map(ev=>({...ev,feed_checked_at_utc:data.checked_at_utc||null}));
+    let recentSnapshotsByEvent = {};
+    if(count){
+      const recentController=new AbortController();
+      const recentTimeout=setTimeout(()=>recentController.abort(),5000);
+      try{
+        const ids=(data.events||[]).map(ev=>String(ev.id||"")).filter(Boolean);
+        const recentResponse=await fetch("/api/archive/recent?minutes=10&event_ids="+encodeURIComponent(ids.join(",")),
+          {cache:"no-store",signal:recentController.signal});
+        if(recentResponse.ok){
+          const recentData=await recentResponse.json();
+          if(recentData?.ok&&recentData.events)recentSnapshotsByEvent=recentData.events;
+        }
+      }catch(_recentError){
+        // Rolling tempo is optional; never block the current live feed on an empty cache.
+      }finally{clearTimeout(recentTimeout);}
+    }
+    window.pariLiveEvents = (data.events || []).map(ev=>({...ev,
+      feed_checked_at_utc:data.checked_at_utc||null,
+      recent_snapshots:recentSnapshotsByEvent[String(ev.id)]||[]}));
     if(selectedLiveEventId){
       const refreshedSelection=window.pariLiveEvents.find(x=>String(x.id)===selectedLiveEventId);
       if(refreshedSelection)showSelectedMatch(refreshedSelection,{silent:true});
