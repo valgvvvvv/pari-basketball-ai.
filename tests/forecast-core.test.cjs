@@ -125,6 +125,10 @@ assert.ok(appSource.includes("probText=p=>p?"), "headline probabilities must com
 assert.ok(appSource.includes("Вероятности показаны только из собственного распределения"), "tool registry must distinguish model probabilities from bookmaker odds");
 assert.ok(appSource.includes("unifiedToolsPanelHtml") && appSource.includes("Недоступны / отключены:"), "all tools must be available in one shared registry");
 assert.ok(appSource.includes("formatElapsedClock(posterior.elapsedSeconds)"), "quarter elapsed time must be formatted as mm:ss");
+const applyPoissonStart=appSource.indexOf("function applyPoissonModel(");
+const applyPoissonEnd=appSource.indexOf("function normalCdf(",applyPoissonStart);
+const applyPoissonSource=appSource.slice(applyPoissonStart,applyPoissonEnd);
+assert.ok(!applyPoissonSource.includes("dataQuality.rolling_snapshot_count="), "data quality fields must not be written before dataQuality is initialized");
 assert.ok(appSource.includes("priorExposureSeconds:aggregatePriorExposureSeconds"), "missing period splits must use aggregate historical score and exact exposure");
 assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
 assert.ok(htmlSource.includes("20261119-integrity-v52"), "frontend cache must be bumped after display fixes");
