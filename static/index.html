@@ -45,7 +45,7 @@
       <div id="toolsRegistry"></div>
     </section>
     <section>
-      <div class="panel" id="models"><span class="eyebrow">MODEL STACK</span><h2>Модельное ядро</h2><div class="model-list"><div><b>01</b><span>Линейный темп</span><i>Активна</i></div><div><b>02</b><span>Пуассон</span><i>Активна</i></div><div><b>03</b><span>Монте-Карло</span><i>Активна</i></div><div><b>04</b><span>Динамика концовки</span><i>Базовая</i></div><div><b>05</b><span>Модель владений</span><i class="muted" id="possessionModelStatus">Проверка подключения…</i></div><div><b>06</b><span>Ансамбль / калибровка</span><i class="muted">Нужна история</i></div><div><b>07</b><span>ИИ-анализ и согласование моделей</span><i>Активна · эвристическая</i></div><div><b>08</b><span>Байесовская Gamma-Poisson</span><i>Новая · LIVE</i></div><div><b>09</b><span>Фильтр Калмана</span><i>Новая · LIVE</i></div><div><b>10</b><span>Марковская модель владений</span><i>Нужен play-by-play</i></div><div><b>11</b><span>CatBoost / LightGBM</span><i>Нужно обучение</i></div><div><b>12</b><span>Калибровка вероятностей</span><i>Нужны финальные исходы</i></div></div></div>
+      <div class="panel" id="models"><span class="eyebrow">MODEL REGISTRY</span><h2>Расчётные инструменты</h2><p>Фактические статусы, применимость и результаты — в едином реестре выбранного матча. Симуляции и диагностика не считаются независимыми обученными моделями.</p><a href="#toolsRegistry">Перейти к общему реестру</a><i class="muted" id="possessionModelStatus">Статус модели владений определяется по данным матча</i></div>
     </section>
     <section class="panel" id="archive">
       <div class="section-head"><div><span class="eyebrow">RESEARCH DATA ARCHIVE</span><h2>Архив матчей и статистики</h2><p>GitHub Actions собирает LIVE-снимки и прогнозные контракты каждые 5 минут, даже когда сайт закрыт. Ежедневные ZIP сохраняются в GitHub Releases. Локальная SQLite Render — временный кэш, а не постоянная база.</p></div><span class="pill warn" id="archiveStorageMode">Проверка хранилища…</span></div>
@@ -75,5 +75,5 @@ window.addEventListener("unhandledrejection", function(event) {
 });
 </script>
 <script src="/static/forecast-core.js?v=20261119-forecast-core-v3"></script>
-<script src="/static/app.js?v=20261119-integrity-v51" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
+<script src="/static/app.js?v=20261119-integrity-v52" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
 </body></html>
