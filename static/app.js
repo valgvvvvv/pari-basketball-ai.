@@ -892,14 +892,20 @@ function showSelectedMatch(ev,options={}){
     return '<tr><td>'+x.line+'</td><td>'+(p?(p.pOver*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pUnder*100).toFixed(1)+'%':'—')+'</td><td>'+(p?escapeHtml(p.direction):'—')+'</td><td>'+(p?(p.pPush*100).toFixed(1)+'%':'—')+'</td><td>'+(x.prices?.length?escapeHtml(x.prices.map(p=>p.factorId+': '+p.odds).join(' / ')):(x.odds?escapeHtml(x.odds):'—'))+'</td></tr>';
   }).join("");
   const matchProb=estimate?.poisson?.probabilities||[];
+  const nearestMarket=(rows,center)=>Array.isArray(rows)?rows.filter(x=>Number.isFinite(Number(x?.line))).slice().sort((a,b)=>Math.abs(Number(a.line)-Number(center))-Math.abs(Number(b.line)-Number(center)))[0]||null:null;
   const matchLine=matchProb.slice().sort((a,b)=>Math.abs(Number(a.line)-Number(estimate?.projection||0))-Math.abs(Number(b.line)-Number(estimate?.projection||0)))[0]||null;
+  const matchMarketLine=nearestMarket(lines,estimate?.projection);
+  const matchLineValue=matchLine?.line??matchMarketLine?.line??null;
   const qProb=quarter?.lines||[];
   const qLine=qProb.slice().sort((a,b)=>Math.abs(Number(a.line)-Number(quarter?.projection||0))-Math.abs(Number(b.line)-Number(quarter?.projection||0)))[0]||null;
+  const qMarketLine=nearestMarket(quarter?.market_lines,quarter?.projection);
+  const qLineValue=qLine?.line??qMarketLine?.line??null;
+  const numericBias=(center,line)=>line==null?"линия не получена":Math.abs(Number(center)-Number(line))<.05?"центр на линии":Number(center)>Number(line)?"центр выше линии на "+(Number(center)-Number(line)).toFixed(1)+" · числовой уклон, не вероятность":"центр ниже линии на "+(Number(line)-Number(center)).toFixed(1)+" · числовой уклон, не вероятность";
   const probText=p=>p?'модельные: ТБ '+(Number(p.pOver)*100).toFixed(1)+'% · ТМ '+(Number(p.pUnder)*100).toFixed(1)+'% · возврат '+(Number(p.pPush||0)*100).toFixed(1)+'% · не калиброваны':'вероятности не рассчитаны';
   $("matchForecast").innerHTML=estimate
     ? '<div class="forecast-main"><b>Ожидаемый тотал матча</b><div class="forecast-number">'+Number(estimate.projection).toFixed(1)+'</div>'+
       '<p>Сейчас '+estimate.current+' · ожидаемый остаток '+Number(estimate.poisson?.mu??estimate.calculation?.expectedRemaining??(estimate.projection-estimate.current)).toFixed(1)+' оч.</p>'+
-      '<p>Линия: '+(matchLine?matchLine.line:'не получена')+' · '+(matchLine?escapeHtml(matchLine.direction||'уклон не определён')+' · '+probText(matchLine):'направление не определяется')+'</p>'+
+      '<p>Линия: '+(matchLineValue??'не получена')+' · '+(matchLine?escapeHtml(matchLine.direction||'уклон не определён')+' · '+probText(matchLine):escapeHtml(numericBias(estimate.projection,matchLineValue)))+'</p>'+
       '<p>Диапазон 80%: '+(estimate.poisson?.low80??estimate.low)+'–'+(estimate.poisson?.high80??estimate.high)+' · надёжность: '+escapeHtml(estimate.data_quality?.label||'ограниченная')+'</p>'+
       (estimate.overtime_policy==="not_included_market_rule_unverified"?'<p class="warn">ОТ не включён; правило рынка не подтверждено.</p>':'')+'</div>'+
       calculationStepsHtml({kind:"match",projection:Number(estimate.projection),current:Number(estimate.current),calculation:estimate.calculation,lines:matchProb,preliminary:!!estimate.preliminary})+
@@ -908,12 +914,12 @@ function showSelectedMatch(ev,options={}){
   $("quarterForecast").innerHTML=quarter.ready
     ? '<div class="forecast-main"><b>Ожидаемый тотал Q'+escapeHtml(quarter.period||period||"?")+'</b><div class="forecast-number">'+Number(quarter.projection).toFixed(1)+'</div>'+
       '<p>Сейчас '+quarter.current+' оч. · ожидаемый остаток '+Number(quarter.posterior?.expectedRemaining??(quarter.projection-quarter.current)).toFixed(1)+' оч. · осталось '+(clock||'—')+'</p>'+
-      '<p>Линия: '+(qLine?qLine.line:'не получена')+' · '+(qLine?escapeHtml(qLine.direction||'уклон не определён')+' · '+probText(qLine):'направление не определяется')+'</p>'+
+      '<p>Линия: '+(qLineValue??'не получена')+' · '+(qLine?escapeHtml(qLine.direction||'уклон не определён')+' · '+probText(qLine):escapeHtml(numericBias(quarter.projection,qLineValue)))+'</p>'+
       '<p>Диапазон 80%: '+quarter.low80+'–'+quarter.high80+' · надёжность: '+escapeHtml(quarter.data_quality?.label||'ограниченная')+(quarter.preliminary?' · предварительно':'')+'</p></div>'+
       calculationStepsHtml({kind:"quarter",projection:Number(quarter.projection),current:Number(quarter.current),posterior:quarter.posterior,lines:qProb,preliminary:!!quarter.preliminary})+
       '<details class="technical-details"><summary>Технические подробности</summary><p>σ остатка: '+(quarter.poisson?.variance!=null?Math.sqrt(quarter.poisson.variance).toFixed(2):'—')+' · диапазон 95%: '+quarter.low95+'–'+quarter.high95+' · симуляций: '+(quarter.poisson?.simulations??100000)+'</p><p>'+escapeHtml((quarter.context_factors||[]).join(' · '))+'</p></details>'
     : '<p class="muted">'+escapeHtml(quarter.reason||"Недостаточно данных")+'</p>';
-  if($("toolsRegistry"))$("toolsRegistry").innerHTML=unifiedToolsPanelHtml(ev,classicMatchModels,classicQuarterModels,matchForecast,quarter);
+  if($("toolsRegistry"))$("toolsRegistry").innerHTML=unifiedToolsPanelHtml(ev,classicMatchModels,classicQuarterModels,matchForecast,quarter,lines);
   const statsMeta=statsQuality?'<p>Покрытие: <b>'+Number(statsQuality.coverage_percent||0)+'%</b> · источники: '+escapeHtml(ev.statistics_source||"нет")+'</p>':'';
   const missingStats=statsQuality?.missing_metrics?.length?'<p class="muted">Нет данных: '+escapeHtml(statsQuality.missing_metrics.join(", "))+'</p>':'';
   const statsConflicts=statsQuality?.conflicts?.length?'<p class="warn">Расхождения источников: '+statsQuality.conflicts.length+' · значения не скрыты</p>':'';
@@ -1240,13 +1246,15 @@ function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="m
     mlStatus:"Основной прогноз единственный. Вероятности не калиброваны: нет независимой размеченной выборки."};
 }
 function classicModelPanelHtml(){return "";}
-function unifiedToolsPanelHtml(ev,matchData,quarterData,matchForecast,quarterForecast){
+function unifiedToolsPanelHtml(ev,matchData,quarterData,matchForecast,quarterForecast,matchMarketLines=[]){
   const m=matchForecast?.ready&&matchForecast.kind!=="market_reference"?matchForecast.estimate:null,q=quarterForecast?.ready?quarterForecast:null;
   const md=m?.poisson||null,qd=q?.poisson||null;
-  const pick=(d,c)=>Array.isArray(d?.probabilities)?d.probabilities.slice().sort((a,b)=>Math.abs(Number(a.line)-Number(c))-Math.abs(Number(b.line)-Number(c)))[0]||null:null;
-  const ml=pick(md,m?.projection),ql=pick(qd,q?.projection),mln=ml?.line??null,qln=ql?.line??null;
+  const nearest=(rows,c)=>Array.isArray(rows)?rows.filter(x=>Number.isFinite(Number(x?.line))).slice().sort((a,b)=>Math.abs(Number(a.line)-Number(c))-Math.abs(Number(b.line)-Number(c)))[0]||null:null;
+  const marketM=nearest(matchMarketLines,m?.projection),marketQ=nearest(q?.market_lines,q?.projection);
+  const pick=(d,market,c)=>Array.isArray(d?.probabilities)?(d.probabilities.find(x=>market&&Number(x.line)===Number(market.line))||d.probabilities.slice().sort((a,b)=>Math.abs(Number(a.line)-Number(c))-Math.abs(Number(b.line)-Number(c)))[0]||null):null;
+  const ml=pick(md,marketM,m?.projection),ql=pick(qd,marketQ,q?.projection),mln=marketM?.line??ml?.line??null,qln=marketQ?.line??ql?.line??null;
   const numeric=(v,l)=>{if(!Number.isFinite(Number(v)))return "—";if(!Number.isFinite(Number(l)))return Number(v).toFixed(1)+" · линия отсутствует";const d=Number(v)-Number(l);return Number(v).toFixed(1)+" · "+(Math.abs(d)<.05?"центр на линии":d>0?"центр выше линии на "+d.toFixed(1):"центр ниже линии на "+Math.abs(d).toFixed(1))+" · числовой уклон, не вероятность";};
-  const prob=(d,l,c)=>!d?"—":!l?numeric(c,null):"ТБ "+(l.pOver*100).toFixed(1)+"% / ТМ "+(l.pUnder*100).toFixed(1)+"% / возврат "+((l.pPush||0)*100).toFixed(1)+"%";
+  const prob=(d,l,c,line)=>!d?"—":!l?numeric(c,line):"ТБ "+(l.pOver*100).toFixed(1)+"% / ТМ "+(l.pUnder*100).toFixed(1)+"% / возврат "+((l.pPush||0)*100).toFixed(1)+"%";
   const find=(d,n)=>d?.models?.find(x=>x.name===n)||null;
   const reg=[
     {id:"primary",name:"Единый основной прогноз",role:"единственный основной расчёт",mv:m?{distribution:true}:null,qv:q?{distribution:true}:null,status:"активен"},
@@ -1267,8 +1275,8 @@ function unifiedToolsPanelHtml(ev,matchData,quarterData,matchForecast,quarterFor
   const active=[],inactive=[];
   for(const t of reg){
     const mv=t.mv,qv=t.qv;
-    t.match=t.id==="smooth-game"?(matchData?.anomaly?"диагностика; прогноза нет":"недостаточно истории"):mv?(mv.distribution?prob(md,ml,m?.projection):numeric(mv.projection,mln)):(t.id==="gamma-poisson"?"не поддерживает цель матча":"не выдаёт отдельный прогноз");
-    t.quarter=t.id==="smooth-game"?"не поддерживает цель четверти":qv?(qv.distribution?prob(qd,ql,q?.projection):numeric(qv.projection,qln)):(t.id==="possessions"?"не поддерживает цель четверти":"не выдаёт отдельный прогноз");
+    t.match=t.id==="smooth-game"?(matchData?.anomaly?"диагностика; прогноза нет":"недостаточно истории"):mv?(mv.distribution?prob(md,ml,m?.projection,mln):numeric(mv.projection,mln)):(t.id==="gamma-poisson"?"не поддерживает цель матча":"не выдаёт отдельный прогноз");
+    t.quarter=t.id==="smooth-game"?"не поддерживает цель четверти":qv?(qv.distribution?prob(qd,ql,q?.projection,qln):numeric(qv.projection,qln)):(t.id==="possessions"?"не поддерживает цель четверти":"не выдаёт отдельный прогноз");
     if(t.id==="smooth-game"&&matchData?.anomaly)t.status=(matchData.anomaly.smooth?"ровная траектория":"неровная траектория")+" · CV "+matchData.anomaly.cv+"%";
     (mv||qv?active:inactive).push(t);
   }
@@ -1431,7 +1439,7 @@ function automaticQuarterForecast(ev) {
     apiResponseAgeSeconds:Number.isFinite(quarterFeedAt)?Math.max(0,Math.round((Date.now()-quarterFeedAt)/1000)):null,
     providerEventTimestampAvailable:!!(ev?.updated_at||ev?.raw?.updated_at||ev?.raw?.updatedAt),
     label:quarterModeLabel+" · статистика "+qAvailable+"/"+qExpected};
-  return {ready:true,period,current:observed??null,projection:Math.round(projection*10)/10,data_quality:quarterQuality,
+  return {ready:true,period,current:observed??null,projection:Math.round(projection*10)/10,data_quality:quarterQuality,market_lines:quarterLines,
     home:currentQuarter?.pair?.[0]??null,away:currentQuarter?.pair?.[1]??null,
     score_source:source,elapsed:elapsedMinutes,low80:poisson.low80,high80:poisson.high80,
     low95:poisson.low95,high95:poisson.high95,poisson,lines:poisson.probabilities,
