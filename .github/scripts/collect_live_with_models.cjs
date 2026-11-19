@@ -61,6 +61,12 @@ const { chromium } = require("playwright");
           captured_at_utc: capturedAt,
           source_checked_at_utc: data.checked_at_utc || null,
           provider_event_updated_at_utc: ev.updated_at || ev.updatedAt || ev.raw?.updated_at || ev.raw?.updatedAt || null,
+          source_event_snapshot: JSON.parse(JSON.stringify(rawEvent)),
+          model_versions: {
+            match: "dynamic-match-v1",
+            quarter: "gamma-poisson-quarter-v1",
+            unified_registry: "unified-tools-registry-v1"
+          },
           score: ev.score ?? null,
           period: ev.period ?? null,
           clock: ev.clock ?? null,
