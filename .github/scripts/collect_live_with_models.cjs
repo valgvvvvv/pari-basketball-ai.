@@ -161,6 +161,9 @@ const { chromium } = require("playwright");
         source_checked_at_utc: data.checked_at_utc || null,
         source: "PARI live adapter + the same browser calculation functions used by the site",
         event_count: data.events.length,
+        total_events: data.total_events || data.events.length,
+        live_score_source: data.live_score_source || { status: "not_reported", matched: 0, errors: [] },
+        attempts: data.attempts || [],
         forecast_count: forecasts.length,
         events: data.events,
         forecasts
@@ -179,6 +182,70 @@ const { chromium } = require("playwright");
       }
     }
     result.prediction_contract_count = result.forecasts.reduce((sum, row) => sum + (row.prediction_contracts || []).length, 0);
+
+    const appScriptUrl = await page.evaluate(() =>
+      Array.from(document.scripts).map(script => script.src).find(src => src.includes("/static/app.js")) || ""
+    );
+    result.ui_smoke = { status: "skipped_old_deployment", app_script: appScriptUrl };
+    if (appScriptUrl.includes("20261119-integrity-v28")) {
+      const smokeRow = result.forecasts.find(row =>
+        row.quarter || (row.match && row.match.kind !== "market_reference")
+      );
+      if (smokeRow) {
+        const uiPayload = {
+          ok: true, connected: true, loading: false,
+          events: result.events, total_events: result.total_events,
+          checked_at_utc: result.source_checked_at_utc || new Date().toISOString(),
+          live_score_source: result.live_score_source, attempts: result.attempts
+        };
+        await page.route("**/api/pari/live*", route => route.fulfill({
+          status: 200, contentType: "application/json", body: JSON.stringify(uiPayload)
+        }));
+        await page.locator("#refreshLiveMatches").click();
+        await page.waitForSelector(".live-match", { timeout: 60000 });
+        const card = page.locator(".live-match").filter({ hasText: smokeRow.teams }).first();
+        await card.click();
+        await page.locator("#selectedMatch").waitFor({ state: "visible", timeout: 30000 });
+        await page.waitForFunction(() => {
+          const count = document.querySelector("#historyCount");
+          return count && Number(count.textContent || 0) > 0;
+        }, null, { timeout: 30000 });
+        const historyBefore = Number(await page.locator("#historyCount").innerText());
+        const historyText = await page.locator("#historyList").innerText();
+        if (!historyText.includes(smokeRow.teams)) throw new Error("Selected match was not saved in forecast history");
+        await page.locator("#refreshLiveMatches").click();
+        await page.waitForFunction(before => {
+          const count = document.querySelector("#historyCount");
+          return count && Number(count.textContent || 0) > before;
+        }, historyBefore, { timeout: 30000 });
+        const settlementContract = {
+          event_id: "ui-smoke-fixture", snapshot_id: "ui-smoke-snapshot",
+          target: { type: "match" }, market: { lines: [{ line: 200 }] }
+        };
+        const settlementResponse = await page.request.post(
+          new URL("/api/archive/settle-preview", "https://pari-basketball-ai.onrender.com").toString(),
+          { data: { contract: settlementContract, final_record: {
+            event_id: "ui-smoke-fixture", final_status: "finished",
+            confirmed: true, identity_verified: true, independent_confirmation: true,
+            source: "automated-ui-smoke-fixture", market_rule_confirmed: true,
+            includes_overtime: false, regulation_total: 201, line: 200
+          } } }
+        );
+        const settlement = await settlementResponse.json();
+        if (!settlementResponse.ok || settlement.status !== "settled" || settlement.result !== "over_won") {
+          throw new Error("Result settlement preview UI/API smoke failed: " + JSON.stringify(settlement));
+        }
+        result.ui_smoke = {
+          status: "passed", app_script: appScriptUrl,
+          selected_event_id: smokeRow.event_id,
+          history_before_refresh: historyBefore,
+          history_after_refresh: Number(await page.locator("#historyCount").innerText()),
+          result_preview: settlement.status + "/" + settlement.result
+        };
+      } else {
+        result.ui_smoke = { status: "skipped_no_forecastable_match", app_script: appScriptUrl };
+      }
+    }
     fs.mkdirSync("archive-snapshot", { recursive: true });
     const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
     const target = path.join("archive-snapshot", "live-" + stamp + ".json.gz");
