@@ -1,3 +1,4 @@
+import hashlib
 import datetime as dt
 import io
 import gzip
