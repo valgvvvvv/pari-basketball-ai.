@@ -883,7 +883,9 @@ function showSelectedMatch(ev,options={}){
   const periodStatRows=Array.isArray(ev.period_statistics)?ev.period_statistics:[];
   const periodStatHtml=periodStatRows.length?'<h4>Статистика по четвертям</h4>'+periodStatRows.map(st=>'<p>Q'+escapeHtml(st.period||"—")+' · '+escapeHtml(st.name||st.metric_key||"Показатель")+': <b>'+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+'</b></p>').join(""):'';
   $("selectedMatchMeta").textContent=[ev.league||ev.sport_name].filter(Boolean).join(" · ");
-  $("selectedMatchInfo").textContent="Счёт "+(score?score.join(" : "):"—")+" · Q"+(period||"—")+" · "+(clock||"—")+" · счёт: "+(ev.score_source||ev.external_live?.score_source||"источник не указан")+" · таймер: "+(ev.clock_source||ev.external_live?.clock_source||"источник не указан");
+  const feedStamp=Date.parse(ev.feed_checked_at_utc||"");
+  const feedAge=Number.isFinite(feedStamp)?Math.max(0,Math.round((Date.now()-feedStamp)/1000)):null;
+  $("selectedMatchInfo").textContent=(score?"Счёт "+score.join(" : "):"Счёт —")+" · Q"+(period||"—")+" · "+(clock||"—")+(timeline?" · "+timeline:"")+" · данные: "+(feedAge==null?"время обновления неизвестно":feedAge+" сек. назад")+(feedAge!=null&&feedAge>120?" · УСТАРЕЛИ":"");
   const lineRows=lines.map(x=>{
     const p=(estimate?.poisson?.probabilities||[]).find(z=>Number(z.line)===Number(x.line));
     return '<tr><td>'+x.line+'</td><td>'+(p?(p.pOver*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pUnder*100).toFixed(1)+'%':'—')+'</td><td>'+(p?escapeHtml(p.direction):'—')+'</td><td>'+(p?(p.pPush*100).toFixed(1)+'%':'—')+'</td><td>'+(x.prices?.length?escapeHtml(x.prices.map(p=>p.factorId+': '+p.odds).join(' / ')):(x.odds?escapeHtml(x.odds):'—'))+'</td></tr>';
@@ -910,12 +912,12 @@ function showSelectedMatch(ev,options={}){
       calculationStepsHtml({kind:"quarter",projection:Number(quarter.projection),current:Number(quarter.current),posterior:quarter.posterior,lines:qProb,preliminary:!!quarter.preliminary})+
       '<details class="technical-details"><summary>Технические подробности</summary><p>σ остатка: '+(quarter.poisson?.variance!=null?Math.sqrt(quarter.poisson.variance).toFixed(2):'—')+' · диапазон 95%: '+quarter.low95+'–'+quarter.high95+' · симуляций: '+(quarter.poisson?.simulations??100000)+'</p><p>'+escapeHtml((quarter.context_factors||[]).join(' · '))+'</p></details>'
     : '<p class="muted">'+escapeHtml(quarter.reason||"Недостаточно данных")+'</p>';
-  $("matchForecast").insertAdjacentHTML("beforeend",unifiedToolsPanelHtml(ev,classicMatchModels,classicQuarterModels,matchForecast,quarter));
+  if($("toolsRegistry"))$("toolsRegistry").innerHTML=unifiedToolsPanelHtml(ev,classicMatchModels,classicQuarterModels,matchForecast,quarter);
   const statsMeta=statsQuality?'<p>Покрытие: <b>'+Number(statsQuality.coverage_percent||0)+'%</b> · источники: '+escapeHtml(ev.statistics_source||"нет")+'</p>':'';
   const missingStats=statsQuality?.missing_metrics?.length?'<p class="muted">Нет данных: '+escapeHtml(statsQuality.missing_metrics.join(", "))+'</p>':'';
   const statsConflicts=statsQuality?.conflicts?.length?'<p class="warn">Расхождения источников: '+statsQuality.conflicts.length+' · значения не скрыты</p>':'';
-  $("matchForecast").insertAdjacentHTML("beforeend",'<div class="compact-analysis"><h3>Статистика · '+rows.length+'/'+(statsQuality?.expected_count??"—")+'</h3>'+statsMeta+missingStats+statsConflicts+statHtml+(timeline?'<p><b>Четверти:</b> '+escapeHtml(timeline)+'</p>':'')+
-    (rows.length?'<h4>Все показатели матча</h4>'+rows.map(st=>'<p>'+escapeHtml(st.name||st.metric_key||"Показатель")+': <b>'+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+'</b> · '+escapeHtml(st.source||"источник не указан")+'</p>').join(""):'')+periodStatHtml+'</div>');
+  $("matchForecast").insertAdjacentHTML("beforeend",'<details class="technical-details"><summary>Статистика · '+rows.length+'/'+(statsQuality?.expected_count??"—")+'</summary>'+statsMeta+missingStats+statsConflicts+statHtml+(timeline?'<p><b>Четверти:</b> '+escapeHtml(timeline)+'</p>':'')+
+    (rows.length?'<h4>Все показатели матча</h4>'+rows.map(st=>'<p>'+escapeHtml(st.name||st.metric_key||"Показатель")+': <b>'+escapeHtml(st.home??"—")+' : '+escapeHtml(st.away??"—")+'</b> · '+escapeHtml(st.source||"источник не указан")+'</p>').join(""):'')+periodStatHtml+'</details>');
   saveAnalysisHistory(ev,score,period,clock,estimate,quarter);
   if(!options.silent)panel.scrollIntoView({behavior:"smooth",block:"start"});
 }
@@ -1241,7 +1243,7 @@ function unifiedToolsPanelHtml(ev,matchData,quarterData,matchForecast,quarterFor
   const prob=(d,l,c)=>!d?"—":!l?numeric(c,null):"ТБ "+(l.pOver*100).toFixed(1)+"% / ТМ "+(l.pUnder*100).toFixed(1)+"% / возврат "+((l.pPush||0)*100).toFixed(1)+"%";
   const find=(d,n)=>d?.models?.find(x=>x.name===n)||null;
   const reg=[
-    {id:"primary",name:"Единый основной прогноз",role:"единственный основной расчёт",mv:m?{projection:m.projection}:null,qv:q?{projection:q.projection}:null,status:"активен"},
+    {id:"primary",name:"Единый основной прогноз",role:"единственный основной расчёт",mv:m?{distribution:true}:null,qv:q?{distribution:true}:null,status:"активен"},
     {id:"linear-pace",name:"Линейный темп",role:"числовой центр по очкам и времени",mv:find(matchData,"Линейный темп"),qv:find(quarterData,"Линейный темп"),status:"числовой центр"},
     {id:"poisson",name:"Пуассон",role:"механизм генерации распределения; не отдельный голос",mv:md?{distribution:true}:null,qv:qd?{distribution:true}:null,status:"часть распределения"},
     {id:"monte-carlo",name:"Монте‑Карло",role:"способ симуляции распределения",mv:md?{distribution:true}:null,qv:qd?{distribution:true}:null,status:"симулятор, не отдельная модель"},
