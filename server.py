@@ -2110,8 +2110,16 @@ async def _enrich_with_sofascore_live(events):
                     if not stats_payload:
                         return False, last_error
             source_stats = stats_payload.get("statistics") or stats_payload
-            groups = source_stats.get("groups", []) if isinstance(source_stats, dict) else []
+            if not isinstance(source_stats, dict) or "groups" not in source_stats:
+                return False, "statistics_format_unrecognized"
+            groups = source_stats.get("groups")
+            if not isinstance(groups, list):
+                return False, "statistics_format_unrecognized"
+            if not groups:
+                return False, "statistics_section_absent"
             normalized = []
+            raw_stat_rows = 0
+            unmapped_stat_names = 0
             metric_patterns = (
                 ("three_pointers", r"3.?point|three.?point|3.?очк|тр[её]х.?очк|3pt|three.?pointers"),
                 ("two_pointers", r"2.?point|two.?point|2.?очк|двух.?очк|2pt|two.?pointers"),
@@ -2135,6 +2143,7 @@ async def _enrich_with_sofascore_live(events):
                 for stat in group.get("statistics", []) if isinstance(group.get("statistics"), list) else []:
                     if not isinstance(stat, dict):
                         continue
+                    raw_stat_rows += 1
                     name = str(stat.get("name") or stat.get("key") or "")
                     home_value, away_value = stat.get("home"), stat.get("away")
                     if home_value is None and away_value is None:
@@ -2144,6 +2153,8 @@ async def _enrich_with_sofascore_live(events):
                                        if re.search(pattern, searchable, re.I)), None)
                     if metric_key:
                         present_metrics.add(metric_key)
+                    else:
+                        unmapped_stat_names += 1
                     normalized.append({
                         "group": group_name, "name": name, "metric_key": metric_key,
                         "home": home_value, "away": away_value,
@@ -2189,7 +2200,11 @@ async def _enrich_with_sofascore_live(events):
                     "complete": not combined_missing,
                 }
                 return True, len(normalized)
-            return False, "statistics_empty"
+            if raw_stat_rows and unmapped_stat_names == raw_stat_rows:
+                return False, "statistics_metric_codes_unmapped"
+            if raw_stat_rows:
+                return False, "statistics_values_empty"
+            return False, "statistics_section_empty"
 
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(2.8, connect=1.4),
@@ -2639,9 +2654,13 @@ def _finalize_live_statistics(events):
                 reason = "timeout"
             elif source_diag.get("unavailable"):
                 reason = "source_unavailable"
+            elif source_diag.get("format_unrecognized"):
+                reason = "format_unrecognized"
+            elif source_diag.get("parse_error"):
+                reason = "parse_error"
             elif source_diag.get("match_status") == "no_exact_match":
                 reason = "no_exact_match"
-            elif event.get("pari_statistics_unmapped"):
+            elif source_diag.get("metric_codes_unmapped") or event.get("pari_statistics_unmapped"):
                 reason = "unknown_metric_code"
             else:
                 reason = "field_absent_from_returned_sources"
@@ -2768,6 +2787,9 @@ async def _refresh_live_enrichment_background(events_snapshot):
         source_errors = [str(x) for x in (diagnostics.get("statistics_errors") or [])]
         timeout_seen = any("timeout" in x.casefold() for x in source_errors)
         unavailable_seen = any(("http_" in x.casefold() or "connect" in x.casefold() or "nameerror" in x.casefold()) for x in source_errors)
+        format_unrecognized_seen = any("format_unrecognized" in x.casefold() for x in source_errors)
+        parse_error_seen = any("parse" in x.casefold() or "decode" in x.casefold() for x in source_errors)
+        metric_codes_unmapped_seen = any("metric_codes_unmapped" in x.casefold() for x in source_errors)
         for event in events_snapshot:
             event_id = str(event.get("id") or "")
             if not event_id:
@@ -2777,7 +2799,11 @@ async def _refresh_live_enrichment_background(events_snapshot):
             )
             event["statistics_source_diagnostics"] = {
                 "match_status": match_status, "timeout": timeout_seen,
-                "unavailable": unavailable_seen, "source_errors": source_errors[:8],
+                "unavailable": unavailable_seen,
+                "format_unrecognized": format_unrecognized_seen,
+                "parse_error": parse_error_seen,
+                "metric_codes_unmapped": metric_codes_unmapped_seen,
+                "source_errors": source_errors[:8],
                 "source_status": diagnostics.get("status"),
                 "checked_at_utc": diagnostics.get("checked_at_utc") or now.isoformat(),
             }
