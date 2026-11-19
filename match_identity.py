@@ -74,8 +74,18 @@ def _age(*values: Any) -> str:
 def _competition_key(value: Any, normalize: Callable[[Any], str] | None = None,
                      repair: Callable[[Any], str] | None = None) -> str:
     raw = (repair or _repair)(value or "")
-    key = (normalize or _normal)(raw)
-    return re.sub(r"(basketball|league|championship|tournament|division|conference|cup|men|male|female|season)", "", key)
+    key = re.sub(r"(basketball|league|championship|tournament|division|conference|cup|men|male|female|season)",
+                  "", (normalize or _normal)(raw))
+    # Explicit competition aliases; do not use fuzzy team-name similarity as a substitute.
+    if "cba" in key or "chineseassociation" in key:
+        return "cba"
+    if "nba" in key or "nationalassociation" in key:
+        return "nba"
+    if "ncaa" in key:
+        return "ncaa"
+    if "pba" in key or "philippineassociation" in key:
+        return "pba"
+    return key
 
 
 def match_context_compatible(pari: dict, external: dict,
