@@ -156,7 +156,7 @@ function estimateLiveTotal(ev, score, period, clock){
   const sigma=Math.max(6,Math.sqrt(Math.max(remainingExpected,1))*1.30+remainingExpected*0.08);
   const margin=1.2816*sigma;
   const elapsedMinutes=elapsed/60,remainingSeconds=length*periodCount-elapsed;
-  return {current:total,projection:Math.round(projection*10)/10,
+  return {current:total,projection:Math.round(projection*10)/10,projection_exact:projection,
     low:Math.max(total,Math.round(projection-margin)),high:Math.round(projection+margin),
     sigma:Math.round(sigma*10)/10,elapsed:Math.round(elapsedMinutes*10)/10,
     elapsed_minutes:Math.round(elapsedMinutes*10)/10,
@@ -213,7 +213,7 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
       edge:conditionalOver==null?0:Math.max(conditionalOver,1-conditionalOver)-0.5,
       simulation_se:Math.sqrt(pOver*(1-pOver)/n)};
   });
-  return {simulations:n,mu:Math.round(mu*100)/100,mean:Math.round(mean*10)/10,stddev:Math.round(stddev*10)/10,
+  return {simulations:n,mu:Math.round(mu*100)/100,mu_exact:mu,mean:Math.round(mean*10)/10,mean_exact:mean,stddev:Math.round(stddev*10)/10,stddev_exact:stddev,
     low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),
     probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),
     momentum:Math.round(momentum*1000)/10,method:"Смесь сценариев Пуассона · прогнозное распределение, не независимая модель"};
@@ -310,7 +310,7 @@ function applyGameContext(estimate,ev,period,clock){
   const totalSeconds=length*count;
   const elapsed=Number(estimate.elapsed_seconds||Number(estimate.elapsed||0)*60);
   const remaining=Math.max(0,totalSeconds-elapsed);
-  const baseMu=Math.max(0,estimate.projection-estimate.current);
+  const baseMu=Math.max(0,(estimate.projection_exact??estimate.projection)-estimate.current);
   let multiplier=1;
   const globalRate=elapsed>0?estimate.current/elapsed:0;
   const previousQuarter=Number(period)>1?readPeriodScore(ev,Number(period)-2):null;
@@ -343,7 +343,8 @@ function applyGameContext(estimate,ev,period,clock){
     }
   }
   multiplier=clampForecast(multiplier,0.82,1.20);
-  return {estimate:{...estimate,projection:Math.round((estimate.current+baseMu*multiplier)*10)/10},
+  const projectionExact=estimate.current+baseMu*multiplier;
+  return {estimate:{...estimate,projection:Math.round(projectionExact*10)/10,projection_exact:projectionExact},
     factors,adjustment:multiplier,remainingSeconds:remaining};
 }
 function parseStatCount(value){
@@ -589,12 +590,12 @@ function possessionModelContext(ev,estimate,period,clock){
     assists_home:sides.home.assists,assists_away:sides.away.assists,fouls_home:sides.home.fouls,fouls_away:sides.away.fouls,
     steals_home:sides.home.steals,steals_away:sides.away.steals,blocks_home:sides.home.blocks,blocks_away:sides.away.blocks
   };
-  const baseline=Math.max(1,Number(estimate?.projection)-current),confidence=qualityNotes.length?"средняя":(direct.home>0&&direct.away>0&&metricCoverage>=8?"высокая":metricCoverage>=5?"средняя":"ограниченная");
+  const baseline=Math.max(1,Number(estimate?.projection_exact??estimate?.projection)-current),confidence=qualityNotes.length?"средняя":(direct.home>0&&direct.away>0&&metricCoverage>=8?"высокая":metricCoverage>=5?"средняя":"ограниченная");
   return {applied:true,model:"Possession Engine v2",method,confidence,qualityNotes,metrics,metric_coverage:metricCoverage,
     home:Math.round(home*10)/10,away:Math.round(away*10)/10,average:Math.round(possessions*10)/10,imbalance_percent:Math.round(imbalance*100),
     pointsPerPossession:Math.round(pointsPerPossession*1000)/1000,homePointsPerPossession:Math.round(teamPppHome*1000)/1000,awayPointsPerPossession:Math.round(teamPppAway*1000)/1000,
     possPerMinute:Math.round(possPerMinute*100)/100,expectedRemainingPossessions:Math.round(possPerMinute*(remaining/60)*10)/10,
-    expectedRemainingPoints:Math.round((projected-current)*10)/10,projection:Math.round(projected*10)/10,remaining_minutes:Math.round(remaining/60*100)/100,
+    expectedRemainingPoints:Math.round((projected-current)*10)/10,projection:Math.round(projected*10)/10,projection_exact:projected,remaining_minutes:Math.round(remaining/60*100)/100,
     adjustment:clampForecast((projected-current)/baseline,0.90,1.10)};
 }
 function liveTempoDynamics(ev,estimate,period,clock,kind="match"){
@@ -639,8 +640,8 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   const statsContext=liveShootingContext(ev||{},adjusted);
   // Possession pace × points per possession is the lead forecast.
   // Other signals are secondary and damped to avoid double-counting.
-  const baseMu=Math.max(0,adjusted.projection-adjusted.current);
-  const possMu=possession.applied?Math.max(0,possession.projection-adjusted.current):baseMu;
+  const baseMu=Math.max(0,(adjusted.projection_exact??adjusted.projection)-adjusted.current);
+  const possMu=possession.applied?Math.max(0,(possession.projection_exact??possession.projection)-adjusted.current):baseMu;
   const secondaryAdjustment=possession.applied?clampForecast(1+(statsContext.adjustment-1)*0.35,0.985,1.015):statsContext.adjustment;
   const tempoDynamics=liveTempoDynamics(ev||{},adjusted,period,clock,"match");
   const tempoFactor=tempoDynamics.applied?tempoDynamics.factor:1;
@@ -658,7 +659,7 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   return {...adjusted,context_factors:factors,context_adjustment:context.adjustment,statistics_adjustment:secondaryAdjustment,
     statistics_quality:statsContext.quality,shooting_efg:statsContext.efg??null,possession_model:possession,
     poisson:mc,tempo_dynamics:tempoDynamics,low:mc.low80,high:mc.high80,
-    sigma:mc.stddev,projection:mc.mean,distribution_method:mc.method};
+    sigma:mc.stddev_exact,projection:mc.mean,projection_exact:mc.mean_exact,expected_remaining_exact:mu,distribution_method:mc.method};
 }
 function normalCdf(z){
   const sign=z<0?-1:1,x=Math.abs(z),t=1/(1+0.2316419*x);
@@ -804,7 +805,7 @@ function showSelectedMatch(ev,options={}){
     return '<tr><td>'+x.line+'</td><td>'+(p?(p.pOver*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pUnder*100).toFixed(1)+'%':'—')+'</td><td>'+(p?(p.pPush*100).toFixed(1)+'%':'—')+'</td><td>'+(p?escapeHtml(p.direction):'—')+'</td><td>'+(x.prices?.length?escapeHtml(x.prices.map(v=>"f"+v.factorId+": "+v.price).join(" · ")):(x.odds?escapeHtml(x.odds):"—"))+'</td></tr>';
   }).join("");
   $("matchForecast").innerHTML=estimate
-    ? '<div class="forecast-main"><b>Единый основной прогноз · матч</b><div class="forecast-number">'+estimate.projection+'</div><p>Сейчас '+estimate.current+' · прошло '+estimate.elapsed_minutes+' мин · осталось '+estimate.remaining_minutes+' мин · '+escapeHtml(estimate.confidence||"уверенность не определена")+'</p><p>Данные: '+escapeHtml(estimate.data_quality_mode||"режим качества не определён")+' · вероятность не калибрована</p><p>ОТ в прогнозе не включён; правило ОТ в линии PARI не подтверждено источником.</p><p>80%: '+(estimate.poisson?.low80??estimate.low)+'–'+(estimate.poisson?.high80??estimate.high)+' · 95%: '+(estimate.poisson?.low95??"—")+'–'+(estimate.poisson?.high95??"—")+'</p></div>'+
+    ? '<div class="forecast-main"><b>Единый основной прогноз · матч</b><div class="forecast-number">'+Number(estimate.projection).toFixed(1)+'</div><p>Сейчас '+estimate.current+' · прошло '+estimate.elapsed_minutes+' мин · осталось '+estimate.remaining_minutes+' мин · '+escapeHtml(estimate.confidence||"уверенность не определена")+'</p><p>Данные: '+escapeHtml(estimate.data_quality_mode||"режим качества не определён")+' · вероятность не калибрована</p><p>ОТ в прогнозе не включён; правило ОТ в линии PARI не подтверждено источником.</p><p>80%: '+(estimate.poisson?.low80??estimate.low)+'–'+(estimate.poisson?.high80??estimate.high)+' · 95%: '+(estimate.poisson?.low95??"—")+'–'+(estimate.poisson?.high95??"—")+'</p></div>'+
       '<h3>Показатели</h3><div class="calc-grid"><div class="calc-card"><span>Очков/мин</span><b>'+estimate.pace_per_min+'</b></div><div class="calc-card"><span>Остаток, оч.</span><b>'+(estimate.poisson?.mu??(estimate.projection-estimate.current))+'</b></div><div class="calc-card"><span>σ</span><b>'+(estimate.sigma??"—")+'</b></div><div class="calc-card"><span>Поправка</span><b>'+((Number(estimate.context_adjustment||1)-1)*100).toFixed(1)+'%</b></div></div>'+
       '<h3>Вероятности · PARI</h3>'+(lineRows?'<table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Возврат</th><th>Направление</th><th>Цены PARI · сторона/свежесть не подтверждены</th></tr></thead><tbody>'+lineRows+'</tbody></table>':'<p class="muted">Линия не получена</p>')+
       '<h3>Владения</h3>'+(possession.applied?'<div class="calc-grid"><div class="calc-card"><span>Команда 1</span><b>'+possession.home+'</b></div><div class="calc-card"><span>Команда 2</span><b>'+possession.away+'</b></div><div class="calc-card"><span>Среднее</span><b>'+possession.average+'</b></div><div class="calc-card"><span>Влад./мин</span><b>'+possession.possPerMinute+'</b></div><div class="calc-card"><span>PPP</span><b>'+possession.pointsPerPossession+'</b></div><div class="calc-card"><span>Разница</span><b>'+possession.imbalance_percent+'%</b></div><div class="calc-card"><span>Покрытие</span><b>'+possession.metric_coverage+'/17</b></div></div>':'<p class="muted">Нет данных владений</p>')+
@@ -815,7 +816,7 @@ function showSelectedMatch(ev,options={}){
   $("matchForecast").insertAdjacentHTML("afterbegin",aiSignalHtml(aiAnalysis.match,"ИИ-модельный анализ"));
   $("matchForecast").insertAdjacentHTML("beforeend",classicModelPanelHtml(classicMatchModels,"FULL GAME · МОДЕЛИ ПЕРВОГО САЙТА"));
   $("quarterForecast").innerHTML=quarter.ready
-    ? '<div class="forecast-main"><b>Единый основной прогноз · Q'+escapeHtml(quarter.period||period||"?")+'</b><div class="forecast-number">'+quarter.projection+'</div><p>Модель: '+escapeHtml(quarter.distribution||"не указана")+' · prior: '+escapeHtml(quarter.prior?.source||"нет")+' · '+escapeHtml(quarter.calibration_status||"вероятности не калиброваны")+" · "+escapeHtml(quarter.confidence||"уверенность не определена")+'</p><p>Счёт '+(quarter.home==null?"—":quarter.home+" : "+quarter.away)+' · очков '+(quarter.current??"—")+' · прошло '+(quarter.elapsed!=null?quarter.elapsed+" мин":"—")+' · таймер '+(clock||"—")+'</p><p>80%: '+quarter.low80+'–'+quarter.high80+' · 95%: '+quarter.low95+'–'+quarter.high95+(quarter.preliminary?' · предварительно':'')+'</p></div>'+
+    ? '<div class="forecast-main"><b>Единый основной прогноз · Q'+escapeHtml(quarter.period||period||"?")+'</b><div class="forecast-number">'+Number(quarter.projection).toFixed(1)+'</div><p>Модель: '+escapeHtml(quarter.distribution||"не указана")+' · prior: '+escapeHtml(quarter.prior?.source||"нет")+' · '+escapeHtml(quarter.calibration_status||"вероятности не калиброваны")+" · "+escapeHtml(quarter.confidence||"уверенность не определена")+'</p><p>Счёт '+(quarter.home==null?"—":quarter.home+" : "+quarter.away)+' · очков '+(quarter.current??"—")+' · прошло '+(quarter.elapsed!=null?quarter.elapsed+" мин":"—")+' · таймер '+(clock||"—")+'</p><p>80%: '+quarter.low80+'–'+quarter.high80+' · 95%: '+quarter.low95+'–'+quarter.high95+(quarter.preliminary?' · предварительно':'')+'</p></div>'+
       (quarter.lines.length?'<h3>Вероятности · Q'+escapeHtml(quarter.period||period||"?")+'</h3><table class="calc-table"><thead><tr><th>Линия</th><th>ТБ</th><th>ТМ</th><th>Направление</th><th>Коэфф.</th></tr></thead><tbody>'+quarter.lines.map(x=>'<tr><td>'+x.line+'</td><td>'+(x.pOver*100).toFixed(1)+'%</td><td>'+(x.pUnder*100).toFixed(1)+'%</td><td>'+(x.pPush*100).toFixed(1)+'%</td><td>'+escapeHtml(x.direction)+'</td><td>'+(x.prices?.length?escapeHtml(x.prices.map(v=>"f"+v.factorId+": "+v.price).join(" · ")):(x.odds?escapeHtml(x.odds):"—"))+'</td></tr>').join('')+'</tbody></table>':'<p class="muted">Линия четверти не получена</p>')+
       calculationStepsHtml({kind:"quarter",period:quarter.period,ev,projection:Number(quarter.projection),current:Number(quarter.current),elapsedMinutes:quarter.elapsed,remainingMinutes:clock&&findPeriodLengthSeconds(ev)?Math.max(0,(Number(clock.split(":")[0])*60+Number(clock.split(":")[1]))/60):null,homeScore:quarter.home,awayScore:quarter.away,poss:quarter.possession_model,lines:quarter.lines||[],preliminary:!!quarter.preliminary,clock})
     :'<p class="muted">'+escapeHtml(quarter.reason||"Недостаточно данных")+'</p>';
