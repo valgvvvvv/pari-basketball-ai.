@@ -714,10 +714,6 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   const possMu=possession.applied?Math.max(0,(possession.projectionExact??possession.projection)-adjusted.current):baseMu;
   const secondaryAdjustment=possession.applied?clampForecast(1+(statsContext.adjustment-1)*0.35,0.985,1.015):statsContext.adjustment;
   const tempoDynamics=liveTempoDynamics(ev||{},adjusted,period,clock,"match");
-  dataQuality.rolling_snapshot_count=Array.isArray(ev?.recent_snapshots)?ev.recent_snapshots.length:0;
-  dataQuality.rolling_tempo_available=!!tempoDynamics.rolling;
-  dataQuality.rolling_tempo_source=tempoDynamics.source||"period_history_fallback";
-  dataQuality.rolling_tempo_reason=tempoDynamics.rolling?null:(tempoDynamics.reason||"нет подтверждённого 3–5 минутного окна");
   const tempoFactor=tempoDynamics.applied?tempoDynamics.factor:1;
   // The dynamic Monte Carlo already uses quarter momentum to weight its scenarios. Do not multiply the mean by the same signal again.
   const mu=possMu*secondaryAdjustment,mc=dynamicScenarioMonteCarlo(adjusted.current,mu,lines,seedText,ev,period,clock,"match");
@@ -735,6 +731,10 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
     score_clock_only:"только счёт и время"}[mode];
   const dataQuality={
     mode,modeLabel,statisticsAvailable:available,statisticsExpected:expected,
+    rolling_snapshot_count:Array.isArray(ev?.recent_snapshots)?ev.recent_snapshots.length:0,
+    rolling_tempo_available:!!tempoDynamics.rolling,
+    rolling_tempo_source:tempoDynamics.source||"period_history_fallback",
+    rolling_tempo_reason:tempoDynamics.rolling?null:(tempoDynamics.reason||"нет подтверждённого 3–5 минутного окна"),
     playByPlayEvents:playByPlayCount,periodResultsAvailable:periodResultCount,
     scoreSource:ev?.score_source||ev?.external_live?.score_source||"не указан",
     clockSource:ev?.clock_source||ev?.external_live?.clock_source||"не указан",
