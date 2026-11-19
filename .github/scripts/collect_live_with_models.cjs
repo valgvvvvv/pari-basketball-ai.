@@ -9,6 +9,7 @@ const { chromium } = require("playwright");
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     page.setDefaultNavigationTimeout(240000);
+    page.setDefaultTimeout(240000);
     await page.goto(process.env.SITE_URL, { waitUntil: "domcontentloaded", timeout: 240000 });
     await page.waitForFunction(
       () => typeof window.automaticForecast === "function" &&
@@ -20,12 +21,34 @@ const { chromium } = require("playwright");
     );
 
     const result = await page.evaluate(async () => {
-      const response = await fetch("/api/pari/live?catalog_only=false", { cache: "no-store" });
-      if (!response.ok) throw new Error("PARI LIVE HTTP " + response.status);
-      const data = await response.json();
-      if (!data || !data.ok || !data.connected || !Array.isArray(data.events)) {
-        throw new Error("PARI LIVE feed did not confirm a successful connection");
+      let data = null;
+      let lastError = null;
+      let apiAttempts = 0;
+      for (let attempt = 0; attempt < 7; attempt++) {
+        apiAttempts = attempt + 1;
+        try {
+          const response = await fetch("/api/pari/live?catalog_only=false&_collector_retry=" + apiAttempts + "_" + Date.now(),
+            { cache: "no-store" });
+          if (!response.ok) {
+            const error = new Error("PARI LIVE HTTP " + response.status);
+            if (![502, 503, 504].includes(response.status)) throw error;
+            lastError = error;
+          } else {
+            const candidate = await response.json();
+            if (candidate && candidate.ok && candidate.connected && Array.isArray(candidate.events)) {
+              data = candidate;
+              break;
+            }
+            lastError = new Error("PARI LIVE response did not confirm a successful connection");
+          }
+        } catch (error) {
+          lastError = error;
+          if (error && /HTTP (?!502|503|504)/.test(error.message || "")) throw error;
+        }
+        if (attempt < 6) await new Promise(resolve => setTimeout(resolve, 12000));
       }
+      if (!data) throw new Error("PARI LIVE unavailable after " + apiAttempts + " attempts: " +
+        (lastError && lastError.message || "unknown error"));
 
       const capturedAt = new Date().toISOString();
       const forecasts = [];
