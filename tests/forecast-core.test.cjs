@@ -209,7 +209,7 @@ const clockSourceEnd=appSource.indexOf("function findPeriodLengthSeconds(ev)",cl
 const clockSandbox={findLiveClock:()=>null,findPeriodLengthSeconds:()=>null};
 vm.runInNewContext(appSource.slice(clockSourceStart,clockSourceEnd)+"; this.eventClock=eventClock;",clockSandbox);
 assert.match(clockSandbox.eventClock({live_fields:{source_timer_seconds:405}}),/Время получено, длительность периода не подтверждена/);
-assert.match(clockSandbox.eventClock({live_fields:{source_timer_seconds:405}}),/405 с/);
+assert.match(clockSandbox.eventClock({live_fields:{source_timer_seconds:405}}),/06:45 \(405 с\)/);
 assert.ok(appSource.includes("ev?.live_fields?.timer_semantics_verified"),"timer semantics must be read from PARI live_fields");
 
 const recentStart = appSource.indexOf("function recentTempoFromSnapshots");
