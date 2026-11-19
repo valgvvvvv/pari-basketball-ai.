@@ -16,8 +16,8 @@ from pathlib import Path, PurePosixPath
 def restore_archive(archive_path: str | Path, output_dir: str | Path) -> dict:
     archive_path = Path(archive_path)
     output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
     restored = skipped = 0
+    planned = []
     with zipfile.ZipFile(archive_path, "r") as archive:
         corrupt = archive.testzip()
         if corrupt:
@@ -28,6 +28,12 @@ def restore_archive(archive_path: str | Path, output_dir: str | Path) -> dict:
             raise ValueError(f"Archive manifest is missing or invalid: {exc}") from exc
         if manifest.get("format") != "pari-basketball-daily-archive":
             raise ValueError("Unsupported archive format")
+        if len(archive.namelist()) != len(set(archive.namelist())):
+            raise ValueError("Duplicate ZIP member names")
+        manifest_target = output_dir / "manifest.json"
+        manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
+        if manifest_target.exists() and manifest_target.read_bytes() != manifest_bytes:
+            raise FileExistsError(f"Refusing to overwrite different manifest: {manifest_target}")
         checksums = {
             item.get("path"): item.get("sha256")
             for item in manifest.get("files", [])
@@ -39,9 +45,12 @@ def restore_archive(archive_path: str | Path, output_dir: str | Path) -> dict:
         )
         if manifest.get("snapshot_files") is not None and len(members) != int(manifest["snapshot_files"]):
             raise ValueError("Snapshot count does not match manifest")
+        if int(manifest.get("version", 1)) >= 3 and (
+                set(checksums) != set(members) or len(manifest.get("files", [])) != len(members)):
+            raise ValueError("Every v3 snapshot must have exactly one checksum entry")
         for member in members:
             posix = PurePosixPath(member)
-            if posix.is_absolute() or ".." in posix.parts or len(posix.parts) != 2:
+            if posix.is_absolute() or ".." in posix.parts or len(posix.parts) != 2 or "\\" in member or ":" in member:
                 raise ValueError(f"Unsafe archive member path: {member}")
             compressed = archive.read(member)
             expected_sha = checksums.get(member)
@@ -59,14 +68,16 @@ def restore_archive(archive_path: str | Path, output_dir: str | Path) -> dict:
                     skipped += 1
                     continue
                 raise FileExistsError(f"Refusing to overwrite different existing file: {destination}")
-            destination.write_bytes(compressed)
+            planned.append((destination, compressed))
+        # Validate the whole archive and all collisions before writing anything.
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for destination, compressed in planned:
+            with destination.open("xb") as target:
+                target.write(compressed)
             restored += 1
-        manifest_target = output_dir / "manifest.json"
-        manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
-        if manifest_target.exists() and manifest_target.read_bytes() != manifest_bytes:
-            raise FileExistsError(f"Refusing to overwrite different manifest: {manifest_target}")
         if not manifest_target.exists():
-            manifest_target.write_bytes(manifest_bytes)
+            with manifest_target.open("xb") as target:
+                target.write(manifest_bytes)
     return {
         "archive": str(archive_path),
         "output_dir": str(output_dir),
@@ -74,7 +85,7 @@ def restore_archive(archive_path: str | Path, output_dir: str | Path) -> dict:
         "snapshots_already_present": skipped,
         "snapshots_in_archive": restored + skipped,
         "manifest_version": manifest.get("version"),
-        "integrity": "verified",
+        "integrity": "verified" if len(checksums) == len(members) and members else "crc_gzip_json_only",
     }
 
 

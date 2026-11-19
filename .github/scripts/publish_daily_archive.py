@@ -1,7 +1,7 @@
 import hashlib
 import datetime as dt
-import io
 import gzip
+import io
 import json
 import os
 import urllib.error
@@ -10,24 +10,21 @@ import urllib.request
 import zipfile
 
 API = "https://api.github.com"
-REPO = os.environ["GITHUB_REPOSITORY"]
-TOKEN = os.environ["GITHUB_TOKEN"]
-NOW = dt.datetime.now(dt.timezone.utc)
-CUTOFF = NOW - dt.timedelta(hours=24)
-HEADERS = {
-    "Authorization": "Bearer " + TOKEN,
-    "Accept": "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-    "User-Agent": "PARI-Basketball-AI-Archive",
-}
+REPO = os.environ.get("GITHUB_REPOSITORY", "")
+TOKEN = os.environ.get("GITHUB_TOKEN", "")
+HEADERS = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+           "User-Agent": "PARI-Basketball-AI-Archive"}
+if TOKEN:
+    HEADERS["Authorization"] = "Bearer " + TOKEN
 
 
 def api_json(path, method="GET", body=None):
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(API + path, data=data, headers={**HEADERS, "Content-Type": "application/json"}, method=method)
-    with urllib.request.urlopen(req, timeout=90) as response:
+    request = urllib.request.Request(API + path, data=data,
+        headers={**HEADERS, "Content-Type": "application/json"}, method=method)
+    with urllib.request.urlopen(request, timeout=90) as response:
         raw = response.read()
-        return json.loads(raw.decode("utf-8")) if raw else {}
+        return json.loads(raw.decode()) if raw else {}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -36,166 +33,146 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def download_artifact(url):
-    req = urllib.request.Request(url, headers=HEADERS)
+    # Do not forward the GitHub token to signed storage URLs or other hosts.
+    headers = HEADERS if urllib.parse.urlparse(url).hostname == "api.github.com" else {
+        "User-Agent": HEADERS["User-Agent"]}
     opener = urllib.request.build_opener(NoRedirect)
     try:
-        response = opener.open(req, timeout=90)
-        return response.read()
+        with opener.open(urllib.request.Request(url, headers=headers), timeout=90) as response:
+            return response.read()
     except urllib.error.HTTPError as exc:
         if exc.code not in (301, 302, 303, 307, 308):
             raise
         signed_url = exc.headers.get("Location")
-        if not signed_url:
-            raise RuntimeError("GitHub did not return a signed artifact download URL")
-    # The signed URL is temporary and already authorized; do not forward the GitHub token.
+        if not signed_url or urllib.parse.urlparse(signed_url).scheme != "https":
+            raise RuntimeError("No valid HTTPS artifact download URL")
     with urllib.request.urlopen(signed_url, timeout=180) as response:
         return response.read()
 
 
-def main():
-    since = CUTOFF.date().isoformat()
-    runs = []
+def pages(path, key=None):
     page = 1
     while True:
-        query = urllib.parse.urlencode({"per_page": 100, "page": page, "created": ">=" + since})
-        data = api_json(f"/repos/{REPO}/actions/workflows/autonomous-archive.yml/runs?{query}")
-        batch = data.get("workflow_runs", [])
-        runs.extend(batch)
-        if len(batch) < 100 or page >= 10:
-            break
+        separator = "&" if "?" in path else "?"
+        data = api_json(f"{path}{separator}per_page=100&page={page}")
+        batch = data.get(key, []) if key else data
+        yield from batch
+        if len(batch) < 100:
+            return
         page += 1
 
-    artifacts = []
-    for run in runs:
-        created = dt.datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
-        if created < CUTOFF or run.get("conclusion") != "success":
+
+def archived_artifact_ids():
+    archived = set()
+    for release in pages(f"/repos/{REPO}/releases"):
+        if not str(release.get("tag_name", "")).startswith("pari-archive-"):
             continue
-        result = api_json(f"/repos/{REPO}/actions/runs/{run['id']}/artifacts?per_page=100")
-        for artifact in result.get("artifacts", []):
-            if artifact.get("expired") or not artifact.get("archive_download_url"):
+        for asset in pages(release["assets_url"].removeprefix(API)):
+            if not asset.get("name", "").startswith("pari-inventory-"):
                 continue
-            artifacts.append({
-                "id": artifact["id"],
-                "name": artifact["name"],
-                "created_at": artifact["created_at"],
-                "url": artifact["archive_download_url"],
-            })
+            inventory = json.loads(download_artifact(asset["browser_download_url"]))
+            if inventory.get("format") != "pari-archive-inventory" or not inventory.get("verified"):
+                raise ValueError("Invalid inventory; refusing to skip source snapshots")
+            archived.update(int(value) for value in inventory["artifact_ids"])
+    return archived
 
-    if not artifacts:
-        print("No successful collector artifacts found in the last 24 hours; nothing to publish.")
-        return
 
-    tag = "pari-archive-" + NOW.strftime("%Y%m%d")
-    filename = "pari-basketball-archive-" + NOW.strftime("%Y%m%d-%H%M%S") + "-" + os.getenv("GITHUB_RUN_ID", str(int(NOW.timestamp()))) + ".zip"
+def pending_artifacts(archived):
+    # No 24h cutoff: recover every retained capture, including failed-run artifacts.
+    return sorted((item for item in pages(f"/repos/{REPO}/actions/artifacts", "artifacts")
+        if item.get("name", "").startswith("pari-live-snapshot-")
+        and not item.get("expired") and item.get("archive_download_url")
+        and int(item["id"]) not in archived), key=lambda item: (item["created_at"], item["id"]))
+
+
+def build_archive(artifacts, now):
     output = io.BytesIO()
-    manifest = {
-        "format": "pari-basketball-daily-archive",
-        "version": 1,
-        "created_at_utc": NOW.isoformat(),
-        "period_start_utc": CUTOFF.isoformat(),
-        "period_end_utc": NOW.isoformat(),
-        "snapshot_artifacts": len(artifacts),
-        "source": "PARI live feed collected by scheduled GitHub Actions workflow",
-        "contents": "Each snapshots/*.json.gz file is a compressed JSON snapshot containing the complete normalized event records returned by the project's PARI adapter.",
-    }
-
-    unique_events = set()
-    forecast_count = 0
-    prediction_contract_count = 0
-    forecast_error_count = 0
-    snapshot_file_count = 0
-    file_entries = []
+    files, timestamps, events = [], [], set()
+    forecasts = contracts = errors = 0
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as daily:
-        for index, artifact in enumerate(sorted(artifacts, key=lambda x: x["created_at"])):
-            blob = download_artifact(artifact["url"])
-            with zipfile.ZipFile(io.BytesIO(blob), "r") as source:
-                candidates = [name for name in source.namelist() if name.endswith(".json.gz")]
-                if not candidates:
-                    raise RuntimeError("Collector artifact contains no compressed JSON snapshots: " + artifact["name"])
-                for member in candidates:
+        for artifact in artifacts:
+            with zipfile.ZipFile(io.BytesIO(download_artifact(artifact["archive_download_url"]))) as source:
+                if source.testzip():
+                    raise ValueError("Invalid artifact ZIP")
+                members = [item for item in source.infolist() if item.filename.endswith(".json.gz")]
+                if not members:
+                    raise ValueError("Artifact contains no snapshots: " + str(artifact["id"]))
+                for index, member in enumerate(members):
                     compressed = source.read(member)
-                    try:
-                        payload = json.loads(gzip.decompress(compressed).decode("utf-8"))
-                    except Exception as exc:
-                        raise RuntimeError("Invalid collector snapshot " + member + ": " + str(exc))
-                    unique_events.update(str(row.get("id")) for row in payload.get("events", [])
-                                         if isinstance(row, dict) and row.get("id") is not None)
-                    forecasts = payload.get("forecasts", [])
-                    forecast_count += len(forecasts)
-                    prediction_contract_count += sum(
-                        len(row.get("prediction_contracts", []))
-                        for row in forecasts if isinstance(row, dict)
-                    )
-                    forecast_error_count += sum(
-                        len(row.get("errors", []))
-                        for row in forecasts if isinstance(row, dict)
-                    )
-                    archive_path = f"snapshots/{artifact['created_at'].replace(':', '').replace('-', '')}-{index:04d}-{snapshot_file_count:04d}.json.gz"
+                    payload = json.loads(gzip.decompress(compressed).decode("utf-8"))
+                    if not isinstance(payload, dict) or not isinstance(payload.get("events"), list):
+                        raise ValueError("Snapshot has no event list")
+                    stamp = payload.get("source_checked_at_utc") or payload.get("captured_at_utc") or artifact["created_at"]
+                    timestamps.append(dt.datetime.fromisoformat(stamp.replace("Z", "+00:00")))
+                    events.update(str(row["id"]) for row in payload["events"] if isinstance(row, dict) and row.get("id") is not None)
+                    rows = payload.get("forecasts", [])
+                    forecasts += len(rows)
+                    contracts += sum(len(row.get("prediction_contracts", [])) for row in rows)
+                    errors += sum(len(row.get("errors", [])) for row in rows)
+                    archive_path = f"snapshots/artifact-{artifact['id']}-{index:04d}.json.gz"
                     daily.writestr(archive_path, compressed)
-                    file_entries.append({
-                        "path": archive_path,
-                        "sha256": hashlib.sha256(compressed).hexdigest(),
-                        "bytes": len(compressed)
-                    })
-                    snapshot_file_count += 1
-        manifest.update({
-            "version": 2,
-            "snapshot_files": snapshot_file_count,
-            "unique_event_ids_in_window": len(unique_events),
-            "forecast_records": forecast_count,
-            "immutable_prediction_contracts": prediction_contract_count,
-            "forecast_errors": forecast_error_count,
-            "files": file_entries,
-            "contents": "Each snapshots/*.json.gz file contains normalized source events, timestamped forecast snapshots and immutable versioned prediction contracts. Final outcomes remain unresolved unless independently confirmed."
-        })
+                    files.append({"path": archive_path, "sha256": hashlib.sha256(compressed).hexdigest(),
+                        "bytes": len(compressed), "artifact_id": artifact["id"], "source_checked_at_utc": stamp})
+        manifest = {"format": "pari-basketball-daily-archive", "version": 3,
+            "created_at_utc": now.isoformat(), "period_start_utc": min(timestamps).isoformat(),
+            "period_end_utc": max(timestamps).isoformat(), "snapshot_artifacts": len(artifacts),
+            "artifact_ids": [a["id"] for a in artifacts], "snapshot_files": len(files),
+            "unique_event_ids_in_window": len(events), "forecast_records": forecasts,
+            "immutable_prediction_contracts": contracts, "forecast_errors": errors, "files": files,
+            "source": "PARI live feed collected by scheduled GitHub Actions workflow",
+            "contents": "Immutable source snapshots and forecasts; outcomes remain unresolved until independently confirmed."}
         daily.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+    return output.getvalue(), manifest
 
-    zip_bytes = output.getvalue()
-    if len(zip_bytes) < 100:
-        raise RuntimeError("Daily archive unexpectedly small; refusing to publish")
 
+def upload_asset(release, filename, data, content_type):
+    url = release["upload_url"].split("{", 1)[0] + "?" + urllib.parse.urlencode({"name": filename})
+    request = urllib.request.Request(url, data=data, headers={**HEADERS, "Content-Type": content_type}, method="POST")
+    with urllib.request.urlopen(request, timeout=240) as response:
+        return json.loads(response.read())
+
+
+def main():
+    if not REPO or not TOKEN:
+        raise RuntimeError("GITHUB_REPOSITORY and GITHUB_TOKEN are required (provided by GitHub Actions)")
+    now = dt.datetime.now(dt.timezone.utc)
+    pending = pending_artifacts(archived_artifact_ids())
+    if not pending:
+        print("No unarchived retained snapshots; nothing to publish.")
+        return
+    artifacts = pending[:int(os.getenv("MAX_ARCHIVE_ARTIFACTS", "350"))]
+    if not artifacts:
+        raise ValueError("MAX_ARCHIVE_ARTIFACTS must be positive")
+    zip_bytes, manifest = build_archive(artifacts, now)
+    tag = "pari-archive-" + now.strftime("%Y%m%d")
+    stamp = now.strftime("%Y%m%d-%H%M%S") + "-" + os.getenv("GITHUB_RUN_ID", str(int(now.timestamp())))
+    filename = "pari-basketball-archive-" + stamp + ".zip"
     try:
         release = api_json(f"/repos/{REPO}/releases/tags/{tag}")
     except urllib.error.HTTPError as exc:
         if exc.code != 404:
             raise
         release = api_json(f"/repos/{REPO}/releases", method="POST", body={
-            "tag_name": tag,
-            "name": "Архив матчей PARI — " + NOW.strftime("%Y-%m-%d"),
-            "body": "Ежедневный сжатый архив LIVE-снимков PARI. Содержит счёт, время, линии, коэффициенты, доступную статистику и диагностические поля источников. Данные публичны.",
-            "draft": False,
-            "prerelease": False,
-        })
-
-    # Keep every previously published archive. Each run gets a unique timestamped asset name.
-    upload_base = release["upload_url"].split("{", 1)[0]
-    upload_url = upload_base + "?" + urllib.parse.urlencode({"name": filename})
-    req = urllib.request.Request(upload_url, data=zip_bytes, headers={
-        **HEADERS, "Content-Type": "application/zip"
-    }, method="POST")
-    with urllib.request.urlopen(req, timeout=240) as response:
-        uploaded = json.loads(response.read().decode("utf-8"))
-
-    # Once the permanent release asset is confirmed, remove the temporary
-    # workflow artifacts so the Actions storage quota does not grow forever.
-    deleted = 0
-    for artifact in artifacts:
-        api_json(f"/repos/{REPO}/actions/artifacts/{artifact['id']}", method="DELETE")
-        deleted += 1
-
-    print(json.dumps({
-        "published": True,
-        "tag": tag,
-        "asset": uploaded.get("browser_download_url"),
-        "snapshot_artifacts": len(artifacts),
-        "snapshot_files": snapshot_file_count,
-        "unique_event_ids": len(unique_events),
-        "forecasts": forecast_count,
-        "prediction_contracts": prediction_contract_count,
-        "forecast_errors": forecast_error_count,
-        "temporary_artifacts_deleted": deleted,
-        "archive_bytes": len(zip_bytes),
-    }, ensure_ascii=False))
+            "tag_name": tag, "name": "Архив матчей PARI — " + now.strftime("%Y-%m-%d"),
+            "body": "LIVE-снимки, таймеры, статистика и исходные прогнозы. Охват и SHA-256 — в manifest.json. Непроверенные исходы остаются unresolved.",
+            "draft": False, "prerelease": False})
+    uploaded = upload_asset(release, filename, zip_bytes, "application/zip")
+    expected_sha = hashlib.sha256(zip_bytes).hexdigest()
+    if hashlib.sha256(download_artifact(uploaded["browser_download_url"])).hexdigest() != expected_sha:
+        raise ValueError("Published ZIP failed download/SHA-256 verification; source artifacts retained")
+    inventory = {"format": "pari-archive-inventory", "version": 1, "verified": True,
+        "zip_name": filename, "zip_sha256": expected_sha,
+        "artifact_ids": manifest["artifact_ids"], "created_at_utc": now.isoformat()}
+    inventory_bytes = json.dumps(inventory, indent=2).encode()
+    inventory_asset = upload_asset(release, "pari-inventory-" + stamp + ".json", inventory_bytes, "application/json")
+    if download_artifact(inventory_asset["browser_download_url"]) != inventory_bytes:
+        raise ValueError("Published inventory verification failed; source artifacts retained")
+    # Never delete source artifacts or existing release assets; Actions manages retention.
+    print(json.dumps({"published": True, "asset": uploaded["browser_download_url"],
+        "sha256": expected_sha, "snapshot_artifacts": len(artifacts),
+        "backlog_remaining": len(pending) - len(artifacts), "snapshot_files": manifest["snapshot_files"],
+        "prediction_contracts": manifest["immutable_prediction_contracts"],
+        "forecast_errors": manifest["forecast_errors"], "source_artifacts_deleted": 0}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

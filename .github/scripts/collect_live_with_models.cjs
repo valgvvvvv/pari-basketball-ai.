@@ -80,6 +80,18 @@ const { chromium } = require("playwright");
           advanced_calculations: null,
           errors: []
         };
+        const timer = findLiveClock(ev);
+        const length = Number(ev.period_length_seconds || ev.external_live?.period_length_seconds || 0);
+        const parts = /^(\d{1,2}):([0-5]\d)$/.exec(String(timer || ""));
+        const remaining = parts ? Number(parts[1]) * 60 + Number(parts[2]) : null;
+        const elapsed = remaining !== null && length > 0 ? length - remaining : null;
+        row.search_windows = {
+          quarter_elapsed_seconds: elapsed,
+          quarter_4_to_8_minutes: elapsed !== null && elapsed >= 240 && elapsed <= 480 &&
+            ev.timer_semantics_verified === true && ev.clock_integrity?.valid !== false,
+          match_q3_q4: [3, 4].includes(Number(ev.period)),
+          note: "Time-window filters only; not a quality gate, recommendation or verified edge"
+        };
         try {
           const match = automaticForecast(ev);
           const quarter = automaticQuarterForecast(ev);
@@ -228,9 +240,29 @@ const { chromium } = require("playwright");
     const stylesheetUrl = await page.evaluate(() =>
       Array.from(document.styleSheets).map(sheet => sheet.href || "").find(href => href.includes("/static/styles.css")) || ""
     );
-    result.ui_smoke = { status: "skipped_old_deployment", app_script: appScriptUrl, stylesheet: stylesheetUrl,
-      expected_bundle: "20261119-integrity-v66", expected_stylesheet: "20261119-ui-v8", expected_viewports: [360, 390, 768, 1280] };
-    if (appScriptUrl.includes("20261119-integrity-v66") && stylesheetUrl.includes("20261119-ui-v8")) {
+    result.collection_provenance = {
+      collector_git_sha: process.env.ARCHIVE_CODE_SHA || null,
+      run_id: process.env.GITHUB_RUN_ID || null,
+      run_attempt: process.env.GITHUB_RUN_ATTEMPT || null,
+      deployed_app_script: appScriptUrl,
+      deployed_stylesheet: stylesheetUrl
+    };
+    const directory = process.env.ARCHIVE_OUTPUT_DIR || "archive-snapshot";
+    fs.mkdirSync(directory, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const target = path.join(directory, "live-" + stamp + ".json.gz");
+    const persist = () => {
+      const compressed = zlib.gzipSync(Buffer.from(JSON.stringify(result), "utf8"), { level: 9 });
+      fs.writeFileSync(target + ".tmp", compressed);
+      fs.renameSync(target + ".tmp", target);
+      fs.writeFileSync(target + ".sha256", crypto.createHash("sha256").update(compressed).digest("hex") + "\n");
+    };
+    result.ui_smoke = { status: "not_requested", app_script: appScriptUrl, stylesheet: stylesheetUrl };
+    // Capture must survive a later optional UI failure. Workflow uploads even on failure.
+    persist();
+    try {
+    if (process.env.RUN_UI_SMOKE === "true") {
+      result.ui_smoke = { status: "running", app_script: appScriptUrl };
       const smokeRow = result.forecasts.find(row => row.event_id);
       if (smokeRow) {
         const uiPayload = {
@@ -380,12 +412,15 @@ const { chromium } = require("playwright");
         result.ui_smoke = { status: "skipped_no_forecastable_match", app_script: appScriptUrl };
       }
     }
-    fs.mkdirSync("archive-snapshot", { recursive: true });
-    const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-    const target = path.join("archive-snapshot", "live-" + stamp + ".json.gz");
-    fs.writeFileSync(target, zlib.gzipSync(Buffer.from(JSON.stringify(result), "utf8"), { level: 9 }));
+    } catch (error) {
+      result.ui_smoke = { status: "failed", app_script: appScriptUrl,
+        reason: String(error && (error.stack || error.message) || error).slice(0, 2000) };
+      persist();
+      throw error;
+    }
+    persist();
     fs.writeFileSync(
-      path.join("archive-snapshot", "collection.txt"),
+      path.join(directory, "collection.txt"),
       "captured_at_utc=" + result.captured_at_utc +
       "\nevents=" + result.event_count +
       "\nforecasts=" + result.forecast_count +
