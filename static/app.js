@@ -1339,7 +1339,10 @@ function automaticQuarterForecast(ev) {
   const clock=directClock||(period&&length?findQuarterClockFromElapsed(ev,period,length):null);
   const recoveredClock=!directClock&&!!clock;
   const periods=Number(ev.external_live?.period_count||info?.periods||4);
-  if(period&&period>periods)return {ready:false,reason:"Овертайм: расчёт тотала периода недоступен без проверенной длительности ОТ"};
+  const overtime=ev?.timer_scope==="overtime"||ev?.live_fields?.timer_scope==="overtime";
+  if(period&&period>periods)return {ready:false,reason:overtime
+    ?"ОТ: таймер подтверждён, отдельный прогноз тотала ОТ пока не строится"
+    :"Овертайм: длительность дополнительного периода не подтверждена"};
   const matchScore=findLiveScore(ev);
   const matchForecast=automaticForecast(ev);
   if(periods===2)return {ready:false,reason:"формат 2×20 минут: четвертей в этом матче нет"};
