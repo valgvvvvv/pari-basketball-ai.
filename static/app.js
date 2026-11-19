@@ -205,7 +205,7 @@ function recentTempoFromSnapshots(ev,period,clock,lengthSeconds=null){
   for(const candidate of snapshots.slice(0,-1)){
     const wallSeconds=(latest.capturedAt-candidate.capturedAt)/1000;
     const gameSeconds=candidate.remaining-latest.remaining;
-    if(wallSeconds<180||wallSeconds>420||gameSeconds<180||gameSeconds>420)continue;
+    if(wallSeconds<180||wallSeconds>600||gameSeconds<180||gameSeconds>300)continue;
     const distance=Math.abs(wallSeconds-300)+Math.abs(gameSeconds-300);
     if(distance<bestDistance){bestDistance=distance;anchor={...candidate,wallSeconds,gameSeconds};}
   }
@@ -251,7 +251,8 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
     if(baseline>0)rates.push({value:clampForecast((qCurrent/(qElapsed/60))/ (baseline/(length/60))-1,-0.35,0.35),weight:0.20});
   }
   const trend=rates.length?rates.reduce((a,x)=>a+x.value*x.weight,0)/rates.reduce((a,x)=>a+x.weight,0):0;
-  const momentum=clampForecast(trend,-0.25,0.25);
+  const recentTempo=recentTempoFromSnapshots(ev,period,clock,length);
+  const momentum=recentTempo.applied?clampForecast(recentTempo.rawChange/100,-0.25,0.25):clampForecast(trend,-0.25,0.25);
   const pFast=clampForecast(0.25+momentum*0.55,0.12,0.40),pSlow=clampForecast(0.25-momentum*0.25,0.16,0.34),pBase=Math.max(0.20,1-pFast-pSlow);
   const norm=pSlow*0.78+pBase+pFast*1.22;
   const scenarios=[{name:"Замедление",factor:0.78,probability:pSlow},{name:"Базовый темп",factor:1,probability:pBase},{name:"Ускорение",factor:1.22,probability:pFast}];
@@ -276,7 +277,7 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
   const variance=outcomes.reduce((sum,x)=>sum+(x-sampleMean)**2,0)/n;
   const scenarioMean=scenarioMeans.reduce((sum,x)=>sum+x,0)/n;
   const meanUncertaintyVariance=scenarioMeans.reduce((sum,x)=>sum+(x-scenarioMean)**2,0)/n;
-  return {simulations:n,mu:Math.round(mu*100)/100,mean:sampleMean,variance,meanUncertaintyVariance,meanUncertaintySd:Math.sqrt(meanUncertaintyVariance),low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),momentum:Math.round(momentum*1000)/10,method:"Экспериментальная смесь сценариев · не калибрована",research_scheme:true,calibration_status:"not_calibrated",momentum_rule:"55% last-period-vs-prior-average + 25% last-period-vs-earlier-average + 20% current-period-vs-baseline; clamp ±25%; experimental weights",scenario_weight_rule:"pFast=clamp(0.25+0.55×momentum,0.12,0.40); pSlow=clamp(0.25−0.25×momentum,0.16,0.34); pBase=1−pFast−pSlow; normalize scenario multipliers to preserve mean"};
+  return {simulations:n,mu:Math.round(mu*100)/100,mean:sampleMean,variance,meanUncertaintyVariance,meanUncertaintySd:Math.sqrt(meanUncertaintyVariance),low80:quantile(.10),high80:quantile(.90),low95:quantile(.025),high95:quantile(.975),probabilities,scenarios:scenarios.map(x=>({name:x.name,probability:Math.round(x.probability*100),multiplier:x.factor/norm})),momentum:Math.round(momentum*1000)/10,momentum_source:recentTempo.applied?"rolling_3_5_min":"period_history_fallback",recent_tempo:recentTempo.applied?recentTempo:null,method:"Экспериментальная смесь сценариев · не калибрована",research_scheme:true,calibration_status:"not_calibrated",momentum_rule:recentTempo.applied?"actual score/clock delta over a 3–5 game-minute window vs pre-window match pace; no blended period weights":"fallback: 55% last-period-vs-prior-average + 25% last-period-vs-earlier-average + 20% current-period-vs-baseline; clamp ±25%; experimental weights",scenario_weight_rule:"pFast=clamp(0.25+0.55×momentum,0.12,0.40); pSlow=clamp(0.25−0.25×momentum,0.16,0.34); pBase=1−pFast−pSlow; normalize scenario multipliers to preserve mean"};
 }
 function poissonMonteCarlo(current, mu, lines=[], seedText="") {
   const n=100000;
