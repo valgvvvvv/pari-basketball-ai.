@@ -167,6 +167,65 @@ function estimateLiveTotal(ev, score, period, clock){
     period_elapsed_seconds:length-remaining};
 }
 
+function recentTempoFromSnapshots(ev,period,clock,lengthSeconds=null){
+  const length=Number(lengthSeconds||ev?.period_length_seconds||ev?.external_live?.period_length_seconds||0);
+  const periodNumber=Number(period||findLivePeriod(ev)||0);
+  if(!length||!periodNumber)return {applied:false,reason:"не подтверждён формат или период"};
+  const formatInfo=inferPeriodLengthForForecast(ev||{});
+  if(String(formatInfo?.method||"").includes("предварительно"))
+    return {applied:false,reason:"длительность периода предварительная"};
+  const parseClock=value=>{
+    const m=String(value||"").match(/^(\d{1,2}):([0-5]\d)$/);
+    return m?Number(m[1])*60+Number(m[2]):null;
+  };
+  const parseScore=value=>{
+    if(Array.isArray(value)&&value.length>=2){
+      const h=Number(value[0]),a=Number(value[1]);
+      return Number.isFinite(h)&&Number.isFinite(a)?[h,a]:null;
+    }
+    if(typeof value==="string"){
+      try{return parseScore(JSON.parse(value));}catch(_e){return null;}
+    }
+    return null;
+  };
+  const snapshots=(Array.isArray(ev?.recent_snapshots)?ev.recent_snapshots:[])
+    .filter(x=>Number(x?.period)===periodNumber&&parseClock(x?.clock)!=null&&parseScore(x?.score))
+    .map(x=>({capturedAt:Date.parse(x.captured_at||""),remaining:parseClock(x.clock),score:parseScore(x.score)}))
+    .filter(x=>Number.isFinite(x.capturedAt));
+  const currentScore=findLiveScore(ev),currentRemaining=parseClock(clock||findLiveClock(ev));
+  const feedAt=Date.parse(ev?.feed_checked_at_utc||"");
+  if(currentScore&&currentRemaining!=null){
+    snapshots.push({capturedAt:Number.isFinite(feedAt)?feedAt:Date.now(),remaining:currentRemaining,score:[Number(currentScore[0]),Number(currentScore[1])]});
+  }
+  snapshots.sort((a,b)=>a.capturedAt-b.capturedAt);
+  const latest=snapshots[snapshots.length-1];
+  if(!latest||Date.now()-latest.capturedAt>120000)
+    return {applied:false,reason:"последний снимок старше 2 минут"};
+  let anchor=null,bestDistance=Infinity;
+  for(const candidate of snapshots.slice(0,-1)){
+    const wallSeconds=(latest.capturedAt-candidate.capturedAt)/1000;
+    const gameSeconds=candidate.remaining-latest.remaining;
+    if(wallSeconds<180||wallSeconds>420||gameSeconds<180||gameSeconds>420)continue;
+    const distance=Math.abs(wallSeconds-300)+Math.abs(gameSeconds-300);
+    if(distance<bestDistance){bestDistance=distance;anchor={...candidate,wallSeconds,gameSeconds};}
+  }
+  if(!anchor)return {applied:false,reason:"нужно не менее 3–5 минут согласованных снимков"};
+  const homeDelta=latest.score[0]-anchor.score[0],awayDelta=latest.score[1]-anchor.score[1];
+  const scoreDelta=homeDelta+awayDelta;
+  if(homeDelta<0||awayDelta<0||scoreDelta<0)
+    return {applied:false,reason:"обнаружена коррекция счёта в окне"};
+  const recentRate=scoreDelta/(anchor.gameSeconds/60);
+  const elapsedAtAnchor=(periodNumber-1)*(length/60)+(length-anchor.remaining)/60;
+  const baselineRate=(anchor.score[0]+anchor.score[1])/Math.max(elapsedAtAnchor,0.1);
+  if(!(baselineRate>0))return {applied:false,reason:"нет положительного базового темпа"};
+  const rawChange=(recentRate/baselineRate-1)*100;
+  return {applied:true,source:"rolling_3_5_min",window_game_seconds:anchor.gameSeconds,
+    window_wall_seconds:anchor.wallSeconds,score_delta:scoreDelta,home_delta:homeDelta,away_delta:awayDelta,
+    recent_rate:recentRate,baseline_rate:baselineRate,rawChange,
+    home_rate:homeDelta/(anchor.gameSeconds/60),away_rate:awayDelta/(anchor.gameSeconds/60),
+    confidence:anchor.gameSeconds>=240?"средняя":"ограниченная"};
+}
+
 function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,period=null,clock=null,kind="match"){
   const n=100000;let seed=2166136261;
   for(const ch of String(seedText))seed=Math.imul(seed^ch.charCodeAt(0),16777619)>>>0;
