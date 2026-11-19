@@ -1056,7 +1056,10 @@ function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="m
   const models=[];
   const add=(name,pred,sigma,detail,weight=1)=>{
     if(!Number.isFinite(pred)||pred<current-0.01||pred>400)return;
-    models.push({name,projection:Math.round(pred*10)/10,sigma:Math.max(1,Number(sigma)||safeSigma),detail,weight});
+    const role=name==="Модель владений"?"модель среднего · владения":
+      name==="Модель концовки"?"эвристика концовки":
+      name==="Динамика четверти"?"модель среднего · темп периода":"модель среднего · темп";
+    models.push({name,role,projection:Math.round(pred*10)/10,sigma:Math.max(1,Number(sigma)||safeSigma),detail,weight});
   };
   const linear=elapsed>0&&length>0
     ?current/elapsed*(isQuarter?length:length*Number(ev?.external_live?.period_count||info?.periods||4))
@@ -1106,8 +1109,6 @@ function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="m
     const adjusted=isSmooth?projection*0.98+avg*(Number(ev?.external_live?.period_count||4)-Number(period||1))*0.02:projection;
     // Smooth Game is a trajectory diagnostic, not a separately calibrated forecast.
     anomaly={smooth:isSmooth,cv:Math.round(cv*1000)/10,average:Math.round(avg*10)/10,sd:Math.round(sd*10)/10};
-  } else if(isQuarter){
-    add("Smooth Game Q",projection,safeSigma*1.1,"Для проверки плавности нужны данные нескольких четвертей",0.7);
   }
   // Дополнительные модели с прозрачными требованиями к данным.
   const remainingMinutes=Number.isFinite(remaining)?Math.max(0,remaining/60):null;
@@ -1115,7 +1116,7 @@ function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="m
   const priorRate=completed.length&&length>0?(completed.reduce((a,b)=>a+b,0)/completed.length)/(length/60):(elapsedMinutes>0?current/elapsedMinutes:NaN);
   const tools=[];
   tools.push({name:"Марковская модель владений",status:"не активна",detail:"Нет проверенной матрицы переходов владений; текущая модель владений не выдаётся за Марковскую цепь"});
-  tools.push({name:"Gamma-Poisson / Калман",status:"не входят в основной ансамбль",detail:"Не считаются независимыми подтверждениями до проверки на независимой истории"});
+  tools.push({name:"Gamma-Poisson / Калман",status:"Gamma-Poisson: основной прогноз Q · Kalman: не активен",detail:"Gamma-Poisson формирует распределение текущего периода; Kalman исключён, независимым подтверждением не считается"});
   tools.push({name:"CatBoost / LightGBM",status:"ожидают обучения",detail:"Нужны размеченные завершённые матчи; прогноз не подменяется эвристикой"});
   tools.push({name:"Калибровка вероятностей",status:"ожидает выборку",detail:"Нужны прогнозы и финальные исходы для Brier score и reliability calibration"});
   if(!models.length)return {models:[],consensus:null,groups:[],anomaly,mlStatus:"недостаточно данных для расчёта"};
@@ -1135,15 +1136,15 @@ function classicBasketballModelAnalysis(ev,matchForecast,quarterForecast,kind="m
 }
 function classicModelPanelHtml(data,title){
   if(!data)return "";
-  const rows=(data.models||[]).map(m=>'<tr><td>'+escapeHtml(m.name)+'</td><td>'+m.projection+'</td><td>'+(m.line!=null?escapeHtml(m.direction+" "+m.line):"нет линии")+'</td><td>'+(m.probability!=null?m.probability+"%":"—")+'</td></tr>').join("");
+  const rows=(data.models||[]).map(m=>'<tr><td>'+escapeHtml(m.name)+'<small>'+escapeHtml(m.role||'альтернативная оценка')+'</small></td><td>'+m.projection+'</td><td>'+(m.line!=null?escapeHtml(m.direction+" "+m.line):"нет линии")+'</td><td>'+(m.probability!=null?m.probability+"%":"—")+'</td></tr>').join("");
   const best=data.consensus?.strongest;
   const direction=best?(best.direction==="без преимущества"?"нет перевеса":best.direction+" "+best.line):"линия PARI не получена";
   const groups=(data.groups||[]).map(g=>g.side?g.size+" моделей: "+g.side+" ("+g.count+")":g.size+" моделей: нет совпадения").join(" · ");
   const anomaly=data.anomaly?(data.anomaly.smooth?"Smooth Game: ровная траектория":"Аномалия/неровная траектория")+" · CV "+data.anomaly.cv+"%":"Проверка Smooth Game: мало завершённых четвертей";
   const toolsHtml=(data.tools||[]).map(t=>'<div class="model-tool-row"><b>'+escapeHtml(t.name)+'</b><span>'+escapeHtml(t.status)+'</span><small>'+escapeHtml(t.detail)+'</small></div>').join("");
   return '<section class="classic-model-panel"><div class="calc-section-head"><div><span class="eyebrow">'+escapeHtml(title)+'</span><h3>Альтернативные оценки · не независимые модели</h3></div><span class="calc-live-tag">'+(data.models.length||0)+' альтернатив</span></div>'+
-    (data.consensus?'<div class="classic-consensus"><b>Единый основной прогноз</b><strong>'+data.consensus.projection+'</strong><span>Направление: '+escapeHtml(direction)+(best?' · ТБ '+(best.pOver*100).toFixed(1)+'% / ТМ '+(best.pUnder*100).toFixed(1)+'% / возврат '+((best.pPush||0)*100).toFixed(1)+'%':'')+' · возврат '+((best.pPush||0)*100).toFixed(1)+'% · уверенность '+escapeHtml(data.consensus.confidence)+'</span></div>':'')+
-    '<div class="table-scroll"><table class="calc-table"><thead><tr><th>Модель</th><th>Тотал</th><th>Направление</th><th>Вероятность</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    (data.consensus?'<div class="classic-consensus"><b>Единый основной прогноз</b><strong>'+data.consensus.projection+'</strong><span>Направление: '+escapeHtml(direction)+(best?' · ТБ '+(best.pOver*100).toFixed(1)+'% / ТМ '+(best.pUnder*100).toFixed(1)+'% / возврат '+((best.pPush||0)*100).toFixed(1)+'%':'')+' · уверенность '+escapeHtml(data.consensus.confidence)+'</span></div>':'')+
+    '<div class="table-scroll"><table class="calc-table"><thead><tr><th>Метод / роль</th><th>Тотал</th><th>Направление</th><th>Вероятность</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
     '<p class="model-consensus-groups">'+(groups?escapeHtml(groups):'Совпадения однотипных методов не считаются независимым подтверждением')+'</p><p class="model-anomaly">'+escapeHtml(anomaly)+'</p><div class="model-tool-list">'+toolsHtml+'</div><p class="muted model-training-note">'+escapeHtml(data.mlStatus)+'</p></section>';
 }
 
