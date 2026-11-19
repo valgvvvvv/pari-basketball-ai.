@@ -123,6 +123,12 @@ const { chromium } = require("playwright");
               center: Number(estimate.projection),
               distribution: distribution ? {
                 method: distribution.distribution || distribution.method || "Monte Carlo predictive sampler",
+                research_scheme: distribution.research_scheme ?? false,
+                calibration_status: distribution.calibration_status || "not_calibrated",
+                momentum: distribution.momentum ?? null,
+                momentum_rule: distribution.momentum_rule || null,
+                scenario_weight_rule: distribution.scenario_weight_rule || null,
+                scenarios: distribution.scenarios || [],
                 expected_remaining_points: distribution.mu ?? null,
                 variance: distribution.variance ?? (Number.isFinite(Number(estimate.sigma)) ? Number(estimate.sigma) ** 2 : null),
                 mean_uncertainty_variance: distribution.meanUncertaintyVariance ?? null,
