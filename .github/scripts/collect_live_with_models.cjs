@@ -414,3 +414,5 @@ const { chromium } = require("playwright");
   console.error("ARCHIVE_COLLECTION_FAILED", error && (error.stack || error.message) || error);
   process.exit(1);
 });
+
+// The deployed v61/v8 assets are now live; run the responsive browser acceptance against them.
