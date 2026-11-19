@@ -97,6 +97,7 @@ class ForecastIntegrityTests(unittest.TestCase):
         }
         self.assertTrue(match_context_compatible(pari, same))
         self.assertTrue(match_context_compatible(pari, {**same, "league": "China CBA"}), "league abbreviations should match their full competition label")
+        self.assertTrue(match_context_compatible(pari, {**same, "league": "Chinese Basketball Association"}))
         self.assertFalse(match_context_compatible(pari, {**same, "league": "Women's CBA"}))
         self.assertFalse(match_context_compatible(pari, {**same, "league": "U19 CBA"}))
         self.assertFalse(match_context_compatible(pari, {**same, "period_length_seconds": 720}))
