@@ -333,7 +333,7 @@ const safeFallback = cardSandbox.liveMatchRenderFallback({
   statistics_quality:{available_count:1,expected_count:19},
   match_total_candidates:[{pt:164.5,v:"1.91"}]
 });
-for (const visibleFact of ["50:47","Q2","06:45","Статистика: 1 показателей","Тотал 164.5"]) {
+for (const visibleFact of ["50:47","Q2","06:45","assists 2:3","Тотал 164.5"]) {
   assert.ok(safeFallback.includes(visibleFact), "fallback card must retain " + visibleFact);
 }
 assert.ok(appSource.includes("data.successful_source || data.source_url"),
