@@ -83,6 +83,9 @@ assert.ok(appSource.includes("full_play_by_play") && appSource.includes("score_c
 assert.ok(appSource.includes("scoreSource") && appSource.includes("clockSource") && appSource.includes("statisticsSource"), "source provenance must be tracked by layer");
 assert.ok(appSource.includes("Вероятности модели по линиям PARI"), "model probability must not be presented as bookmaker probability");
 assert.ok(appSource.includes('kind:"period_range",preliminary:true'), "timerless range forecasts must be explicitly preliminary");
+assert.ok(appSource.includes("const mu=possMu*secondaryAdjustment,mc=dynamicScenarioMonteCarlo"), "tempo momentum must not shift the mean and the scenario distribution twice");
+assert.ok(!appSource.includes("possMu*secondaryAdjustment*tempoFactor"), "duplicate tempo multiplier must stay out of the primary mean");
+assert.ok(appSource.includes("Импульс MC"), "tempo momentum must be visible as a distribution-scenario effect");
 const clockStart = appSource.indexOf("function findLiveClock(ev){");
 const clockEnd = appSource.indexOf("function estimateLiveTotal(ev", clockStart);
 assert.ok(clockStart >= 0 && clockEnd > clockStart);
