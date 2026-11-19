@@ -5,7 +5,13 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from restore_daily_archive import restore_archive
+import importlib.util
+
+restore_path = Path(__file__).resolve().parents[1] / ".github" / "scripts" / "restore_daily_archive.py"
+spec = importlib.util.spec_from_file_location("restore_daily_archive", restore_path)
+restore_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(restore_module)
+restore_archive = restore_module.restore_archive
 
 
 class RestoreArchiveTests(unittest.TestCase):
