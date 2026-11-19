@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import server
 from result_validation import settle_prediction
+from match_identity import match_context_compatible
 
 
 class ForecastIntegrityTests(unittest.TestCase):
@@ -72,6 +73,28 @@ class ForecastIntegrityTests(unittest.TestCase):
         self.assertIn("prediction_contracts", collector)
         self.assertIn("snapshot_id", collector)
         self.assertIn('status: "unresolved"', collector)
+
+    def test_external_match_requires_competition_gender_date_and_format_context(self):
+        pari = {
+            "team1": "Lions", "team2": "Tigers", "league": "CBA",
+            "start_time": "2026-11-19T10:00:00Z",
+            "period_length_seconds": 600, "period_count": 4
+        }
+        same = {
+            "home": "Lions", "away": "Tigers", "league": "CBA",
+            "start_time": "2026-11-19T10:15:00Z",
+            "period_length_seconds": 600, "period_count": 4
+        }
+        self.assertTrue(match_context_compatible(pari, same))
+        self.assertFalse(match_context_compatible(pari, {**same, "league": "Women's CBA"}))
+        self.assertFalse(match_context_compatible(pari, {**same, "league": "U19 CBA"}))
+        self.assertFalse(match_context_compatible(pari, {**same, "period_length_seconds": 720}))
+        self.assertFalse(match_context_compatible(pari, {**same, "league": "EuroLeague"}))
+        self.assertFalse(match_context_compatible(pari, {**same, "start_time": "2026-11-22T10:00:00Z"}))
+        self.assertFalse(match_context_compatible(
+            {"team1": "Lions", "team2": "Tigers"},
+            {"home": "Lions", "away": "Tigers"}
+        ))
 
     def test_raw_archive_snapshots_are_append_only(self):
         with tempfile.TemporaryDirectory() as tmp:
