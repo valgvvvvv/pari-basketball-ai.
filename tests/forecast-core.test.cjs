@@ -36,6 +36,21 @@ assert.ok(Math.abs(riverportQ2.expectedRemaining - 42.85) < 0.03);
 assert.ok(Math.abs(riverportQ2.projection - 46.85) < 0.03,
   "Riverport Q2 must use the Q1 prior, not current tempo × remaining time");
 
+const nanjingOldSnapshot = core.quarterPosterior({
+  current: 1, elapsedSeconds: 63, periodLengthSeconds: 600,
+  priorPoints: 90, priorExposureSeconds: 1200, priorQuarterCount: 2
+});
+assert.equal(nanjingOldSnapshot.ready, true);
+assert.equal(nanjingOldSnapshot.priorQuarterCount, 2);
+assert.equal(nanjingOldSnapshot.priorIsAggregate, true);
+assert.equal(nanjingOldSnapshot.completedPoints, 90);
+assert.ok(Math.abs(nanjingOldSnapshot.projection - 39.9038004751) < 1e-8,
+  "fixed Nanjing-Xinjiang snapshot must use 90 prior points over 20 minutes");
+const nanjingDistribution = core.simulateQuarter(nanjingOldSnapshot, [{line:40.5}], "nanjing-xinjiang-fixed-snapshot", 100000);
+assert.ok(nanjingDistribution.probabilities[0].pUnder < 1,
+  "fixed Nanjing snapshot must not claim TM 100% from one early point");
+assert.ok(Math.abs(nanjingDistribution.probabilities[0].pOver + nanjingDistribution.probabilities[0].pUnder - 1) < 1e-9);
+
 const illawarraQ3 = core.quarterPosterior({
   current: 11, elapsedSeconds: 149, periodLengthSeconds: 600,
   completedQuarterTotals: [49, 46]
@@ -109,6 +124,10 @@ assert.ok(appSource.includes("scoreSource") && appSource.includes("clockSource")
 assert.ok(appSource.includes("probText=p=>p?"), "headline probabilities must come from the forecast distribution only");
 assert.ok(appSource.includes("Вероятности показаны только из собственного распределения"), "tool registry must distinguish model probabilities from bookmaker odds");
 assert.ok(appSource.includes("unifiedToolsPanelHtml") && appSource.includes("Недоступны / отключены:"), "all tools must be available in one shared registry");
+assert.ok(appSource.includes("formatElapsedClock(posterior.elapsedSeconds)"), "quarter elapsed time must be formatted as mm:ss");
+assert.ok(appSource.includes("priorExposureSeconds:aggregatePriorExposureSeconds"), "missing period splits must use aggregate historical score and exact exposure");
+assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
+assert.ok(htmlSource.includes("20261119-integrity-v52"), "frontend cache must be bumped after display fixes");
 assert.ok(appSource.includes("Ансамбль сценариев") && appSource.includes("не независимый голос"), "scenario mixture must be shown without counting it as an independent model");
 assert.ok(!appSource.includes('add("Динамика четверти"'), "a duplicate of the primary quarter forecast must not appear as a separate method");
 assert.ok(!appSource.includes("Единый прогноз · повтор основного расчёта"), "duplicate primary forecast cards must stay removed");
