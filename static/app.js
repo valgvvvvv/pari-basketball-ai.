@@ -1671,7 +1671,9 @@ async function refreshLiveMatches() {
           }
           forecastHtml += quarterForecastMarkup(quarterForecast,ev);
           const quarterHighlight=quarterHighlightInfo(ev);
-          const signals=prioritySignals(ev,forecast,quarterForecast);
+          const signals=Array.isArray(data.priority_signals)
+            ?data.priority_signals.filter(card=>String(card.event)===String(ev.id)).map(card=>card.signal)
+            :prioritySignals(ev,forecast,quarterForecast);
           const signalTag=signals.map(s=>'<span class="priority-signal">★ '+escapeHtml(priorityLabel(s))+'</span>').join("");
           for(const s of signals)priorityCards.push({ev,signal:s,teams});
           const highlightTag=signalTag+(quarterHighlight?'<span class="quarter-window-note">Окно 4–8 минут Q'+quarterHighlight.period+' · прошло '+quarterHighlight.minute+':'+String(quarterHighlight.second).padStart(2,"0")+'</span>':"");

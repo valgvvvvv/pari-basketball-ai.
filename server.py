@@ -13,6 +13,7 @@ from runtime_logging import configure_service_logging, emit_diagnostic
 configure_service_logging()
 from result_validation import settle_prediction
 from match_identity import match_context_compatible as external_match_context_compatible
+import server_signals
 
 app = FastAPI(title="PARI Basketball AI", version="0.2.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -787,6 +788,29 @@ async def pari_discover():
         # Keep the diagnostic response machine-readable instead of returning an opaque 500.
         return {"ok": False, "diagnostic_version": 10, "error": type(exc).__name__, "checked_at_utc": datetime.now(timezone.utc).isoformat()}
 
+
+
+def _sofascore_stat_groups(payload):
+    """Normalize both legacy object and per-period box-score response shapes."""
+    source = payload.get('statistics', payload) if isinstance(payload, dict) else None
+    sections = source if isinstance(source, list) else [source]
+    groups = []
+    for section in sections:
+        if not isinstance(section, dict) or not isinstance(section.get('groups'), list):
+            continue
+        for group in section['groups']:
+            if not isinstance(group, dict):
+                continue
+            items = group.get('statisticsItems', group.get('statistics'))
+            if not isinstance(items, list):
+                continue
+            normalized = dict(group, statistics=items)
+            period = group.get('period', section.get('period'))
+            match = re.fullmatch(r'(?:Q|quarter|period)?\s*(\d+)(?:ST|ND|RD|TH)?', str(period), re.I)
+            if match:
+                normalized['period'] = int(match.group(1))
+            groups.append(normalized)
+    return groups
 
 
 async def _enrich_with_sofascore_live(events):
@@ -2114,12 +2138,7 @@ async def _enrich_with_sofascore_live(events):
                             last_error = "stats_" + type(exc).__name__
                     if not stats_payload:
                         return False, last_error
-            source_stats = stats_payload.get("statistics") or stats_payload
-            if not isinstance(source_stats, dict) or "groups" not in source_stats:
-                return False, "statistics_format_unrecognized"
-            groups = source_stats.get("groups")
-            if not isinstance(groups, list):
-                return False, "statistics_format_unrecognized"
+            groups = _sofascore_stat_groups(stats_payload)
             if not groups:
                 return False, "statistics_section_absent"
             normalized = []
@@ -2188,7 +2207,7 @@ async def _enrich_with_sofascore_live(events):
                 deduped_stats = []
                 seen_stats = set()
                 for stat_row in merged_stats:
-                    stat_key = (stat_row.get("metric_key"), str(stat_row.get("home")), str(stat_row.get("away")))
+                    stat_key = (stat_row.get("target_period"), stat_row.get("metric_key"), str(stat_row.get("home")), str(stat_row.get("away")))
                     if stat_key not in seen_stats:
                         seen_stats.add(stat_key)
                         deduped_stats.append(stat_row)
@@ -2235,7 +2254,9 @@ async def _enrich_with_sofascore_live(events):
 
     return {
         "source": "SofaScore + SportScore",
-        "status": "ok" if (matched or (sportscore_diagnostics or {}).get("matched")) else ("no_live_events" if not live_rows else "no_confident_match"),
+        "status": "ok" if (matched or (sportscore_diagnostics or {}).get("matched")) else (
+            "source_unavailable" if not live_rows and (errors or (sportscore_diagnostics or {}).get('sportscore_errors'))
+            else "no_live_events" if not live_rows else "no_confident_match"),
         "live_events": len(live_rows),
         "matched": sum(1 for event in events if event.get("external_live")),
         "sofascore_matched": matched,
@@ -3282,6 +3303,7 @@ async def _refresh_live_enrichment_background(events_snapshot):
                 list(diagnostics.get("statistics_errors") or [])
                 + list(diagnostics.get("sofascore_errors") or [])
                 + list(sportscore_diag.get("errors") or [])
+                + list(sportscore_diag.get("sportscore_errors") or [])
             )
         ]
         timeout_seen = any("timeout" in x.casefold() for x in source_errors)
@@ -4963,6 +4985,7 @@ def _archive_save_events(data):
 async def _archive_collector_loop():
     # Independent of the phone/browser. It runs while the Render web process is awake.
     while True:
+        cycle_started = asyncio.get_running_loop().time()
         try:
             data = await _fetch_pari_live_events(catalog_only=False)
             if data.get("ok") and data.get("connected"):
@@ -4971,6 +4994,14 @@ async def _archive_collector_loop():
                 _ARCHIVE_LAST.update({"checked_at":datetime.now(timezone.utc).isoformat(),
                                       "events":count,"saved":saved,"error":None})
                 emit_diagnostic('MATCH_ARCHIVE_COLLECTOR', _ARCHIVE_LAST)
+                globals()["_PARI_LIVE_CACHE"] = {"saved_at": datetime.now(timezone.utc).timestamp(), "data": data}
+                try:
+                    ids = ','.join(str(e.get('id')) for e in data.get('events', []))
+                    history = await asyncio.to_thread(archive_recent, 10, ids)
+                    await server_signals.process(data, history['events'])
+                except Exception as signal_error:
+                    server_signals.STATUS['error'] = type(signal_error).__name__
+                    emit_diagnostic('SIGNAL_DETECTOR_ERROR', {'error': type(signal_error).__name__}, level='error')
             else:
                 _ARCHIVE_LAST.update({"checked_at":datetime.now(timezone.utc).isoformat(),
                                       "events":0,"saved":0,"error":"PARI feed unavailable"})
@@ -4978,7 +5009,15 @@ async def _archive_collector_loop():
             _ARCHIVE_LAST.update({"checked_at":datetime.now(timezone.utc).isoformat(),
                                   "error":type(exc).__name__ + ": " + str(exc)[:180]})
             emit_diagnostic("MATCH_ARCHIVE_ERROR", {"error": str(exc)[:240]}, level="error")
-        await asyncio.sleep(30)
+        await asyncio.sleep(max(1, 30 - (asyncio.get_running_loop().time() - cycle_started)))
+
+@app.get('/api/signals/status')
+def signal_status():
+    return server_signals.public_status()
+
+@app.on_event('startup')
+async def _start_signal_commands():
+    asyncio.create_task(server_signals.commands_loop())
 
 @app.get("/api/archive/status")
 def archive_status():
