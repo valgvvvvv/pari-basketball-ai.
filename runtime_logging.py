@@ -47,7 +47,7 @@ def emit_diagnostic(event, payload, *, level=None):
     if not verbose:
         keys = ("ok", "connected", "host", "total_events", "basketball_events", "checked_at", "checked_at_utc",
                 "events", "saved", "error", "diagnostic_version", "candidate_count", "items")
-        compact = {k: payload[k] for k in keys if k in payload and not isinstance(payload[k], (list, dict))}
+        compact = {k: payload[k] for k in keys if k in payload and payload[k] is not None and not isinstance(payload[k], (list, dict))}
         if isinstance(payload.get("events"), list):
             compact["events"] = len(payload["events"])
             compact["events_with_statistics"] = sum(bool(e.get("statistics_fields")) for e in payload["events"] if isinstance(e, dict))
