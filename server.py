@@ -9,6 +9,8 @@ from html.parser import HTMLParser
 from html import unescape
 import httpx
 import tempfile
+from runtime_logging import configure_service_logging, emit_diagnostic
+configure_service_logging()
 from result_validation import settle_prediction
 from match_identity import match_context_compatible as external_match_context_compatible
 
@@ -2281,7 +2283,33 @@ def _stat_value_for_ui(value):
 # PARI leaf competition IDs with independently supported playing-time rules.
 # Generic "friendly" and BSKT labels are intentionally NOT assigned a global format:
 # those events require explicit per-event format metadata or remain blocked.
+def _pari_explicit_text_format(*rows):
+    """Use explicit playing-format metadata, never infer it from a timer."""
+    found = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in ("ef", "comment", "scoreComment", "scoreCommentHead", "scoreCommentTail"):
+            for count, minutes in re.findall(r"(?<!\d)([24])\s*[xх×]\s*(10|12|20)(?!\d)", str(row.get(key) or ""), re.I):
+                candidate = (int(minutes) * 60, int(count))
+                if candidate in ((1200, 2), (600, 4), (720, 4)):
+                    found.add(candidate)
+    if len(found) != 1:
+        return None
+    length, count = found.pop()
+    return {"period_length_seconds": length, "period_count": count,
+            "source": "PARI explicit playing-format metadata (ef/score comment)",
+            "rules_version": "source_event_metadata", "source_url": None}
+
+
 PARI_COMPETITION_FORMATS = {
+    "42338": {
+        "period_length_seconds": 720, "period_count": 4,
+        "overtime_mode": "target_score",
+        "source": "NBA G League official FAQ: four 12-minute regulation quarters; untimed target-score overtime",
+        "rules_version": "NBA G League official FAQ checked 2026-11-20",
+        "source_url": "https://gleague.nba.com/faq",
+    },
     "37222": {
         "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
         "source": "EuroLeague regulation format: four 10-minute quarters; FIBA Article 8.1",
@@ -2492,7 +2520,7 @@ def _pari_normalize_match_timer_against_period(timer_seconds, period_number,
         count = int(period_count)
     except (TypeError, ValueError, OverflowError):
         return None
-    if length not in (600, 720) or count not in (2, 4):
+    if (length, count) not in ((600, 4), (720, 4), (1200, 2)):
         return None
     total = length * count
     if raw < 0:
@@ -2526,10 +2554,10 @@ def _pari_normalize_match_timer_against_period(timer_seconds, period_number,
 
     candidates = []
     elapsed_up = raw
-    if min(count, max(1, int(elapsed_up // length) + 1)) == period:
+    if (period - 1) * length <= elapsed_up <= period * length:
         candidates.append(("up", elapsed_up))
     elapsed_down = total - raw
-    if min(count, max(1, int(elapsed_down // length) + 1)) == period:
+    if (period - 1) * length <= elapsed_down <= period * length:
         candidates.append(("down", elapsed_down))
     if not candidates:
         return None
@@ -2568,7 +2596,7 @@ def _pari_period_from_match_timer(timer_seconds, period_length_seconds,
         count = int(period_count)
     except (TypeError, ValueError, OverflowError):
         return None
-    if length not in (600, 720) or count not in (2, 4) or raw < 0:
+    if (length, count) not in ((600, 4), (720, 4), (1200, 2)) or raw < 0:
         return None
     if direction == "up":
         elapsed = raw
@@ -3325,15 +3353,26 @@ def _pari_successful_source(response):
     return f"{scheme}://{host}" + (f":{port}" if port and port != default_port else "")
 
 
-async def _fetch_pari_live_events(catalog_only: bool = False):
-    from urllib.parse import urljoin
-    # Try the host that most recently returned a valid feed first.
+_PARI_LAST_WORKING_HOST = None
+
+
+def _pari_feed_hosts(preferred=None):
     hosts = [
         "https://line-lb51-w.pb06e2-resources.com",
         "https://line-lb01-w.pb06e2-resources.com",
         "https://line-vk01-w.pb06e2-resources.ru",
         "https://line-vk02-w.pb06e2-resources.ru",
     ]
+    if preferred in hosts:
+        hosts.remove(preferred)
+        hosts.insert(0, preferred)
+    return hosts
+
+
+async def _fetch_pari_live_events(catalog_only: bool = False):
+    from urllib.parse import urljoin
+    global _PARI_LAST_WORKING_HOST
+    hosts = _pari_feed_hosts(_PARI_LAST_WORKING_HOST)
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
@@ -3406,6 +3445,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     continue
                 successful_feed_url = str(response.url)
                 successful_source = _pari_successful_source(response) or successful_feed_url.split("/events/list", 1)[0]
+                _PARI_LAST_WORKING_HOST = host
                 all_events = payload["events"]
                 # PARI/Fonbet-style feeds keep live scoreboard data in top-level
                 # eventMiscs/liveEventInfos arrays, keyed by event id, not inside
@@ -3824,6 +3864,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 "source": rule["source"],
                                 "rules_version": rule["rules_version"],
                                 "source_url": rule.get("source_url"),
+                                "overtime_mode": rule.get("overtime_mode"),
                             }
                             break
 
@@ -3849,6 +3890,13 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             }
 
                     if period_length_seconds is None:
+                        explicit_format = _pari_explicit_text_format(event, event_misc, live_info)
+                        if explicit_format:
+                            period_length_seconds = explicit_format["period_length_seconds"]
+                            period_count = explicit_format["period_count"]
+                            period_format_source = explicit_format
+
+                    if period_length_seconds is None:
                         format_rows = (event, event_misc, live_info, *repaired_related_rows)
                         explicit_length = next((row.get(k) for row in format_rows
                                                 for k in ("periodLengthSeconds", "periodDurationSeconds",
@@ -3864,7 +3912,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             candidate_count = int(float(explicit_count)) if explicit_count is not None else 4
                         except (TypeError, ValueError, OverflowError):
                             candidate_length, candidate_count = None, None
-                        if candidate_length in (300, 600, 720) and candidate_count in (2, 4):
+                        if (candidate_length, candidate_count) in ((300, 4), (600, 4), (720, 4), (1200, 2)):
                             period_length_seconds = candidate_length
                             period_count = candidate_count
                             period_format_source = {
@@ -3976,8 +4024,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # Use it to reject a future zero-score quarter row (e.g. Q2 0:0
                     # while Q1 is still running) and determine the active period.
                     if (not period_value_is_direct and not quarter_rows
-                            and period_length_seconds in (600, 720)
-                            and period_count == 4 and timer_seconds is not None
+                            and (period_length_seconds, period_count) in ((600, 4), (720, 4), (1200, 2))
+                            and timer_seconds is not None
                             and 0 <= timer_seconds < period_length_seconds * period_count):
                         timer_period = min(
                             period_count, max(1, int(timer_seconds // period_length_seconds) + 1)
@@ -3995,7 +4043,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # observed live feed. If the apparent period came only from a
                     # child quarter row (often a future 0:0 market row), resolve it
                     # against the already-verified timer direction before normalizing.
-                    if (not period_value_is_direct and period_length_seconds in (600, 720)
+                    if (not period_value_is_direct and period_length_seconds in (600, 720, 1200)
                             and period_count in (2, 4) and timer_seconds is not None
                             and (timer_seconds > period_length_seconds
                                  or (_PARI_TIMER_OBSERVATIONS.get(str(event.get("id") or ""), {}).get("scope") == "match"))):
@@ -4093,6 +4141,12 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                     clock_value = normalized_clock
                             else:
                                 clock_value = normalized_clock
+                    if ((period_format_source or {}).get("overtime_mode") == "target_score"
+                            and (overtime_detected or (explicit_period or 0) > (period_count or 4))):
+                        normalized_timer = {"timer_semantics_verified": False,
+                            "timer_interpretation_status": "untimed_overtime",
+                            "timer_block_reason": "Овертайм до целевого счёта: временная модель не применяется"}
+                        clock_value = None
                     timer_semantics_verified = bool(normalized_timer.get("timer_semantics_verified"))
                     timer_interpretation_status = normalized_timer.get("timer_interpretation_status")
 
@@ -4130,15 +4184,17 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # period. When the verified cumulative timer reaches full regulation
                     # and all four quarter scores add up exactly to the final score,
                     # suppress this stale row instead of presenting it as a live game.
-                    if (timer_seconds is not None and period_length_seconds
-                            and timer_seconds >= 4 * period_length_seconds
+                    if (timer_semantics_verified and not overtime_detected
+                            and timer_seconds is not None and period_length_seconds
+                            and period_count == 4 and timer_seconds == 4 * period_length_seconds
                             and len(period_scores) == 4 and all(pair is not None for pair in period_scores)):
                         pari_score_check = (_extract_pari_score(event)
                                             or _extract_pari_score(event_misc)
                                             or _extract_pari_score(live_info))
                         quarter_totals = [sum(pair[side] for pair in period_scores)
                                           for side in (0, 1)]
-                        if pari_score_check == quarter_totals:
+                        if (pari_score_check == quarter_totals
+                                and pari_score_check[0] != pari_score_check[1]):
                             filter_counts["accepted_live_roots"] = max(
                                 0, filter_counts["accepted_live_roots"] - 1
                             )
@@ -4366,7 +4422,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         )),
                         "note": "PARI list and markets are returned independently; optional provider enrichment is cached per event in the background."
                     }
-                    print("PARI_LIVE_DIAG " + json.dumps({
+                    emit_diagnostic('PARI_LIVE_DIAG', {
                         "ok": True,
                         "host": successful_source,
                         "total_events": len(all_events),
@@ -4428,7 +4484,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             {k: item.get(k) for k in ("host", "status", "error") if item.get(k) is not None}
                             for item in attempts
                         ],
-                    }, ensure_ascii=False, default=str), flush=True)
+                    })
                     return {
                         "ok": True,
                         "connected": True,
@@ -4533,13 +4589,13 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
         + ((" (HTTP " + str(item.get("status")) + ")") if item.get("status") is not None else "")
         for item in attempts
     )
-    print("PARI_LIVE_DIAG " + json.dumps({
+    emit_diagnostic('PARI_LIVE_DIAG', {
         "ok": False,
         "attempts": [
             {k: item.get(k) for k in ("host", "status", "error") if item.get(k) is not None}
             for item in attempts
         ],
-    }, ensure_ascii=False, default=str), flush=True)
+    })
     return {
         "ok": False,
         "connected": False,
@@ -4712,7 +4768,7 @@ async def _pari_startup_stats_discovery():
                 "request_string_hints":(chunk.get("request_string_hints") or [])[:80],
                 "contexts":contexts[:24],
             })
-        print("PARI_BASKETBALL_CHUNK_AUDIT " + json.dumps(compact_basketball_chunks, ensure_ascii=False, default=str), flush=True)
+        emit_diagnostic('PARI_BASKETBALL_CHUNK_AUDIT', compact_basketball_chunks)
         candidates = []
         for chunk in result.get("chunk_scans", []) if isinstance(result, dict) else []:
             if not isinstance(chunk, dict):
@@ -4779,9 +4835,9 @@ async def _pari_startup_stats_discovery():
                    "candidate_count": len(unique),
                    "candidates": [{**item, "snippet": str(item.get("snippet") or "")[:260]}
                                   for item in unique[:18]]}
-        print("PARI_STATS_DISCOVERY " + json.dumps(summary, ensure_ascii=False, default=str), flush=True)
+        emit_diagnostic('PARI_STATS_DISCOVERY', summary)
     except Exception as exc:
-        print("PARI_STATS_DISCOVERY_ERROR " + type(exc).__name__ + ": " + str(exc)[:240], flush=True)
+        emit_diagnostic("PARI_STATS_DISCOVERY_ERROR", {"error": type(exc).__name__ + ": " + str(exc)[:240]}, level="warning")
 
 
 async def _pari_startup_live_statistics_audit():
@@ -4819,7 +4875,7 @@ async def _pari_startup_live_statistics_audit():
                 ][:20],
                 "related_rows": len(event.get("related_events") or []),
             })
-        print("PARI_STATISTICS_AUDIT " + json.dumps({
+        emit_diagnostic('PARI_STATISTICS_AUDIT', {
             "ok": bool(data.get("ok")),
             "connected": bool(data.get("connected")),
             "total_events": data.get("total_events"),
@@ -4827,9 +4883,9 @@ async def _pari_startup_live_statistics_audit():
             "live_score_source": data.get("live_score_source"),
             "events": samples,
             "checked_at_utc": datetime.now(timezone.utc).isoformat(),
-        }, ensure_ascii=False, default=str), flush=True)
+        })
     except Exception as exc:
-        print("PARI_STATISTICS_AUDIT_ERROR " + type(exc).__name__ + ": " + str(exc)[:300], flush=True)
+        emit_diagnostic("PARI_STATISTICS_AUDIT_ERROR", {"error": type(exc).__name__ + ": " + str(exc)[:300]}, level="warning")
 
 
 @app.on_event("startup")
@@ -4914,14 +4970,14 @@ async def _archive_collector_loop():
                     count, saved = await asyncio.to_thread(_archive_save_events, data)
                 _ARCHIVE_LAST.update({"checked_at":datetime.now(timezone.utc).isoformat(),
                                       "events":count,"saved":saved,"error":None})
-                print("MATCH_ARCHIVE_COLLECTOR " + json.dumps(_ARCHIVE_LAST,ensure_ascii=False),flush=True)
+                emit_diagnostic('MATCH_ARCHIVE_COLLECTOR', _ARCHIVE_LAST)
             else:
                 _ARCHIVE_LAST.update({"checked_at":datetime.now(timezone.utc).isoformat(),
                                       "events":0,"saved":0,"error":"PARI feed unavailable"})
         except Exception as exc:
             _ARCHIVE_LAST.update({"checked_at":datetime.now(timezone.utc).isoformat(),
                                   "error":type(exc).__name__ + ": " + str(exc)[:180]})
-            print("MATCH_ARCHIVE_ERROR " + str(exc)[:240],flush=True)
+            emit_diagnostic("MATCH_ARCHIVE_ERROR", {"error": str(exc)[:240]}, level="error")
         await asyncio.sleep(30)
 
 @app.get("/api/archive/status")
