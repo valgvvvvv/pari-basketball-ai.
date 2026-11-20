@@ -1,0 +1,20 @@
+services:
+  - type: worker
+    name: signal-basketball-detector
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeployTrigger: off
+    envVars:
+      - key: SIGNAL_BOT_TOKEN
+        sync: false
+      - key: SIGNAL_CHAT_ID
+        sync: false
+      - key: SIGNAL_DATA_DIR
+        value: /app/data
+    disk:
+      name: signal-state
+      mountPath: /app/data
+      sizeGB: 1
