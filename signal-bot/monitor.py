@@ -164,7 +164,7 @@ def run(config, once=False):
     DATA.mkdir(parents=True, exist_ok=True)
     store = Store(DATA / 'signal-bot.sqlite3')
     store.bootstrap(os.environ.get('SIGNAL_INITIAL_STATE'))
-    status = 'Ожидаю свежие данные сайта.'
+    status = store.get('status', 'Ожидаю первую проверку сайта из облака.')
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=['--disable-dev-shm-usage'])
         page = browser.new_page()
