@@ -40,7 +40,7 @@ jobs:
         env:
           SIGNAL_BOT_TOKEN: ${{ secrets.SIGNAL_BOT_TOKEN }}
           SIGNAL_CHAT_ID: ${{ secrets.SIGNAL_CHAT_ID }}
-          SIGNAL_INITIAL_STATE: ${{ secrets.SIGNAL_INITIAL_STATE }}
+          SIGNAL_FIRST_RUN_BASELINE: '1'
           SIGNAL_DATA_DIR: ${{ github.workspace }}/.signal-state
           PYTHONUNBUFFERED: '1'
         run: python signal-bot/monitor.py --once
