@@ -128,6 +128,19 @@ def deliver(cards, store, tg, chat_id, now=None):
     return sent
 
 
+def establish_baseline(cards, store):
+    if store.get('baseline_done') == '1':
+        return False
+    for card in cards:
+        try:
+            if card.get('expires', 0) > time.time() * 1000:
+                store.mark(signal_key(card))
+        except ValueError:
+            continue
+    store.put('baseline_done', '1')
+    return True
+
+
 def commands(tg, config, store, status):
     offset = int(store.get('offset', '0'))
     for update in tg.call('getUpdates', offset=offset, timeout=0, allowed_updates=['message']):
@@ -174,8 +187,13 @@ def run(config, once=False):
                     checked = datetime.now(ZoneInfo('Europe/Moscow')).strftime('%d.%m %H:%M:%S МСК')
                     panel_text = page.locator('#priorityForecasts').inner_text()
                     source_text = page.locator('#liveSourceStatus').inner_text()
+                    if source_text.strip() != 'Подключён':
+                        raise RuntimeError('Fresh LIVE source unavailable')
                     status = f'Проверка: {checked}. Карточек детектора: {len(cards)}. Источник: {source_text}. {panel_text[:350]}'
                     store.put('status', status)
+                    if os.environ.get('SIGNAL_FIRST_RUN_BASELINE') == '1':
+                        if establish_baseline(cards, store):
+                            LOG.info('Initial detector baseline stored; existing cards not resent')
                     if store.get('paused') != '1':
                         count = deliver(cards, store, tg, config['chat_id'])
                         if count:
