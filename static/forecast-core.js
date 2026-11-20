@@ -96,7 +96,9 @@
     const result=[];
     for(const target of ["quarter","match"]){
       const f=input[target];
-      if(!f?.ready||f.preliminary||target==="match"&&period<3)continue;
+      if(!f?.ready||f.preliminary)continue;
+      if(target==="match"&&(period!==4||!Number.isFinite(input.elapsedSeconds)||input.elapsedSeconds<120||
+          !Number.isFinite(input.periodLengthSeconds)||input.elapsedSeconds>=input.periodLengthSeconds))continue;
       if(target==="quarter"&&(!Number.isFinite(input.elapsedSeconds)||input.elapsedSeconds<240||input.elapsedSeconds>480))continue;
       const candidates=(f.probabilities||[]).filter(x=>{
         const values=[x.pOver,x.pUnder,x.pPush??0];

@@ -1127,10 +1127,12 @@ function quarterHighlightInfo(ev){
 
 function prioritySignals(ev,forecast,quarterForecast){
   const at=Date.parse(ev?.feed_checked_at_utc||"");
-  const windowInfo=quarterHighlightInfo(ev);
+  const clock=findLiveClock(ev),length=inferPeriodLengthForForecast(ev)?.seconds;
+  const timer=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
+  const elapsed=timer&&Number.isFinite(length)?length-(Number(timer[1])*60+Number(timer[2])):null;
   return window.PARIForecastCore.selectPrioritySignals({
     ageSeconds:Number.isFinite(at)?(Date.now()-at)/1000:null,
-    period:findLivePeriod(ev),elapsedSeconds:windowInfo?.elapsed,
+    period:findLivePeriod(ev),elapsedSeconds:elapsed,periodLengthSeconds:length,
     timerVerified:ev?.timer_semantics_verified===true,
     clockValid:ev?.clock_integrity?.valid!==false&&!!findLiveClock(ev),
     scoreValid:validateScoreTimeline(ev,findLiveScore(ev),findLivePeriod(ev)).valid,
@@ -1687,7 +1689,7 @@ async function refreshLiveMatches() {
       if(priorityPanel){
         priorityCards.sort((a,b)=>b.signal.probability-a.signal.probability||String(a.ev.id).localeCompare(String(b.ev.id)));
         prioritySignalsExpiresAt=priorityCards.length?Math.min(...priorityCards.map(x=>Date.parse(x.ev.feed_checked_at_utc)+90000)):0;
-        priorityPanel.innerHTML='<h3>Наиболее вероятные направления по модели</h3><p class="muted">Четверти: 4–8 минута; матч: Q3–Q4. Порог 65%, свежий ответ API до 90 с и проверенный таймер. Вероятности не калиброваны; доходность не подтверждена. Коэффициент и правило ОТ сверяйте в PARI.</p>'+(
+        priorityPanel.innerHTML='<h3>Наиболее вероятные направления по модели</h3><p class="muted">Четверти: 4–8 минута; уверенный сигнал на тотал матча — только Q4, после 2:00 сыгранного времени. Порог 65%, свежий ответ API до 90 с и проверенный таймер. Вероятности не калиброваны; доходность не подтверждена. Коэффициент и правило ОТ сверяйте в PARI.</p>'+(
           priorityCards.length?priorityCards.slice(0,3).map(x=>'<button type="button" class="priority-card" data-event-id="'+escapeHtml(x.ev.id)+'"><b>'+x.teams+'</b><span>'+escapeHtml(priorityLabel(x.signal))+'</span><small>Открыть разбор →</small></button>').join(""):
           '<p>Сейчас нет направлений, прошедших условия отбора. Проверьте таймер, свежесть данных и линии в разборе матча.</p>');
         priorityPanel.querySelectorAll("[data-event-id]").forEach(el=>el.addEventListener("click",()=>{
