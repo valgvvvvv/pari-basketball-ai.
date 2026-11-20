@@ -159,6 +159,21 @@ def commands(tg, config, store, status):
 
 
 def run(config, once=False):
+    if once:
+        # The server owns delivery when enabled. This scheduled request keeps the
+        # site reachable without a browser and never starts a second Telegram poller.
+        try:
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open(SITE + 'api/signals/status', timeout=15) as response:
+                status = json.load(response)
+            if status.get('mode') == 'server' and status.get('enabled') is True:
+                if status.get('error'):
+                    raise RuntimeError('Server detector reports an error')
+                print('Server detector enabled. Last check:', status.get('checked_at_utc'))
+                return
+        except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+                raise RuntimeError('Cannot check server detector') from None
     from playwright.sync_api import sync_playwright
     tg = Telegram(config['token'])
     DATA.mkdir(parents=True, exist_ok=True)
