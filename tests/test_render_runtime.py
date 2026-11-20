@@ -94,7 +94,7 @@ class RenderRuntimeTests(unittest.TestCase):
     def test_successful_fallback_is_info_and_compact(self):
         out, err = io.StringIO(), io.StringIO()
         with patch.dict("os.environ", {"PARI_DIAGNOSTICS_VERBOSE": "0"}), patch.object(logs, "_LAST_DIAGNOSTIC", {}), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            payload = {"ok": True, "basketball_events": 7, "forecast_input_samples": ["x" * 10000],
+            payload = {"ok": True, "error": None, "basketball_events": 7, "forecast_input_samples": ["x" * 10000],
                        "attempts": [{"error": "ConnectError"}, {"status": 200}]}
             logs.emit_diagnostic("PARI_LIVE_DIAG", payload)
             logs.emit_diagnostic("PARI_LIVE_DIAG", payload)
@@ -104,6 +104,8 @@ class RenderRuntimeTests(unittest.TestCase):
         self.assertEqual(record["level"], "info")
         self.assertEqual(record["failed_attempts"], 1)
         self.assertNotIn("forecast_input_samples", record)
+        self.assertNotIn("error", record)
+        self.assertNotIn("null", out.getvalue())
 
     def test_actual_failures_are_not_hidden_or_rate_limited(self):
         out, err = io.StringIO(), io.StringIO()
