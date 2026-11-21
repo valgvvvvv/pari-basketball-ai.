@@ -17,7 +17,7 @@ function serverPriorityCards(data){
  for(const original of data.events||[]){
   const ev={...original,feed_checked_at_utc:data.checked_at_utc};
   try {
-  const match=automaticForecast(ev),quarter=automaticQuarterForecast(ev);
+  const match=automaticForecast(ev),quarter=automaticQuarterForecast(ev,match);
   const decisions=signalEvaluations(ev,match,quarter);
   for(const decision of decisions){
    const forecast=decision.target==='match'?match.estimate:quarter;

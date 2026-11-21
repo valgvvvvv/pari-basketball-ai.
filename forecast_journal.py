@@ -79,6 +79,7 @@ def confirm(forecast_id, final):
     """Local/import operation only; public clients cannot submit or replace results."""
     db = connect()
     try:
+        db.execute('BEGIN IMMEDIATE')
         found = db.execute('SELECT payload FROM forecasts WHERE id=?', (forecast_id,)).fetchone()
         if not found:
             raise ValueError('Unknown forecast ID')
@@ -105,13 +106,14 @@ def confirm(forecast_id, final):
             if previous and previous[0] != actual:
                 raise ValueError('Conflicting independently confirmed regulation score')
             db.execute('INSERT OR IGNORE INTO labels VALUES (?,?,?)', (forecast_id, int(actual), packed(final)))
-            db.commit()
         if not known_rule:
+            db.commit()
             return {'status': 'labeled' if label_ready else 'unresolved', 'market_settlement': 'unresolved',
                     'reason': 'Prediction-time market rule missing; point accuracy is separate from betting settlement'}
         result = settle_prediction({'event_id': row['event_id'], 'snapshot_id': row['snapshot_id'],
             'target': target, 'market': {'lines': [{'line': decision['line']}]}}, final)
         if result['status'] != 'settled':
+            db.commit()
             return result
         odds = (decision.get('comparison') or {}).get('odds')
         win = result['result'] == ('over_won' if decision['direction'] == 'ТБ' else 'under_won')
