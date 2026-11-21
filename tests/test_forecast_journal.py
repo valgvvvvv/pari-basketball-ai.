@@ -62,8 +62,18 @@ class JournalTests(unittest.TestCase):
     def test_unknown_rules_are_not_filled_in_after_the_match(self):
         self.row['decision']['market'] = {}
         identity = self.save()
-        with self.assertRaises(ValueError):
-            journal.confirm(identity, self.final)
+        self.assertEqual(journal.confirm(identity, self.final)['market_settlement'], 'unresolved')
+        self.assertEqual(journal.status()['confirmed'], 0)
+        self.assertEqual(journal.status()['confirmed_games'], 1)
+        self.assertEqual(evaluate(load_database(self.dbpath))['partitions']['development']['match']['regulation_mae'], 2)
+
+    def test_model_versions_are_not_pooled(self):
+        self.save()
+        journal.record([self.row], 'other-version')
+        report = evaluate(load_database(self.dbpath))
+        self.assertEqual(len(report['by_model_source_sha256']), 2)
+        for part in report['by_model_source_sha256'].values():
+            self.assertEqual(part['selected_checkpoints'], 1)
 
     def test_first_checkpoint_and_whole_game_split_no_result_cherry_picking(self):
         identity = self.save()
