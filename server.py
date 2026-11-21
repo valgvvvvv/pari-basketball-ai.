@@ -2324,6 +2324,12 @@ def _pari_explicit_text_format(*rows):
 
 
 PARI_COMPETITION_FORMATS = {
+    "12071": {
+        "period_length_seconds": 720, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "NBA official timing rules; PARI NBA regular season",
+        "rules_version": "NBA Rule No. 5, section II",
+        "source_url": "https://official.nba.com/rule-no-5-scoring-and-timing/",
+    },
     "42338": {
         "period_length_seconds": 720, "period_count": 4,
         "overtime_mode": "target_score",
