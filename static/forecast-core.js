@@ -88,30 +88,63 @@
       low80:quantile(outcomes,.10),high80:quantile(outcomes,.90),low95:quantile(outcomes,.025),high95:quantile(outcomes,.975),
       probabilities,method:posterior.method,distribution:"negative-binomial predictive (Gamma-Poisson)"};
   }
-  function selectPrioritySignals(input){
+  const MODEL_VERSION="regulation-research-v2";
+  const REASONS={data:"Не подтверждены свежесть, счёт или таймер",window:"Вне окна отбора",preliminary:"Предварительный расчёт",
+    probabilities:"Некорректное распределение",rules:"Правила рынка не подтверждены",overtime:"Прогноз основного времени несовместим с рынком с ОТ",
+    prices:"Не подтверждены обе цены ТБ/ТМ",quote:"Линия устарела или время котировки неизвестно",
+    calibration:"Вероятности не калиброваны на независимых матчах",validation:"Преимущество не подтверждено независимой проверкой",
+    edge:"Нет положительного преимущества с учётом погрешности",threshold:"Оценка модели ниже 65%"};
+  // These are diagnostic prices, not calibrated probabilities or demonstrated edge.
+  function marketComparison(row,market){
+    if(!market||market.pricesVerified!==true||![market.overOdds,market.underOdds].every(x=>typeof x==="number"&&Number.isFinite(x)&&x>1))return null;
+    const overImplied=1/market.overOdds,underImplied=1/market.underOdds,sum=overImplied+underImplied;
+    const direction=row.pOver>=row.pUnder?"ТБ":"ТМ",pWin=Math.max(row.pOver,row.pUnder),pPush=row.pPush||0;
+    const odds=direction==="ТБ"?market.overOdds:market.underOdds;
+    return {direction,odds,pWin,pPush,overround:sum-1,noVigOver:overImplied/sum,noVigUnder:underImplied/sum,
+      breakEvenConditional:1/odds,modelExpectedReturn:pWin*odds+pPush-1};
+  }
+  function evaluateSignals(input){
     const age=Number(input.ageSeconds),period=Number(input.period);
-    if(input.ageSeconds==null||!Number.isFinite(age)||age<0||age>90||
+    const badData=input.ageSeconds==null||!Number.isFinite(age)||age<0||age>90||
        input.timerVerified!==true||input.scoreValid!==true||input.clockValid!==true||
-       ![1,2,3,4].includes(period))return [];
+       ![1,2,3,4].includes(period)||!Number.isFinite(input.periodLengthSeconds)||
+       !Number.isFinite(input.elapsedSeconds)||input.elapsedSeconds<0||input.elapsedSeconds>=input.periodLengthSeconds;
     const result=[];
     for(const target of ["quarter","match"]){
       const f=input[target];
-      if(!f?.ready||f.preliminary)continue;
-      if(target==="match"&&(period!==4||!Number.isFinite(input.elapsedSeconds)||input.elapsedSeconds<120||
-          !Number.isFinite(input.periodLengthSeconds)||input.elapsedSeconds>=input.periodLengthSeconds))continue;
-      if(target==="quarter"&&(!Number.isFinite(input.elapsedSeconds)||input.elapsedSeconds<240||input.elapsedSeconds>480))continue;
-      const candidates=(f.probabilities||[]).filter(x=>{
+      if(!f?.ready)continue;
+      for(const x of f.probabilities||[]){
+        const reasons=[];
+        if(badData)reasons.push("data");
+        if(target==="match"?(period!==4||input.elapsedSeconds<120):(input.elapsedSeconds<240||input.elapsedSeconds>480))reasons.push("window");
+        if(f.preliminary)reasons.push("preliminary");
         const values=[x.pOver,x.pUnder,x.pPush??0];
-        return x.line!=null&&Number.isFinite(Number(x.line))&&!x.stale&&
+        const valid=x.line!=null&&Number.isFinite(Number(x.line))&&!x.stale&&
           (f.current==null||Number(x.line)>Number(f.current))&&
           values.every(v=>typeof v==="number"&&Number.isFinite(v)&&v>=0&&v<=1)&&
           Math.abs(values.reduce((a,b)=>a+b,0)-1)<0.002;
-      }).map(x=>({target,period,line:Number(x.line),direction:x.pOver>=x.pUnder?"ТБ":"ТМ",
-        probability:Math.max(x.pOver,x.pUnder),push:x.pPush||0}));
-      candidates.sort((a,b)=>b.probability-a.probability||a.line-b.line);
-      if(candidates[0]?.probability>=0.65)result.push(candidates[0]);
+        if(!valid)continue;
+        const market=x.market||{},quoteAge=(Number(input.nowMs)-Date.parse(market.quotedAtUtc||""))/1000;
+        if(market.rulesConfirmed!==true||!market.ruleSource||typeof market.includesOvertime!=="boolean")reasons.push("rules");
+        else if(market.includesOvertime!==false)reasons.push("overtime");
+        // Both current models target regulation only. No unvalidated OT adjustment is invented.
+        const comparison=marketComparison(x,market);
+        if(!comparison)reasons.push("prices");
+        if(!Number.isFinite(quoteAge)||quoteAge<0||quoteAge>90||market.suspended!==false)reasons.push("quote");
+        // Current model has no independently fitted calibrator. A feed-supplied flag cannot promote it.
+        reasons.push("calibration","validation");
+        const probability=Math.max(x.pOver,x.pUnder);
+        if(probability<.65)reasons.push("threshold");
+        if(comparison&&comparison.modelExpectedReturn<=0)reasons.push("edge");
+        const critical=reasons.some(r=>!["calibration","validation","threshold","edge"].includes(r));
+        result.push({target,period,line:Number(x.line),direction:x.pOver>=x.pUnder?"ТБ":"ТМ",probability,
+          pOver:x.pOver,pUnder:x.pUnder,pPush:x.pPush||0,push:x.pPush||0,
+          status:critical?"shadow":"research",priority:false,calibrated:false,modelVersion:MODEL_VERSION,
+          predictionIncludesOvertime:false,market,comparison,reasonCodes:reasons,reasons:reasons.map(r=>REASONS[r])});
+      }
     }
-    return result.sort((a,b)=>b.probability-a.probability||a.target.localeCompare(b.target));
+    return result.sort((a,b)=>b.probability-a.probability||a.target.localeCompare(b.target)||a.line-b.line);
   }
-  return {quarterPosterior,simulateQuarter,selectPrioritySignals};
+  function selectPrioritySignals(input){return evaluateSignals(input).filter(x=>x.priority===true);}
+  return {quarterPosterior,simulateQuarter,selectPrioritySignals,evaluateSignals,marketComparison,MODEL_VERSION};
 });

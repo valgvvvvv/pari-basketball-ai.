@@ -14,6 +14,7 @@ configure_service_logging()
 from result_validation import settle_prediction
 from match_identity import match_context_compatible as external_match_context_compatible
 import server_signals
+import forecast_journal
 
 app = FastAPI(title="PARI Basketball AI", version="0.2.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -5014,6 +5015,17 @@ async def _archive_collector_loop():
 @app.get('/api/signals/status')
 def signal_status():
     return server_signals.public_status()
+
+@app.get('/api/research/status')
+def research_status():
+    return forecast_journal.status()
+
+@app.get('/api/research/export')
+def research_export():
+    rows = forecast_journal.export_rows()
+    return Response('\n'.join(json.dumps(row, ensure_ascii=False) for row in rows),
+                    media_type='application/x-ndjson',
+                    headers={'Content-Disposition': 'attachment; filename="forecast-research.jsonl"'})
 
 @app.on_event('startup')
 async def _start_signal_commands():

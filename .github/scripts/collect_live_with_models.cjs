@@ -94,10 +94,12 @@ const { chromium } = require("playwright");
         };
         try {
           const match = automaticForecast(ev);
-          const quarter = automaticQuarterForecast(ev);
+          const quarter = automaticQuarterForecast(ev, match);
           row.lines = getMatchTotalLines(ev) || [];
           row.match = match;
           row.quarter = quarter;
+          row.signal_evaluations = signalEvaluations(ev, match, quarter);
+          row.model_versions.quality_gate = window.PARIForecastCore.MODEL_VERSION;
           row.ai = aiModelAnalysis(ev, match, quarter);
           row.classic_match = classicBasketballModelAnalysis(ev, match, quarter, "match");
           row.classic_quarter = classicBasketballModelAnalysis(ev, match, quarter, "quarter");

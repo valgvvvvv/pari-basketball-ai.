@@ -34,17 +34,21 @@ class DetectorTests(unittest.TestCase):
         data = {'events': [fixture()], 'checked_at_utc': datetime.now(timezone.utc).isoformat()}
         script = server_detector.source_bundle() + '\nconsole.log(JSON.stringify(serverPriorityCards(' + json.dumps(data) + ')));'
         node_result = subprocess.run([node, '-'], input=script, encoding='utf-8', capture_output=True, check=True)
-        self.assertEqual(server_detector.calculate(data), json.loads(node_result.stdout))
+        actual = server_detector.calculate(data)
+        actual.pop('model_source_sha256')
+        self.assertEqual(actual, json.loads(node_result.stdout))
 
     def test_real_frontend_functions_execute_without_browser(self):
         data = {'events': [fixture()], 'checked_at_utc': datetime.now(timezone.utc).isoformat()}
         result = server_detector.calculate(data)
         self.assertEqual(result['errors'], [])
         cards = result['cards']
-        self.assertEqual(len(cards), 1)
-        self.assertEqual(cards[0]['signal']['target'], 'match')
-        self.assertEqual(cards[0]['signal']['direction'], 'ТМ')
-        self.assertEqual(cards[0]['signal']['line'], 190.5)
+        self.assertEqual(cards, [])
+        decision = result['evaluations'][0]['decision']
+        self.assertEqual(decision['target'], 'match')
+        self.assertEqual(decision['direction'], 'ТМ')
+        self.assertEqual(decision['line'], 190.5)
+        self.assertIn('calibration', decision['reasonCodes'])
 
     def test_stale_unverified_and_q3_never_emit_match_signal(self):
         for change, age in [({'timer_semantics_verified': False}, 0), ({}, 100), ({'period': 3}, 0)]:

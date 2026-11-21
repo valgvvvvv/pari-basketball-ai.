@@ -576,15 +576,20 @@ function possessionModelContext(ev,estimate,period,clock){
   };
   const read=(side,keys,part="value")=>{
     const row=rowFor(keys);if(!row)return null;
+    const key=normalizeKey(row.metric_key||row.name);
+    const explicitAttempts=part==="attempts"&&/attempt|^(?:fga|fta)$/.test(key);
     const value=row[side];
     if(value&&typeof value==="object"){
       const attempt=value.attempts??value.attempted??value.attemptsCount??value.attempt_count;
       if(part==="attempts"&&attempt!=null&&Number.isFinite(Number(attempt)))return Number(attempt);
       const made=value.made??value.scored??value.current??value.value??value.total??value.count??value.displayValue??value.display_value;
-      if(made!=null){const parsed=parseStatCount(made);if(parsed)return parsed.value;const n=Number(made);if(Number.isFinite(n))return n;}
+      if(made!=null){
+        const parsed=parseStatCount(made);
+        if(parsed)return part==="attempts"?(parsed.attempts??(explicitAttempts?parsed.value:null)):parsed.value;
+      }
     }
     const parsed=parseStatCount(value);if(!parsed)return null;
-    if(part==="attempts")return parsed.attempts!=null&&Number.isFinite(parsed.attempts)?parsed.attempts:null;
+    if(part==="attempts")return parsed.attempts??(explicitAttempts?parsed.value:null);
     return Number.isFinite(parsed.value)?parsed.value:null;
   };
   const sides={home:{},away:{}};
@@ -717,7 +722,7 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   const playByPlay=ev?.play_by_play||ev?.external_live?.play_by_play;
   const playByPlayCount=Array.isArray(playByPlay)?playByPlay.length:0;
   const periodResultCount=Array.from({length:Math.max(0,Number(period||1)-1)},(_,i)=>readPeriodScore(ev,i)).filter(Number.isFinite).length;
-  const mode=playByPlayCount>=8?"full_play_by_play":possession.applied?"score_clock_boxscore_possessions":
+  const mode=possession.applied?"score_clock_boxscore_possessions":
     available>0?"score_clock_partial_statistics":periodResultCount>0?"score_clock_period_results":"score_clock_only";
   const modeLabel={full_play_by_play:"полный play-by-play",score_clock_boxscore_possessions:"счёт, время и статистика владений",
     score_clock_partial_statistics:"счёт, время и частичная статистика",score_clock_period_results:"счёт, время и результаты периодов",
@@ -856,7 +861,7 @@ function showSelectedMatch(ev,options={}){
   const matchForecast=automaticForecast(ev);
   const estimate=matchForecast.ready&&matchForecast.kind!=="market_reference"?matchForecast.estimate:null;
   const lines=getMatchTotalLines(ev).filter(x=>!x.stale);
-  const quarter=automaticQuarterForecast(ev);
+  const quarter=automaticQuarterForecast(ev,matchForecast);
   const aiAnalysis=aiModelAnalysis(ev,matchForecast,quarter);
   const classicMatchModels=classicBasketballModelAnalysis(ev,matchForecast,quarter,"match");
   const classicQuarterModels=classicBasketballModelAnalysis(ev,matchForecast,quarter,"quarter");
@@ -925,6 +930,8 @@ function showSelectedMatch(ev,options={}){
       '<details class="technical-details"><summary>Технические подробности</summary><p>σ остатка: '+(quarter.poisson?.variance!=null?Math.sqrt(quarter.poisson.variance).toFixed(2):'—')+' · диапазон 95%: '+quarter.low95+'–'+quarter.high95+' · симуляций: '+(quarter.poisson?.simulations??100000)+'</p><p>Исходный код таймера: '+escapeHtml(ev.clock_source||ev.external_live?.clock_source||"не указан")+'</p><p>'+escapeHtml((quarter.context_factors||[]).join(' · '))+'</p></details>'
     : '<p class="muted">'+escapeHtml(quarter.reason||"Недостаточно данных")+'</p>';
   if($("toolsRegistry"))$("toolsRegistry").innerHTML=unifiedToolsPanelHtml(ev,classicMatchModels,classicQuarterModels,matchForecast,quarter,lines);
+  $("matchForecast").insertAdjacentHTML("beforeend",signalQualityMarkup(signalEvaluations(ev,matchForecast,quarter)));
+  $("matchForecast").insertAdjacentHTML("beforeend",q4ModelComparisonMarkup(ev,matchForecast,quarter,matchLineValue));
   const statsMeta=statsQuality?'<p>Покрытие: <b>'+Number(statsQuality.coverage_percent||0)+'%</b> · источники: '+escapeHtml(ev.statistics_source||"нет")+'</p>':'';
   const missingStats=statsQuality?.missing_metrics?.length?'<p class="muted">Нет данных: '+escapeHtml(statsQuality.missing_metrics.join(", "))+'</p>':'';
   const statsConflicts=statsQuality?.conflicts?.length?'<p class="warn">Расхождения источников: '+statsQuality.conflicts.length+' · значения не скрыты</p>':'';
@@ -1125,21 +1132,63 @@ function quarterHighlightInfo(ev){
   return {period,elapsed,minute:Math.floor(elapsed/60),second:elapsed%60};
 }
 
-function prioritySignals(ev,forecast,quarterForecast){
+function signalEvaluations(ev,forecast,quarterForecast){
   const at=Date.parse(ev?.feed_checked_at_utc||"");
   const clock=findLiveClock(ev),length=inferPeriodLengthForForecast(ev)?.seconds;
   const timer=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
   const elapsed=timer&&Number.isFinite(length)?length-(Number(timer[1])*60+Number(timer[2])):null;
-  return window.PARIForecastCore.selectPrioritySignals({
+  const withMarkets=(rows,target)=>(rows||[]).map(row=>({...row,market:(ev.verified_total_markets||[]).find(m=>
+    String(m.eventId)===String(ev.id)&&m.target===target&&m.line===row.line&&
+    (target==="match"||m.period===findLivePeriod(ev)))||null}));
+  return window.PARIForecastCore.evaluateSignals({
+    nowMs:Date.now(),
     ageSeconds:Number.isFinite(at)?(Date.now()-at)/1000:null,
     period:findLivePeriod(ev),elapsedSeconds:elapsed,periodLengthSeconds:length,
     timerVerified:ev?.timer_semantics_verified===true,
     clockValid:ev?.clock_integrity?.valid!==false&&!!findLiveClock(ev),
     scoreValid:validateScoreTimeline(ev,findLiveScore(ev),findLivePeriod(ev)).valid,
-    quarter:{ready:quarterForecast.ready,current:quarterForecast.current,preliminary:quarterForecast.preliminary,probabilities:quarterForecast.lines},
+    quarter:{ready:quarterForecast.ready,current:quarterForecast.current,preliminary:quarterForecast.preliminary,probabilities:withMarkets(quarterForecast.lines,"quarter")},
     match:{ready:forecast.ready&&forecast.kind==="live_tempo",current:forecast.estimate?.current,preliminary:forecast.estimate?.preliminary,
-      probabilities:forecast.estimate?.poisson?.probabilities}
+      probabilities:withMarkets(forecast.estimate?.poisson?.probabilities,"match")}
   });
+}
+function prioritySignals(ev,forecast,quarterForecast){
+  return signalEvaluations(ev,forecast,quarterForecast).filter(x=>x.priority===true);
+}
+function q4ModelComparisonMarkup(ev,forecast,quarter,line){
+  const estimate=forecast?.estimate;
+  if(forecast?.kind!=="live_tempo"||findLivePeriod(ev)!==4||
+     ev?.timer_semantics_verified!==true||!estimate||estimate.preliminary||
+     !Number.isFinite(estimate.period_elapsed_seconds)||estimate.period_elapsed_seconds<120||
+     !Number.isFinite(estimate.elapsed_seconds)||estimate.elapsed_seconds<=0||
+     !Number.isFinite(estimate.remaining_seconds)||estimate.remaining_seconds<=0||
+     !Number.isFinite(estimate.current)||!Number.isFinite(estimate.projection)||
+     !validateScoreTimeline(ev,findLiveScore(ev),4).valid)return "";
+  const tempo=estimate.current*(1+estimate.remaining_seconds/estimate.elapsed_seconds);
+  const predictions=[["Простой темп матча",tempo],["Основная модель",estimate.projection]];
+  const remaining=quarter?.posterior?.expectedRemaining;
+  if(quarter?.ready&&quarter.period===4&&!quarter.preliminary&&Number.isFinite(remaining))
+    predictions.push(["По модели остатка Q4",estimate.current+remaining]);
+  const marketLine=line==null?NaN:Number(line);
+  const sides=new Set(predictions.map(([,value])=>Math.sign(value-marketLine)));
+  const interval=estimate.poisson;
+  const inside=Number.isFinite(interval?.low80)&&Number.isFinite(interval?.high80)&&
+    marketLine>=interval.low80&&marketLine<=interval.high80;
+  const comparison=!Number.isFinite(marketLine)?"Линия недоступна.":
+    sides.size>1||sides.has(0)?"Оценки расходятся или совпадают с линией.":
+    "Все оценки "+(sides.has(1)?"выше":"ниже")+" линии "+marketLine+".";
+  return '<details class="technical-details"><summary>Сравнение расчётов Q4</summary>'+
+    '<p>Основное время · '+predictions.map(([name,value])=>name+" "+value.toFixed(1)).join(" · ")+'</p>'+
+    '<p>'+comparison+(inside?' Линия внутри 80% диапазона основной модели.':'')+
+    ' Расчёты используют общий счёт и таймер, поэтому их согласие само по себе не подтверждает сигнал.</p></details>';
+}
+function signalQualityMarkup(evaluations){
+  const rows=["match","quarter"].map(target=>evaluations.find(x=>x.target===target)).filter(Boolean);
+  if(!rows.length)return '<p class="muted">Сигнала нет: нет пригодного расчёта и линии.</p>';
+  return '<details class="technical-details"><summary>Почему нет уверенного сигнала</summary>'+rows.map(x=>
+    '<p><b>'+(x.target==="match"?'Матч':'Четверть')+' · '+escapeHtml(x.status)+'</b>: '+escapeHtml(x.reasons.join('; '))+'.</p>'+
+    (x.comparison?'<p>Коэффициент '+x.comparison.odds+' · безубыточность без возвратов '+(100*x.comparison.breakEvenConditional).toFixed(1)+
+      '% · модельная доходность '+(100*x.comparison.modelExpectedReturn).toFixed(1)+'% (не подтверждённое преимущество).</p>':'' )).join('')+'</details>';
 }
 function priorityLabel(signal){
   const probability=signal.probability>=0.999?"≥99.9":(signal.probability*100).toFixed(1);
@@ -1350,7 +1399,7 @@ function findQuarterClockFromElapsed(ev,period,length){
   const remaining=Math.max(0,Math.round(Number(length)-elapsedInQuarter));
   return String(Math.floor(remaining/60)).padStart(2,"0")+":"+String(remaining%60).padStart(2,"0");
 }
-function automaticQuarterForecast(ev) {
+function automaticQuarterForecast(ev,matchForecast=null) {
   const feedChecked=Date.parse(ev?.feed_checked_at_utc||"");
   if(Number.isFinite(feedChecked)&&Date.now()-feedChecked>120000)
     return {ready:false,reason:"Снимок LIVE устарел: ответ API получен более 2 минут назад"};
@@ -1370,7 +1419,6 @@ function automaticQuarterForecast(ev) {
     ?"ОТ: таймер подтверждён, отдельный прогноз тотала ОТ пока не строится"
     :"Овертайм: длительность дополнительного периода не подтверждена"};
   const matchScore=findLiveScore(ev);
-  const matchForecast=automaticForecast(ev);
   if(periods===2)return {ready:false,reason:"формат 2×20 минут: четвертей в этом матче нет"};
   const m=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
   const remaining=m?Number(m[1])*60+Number(m[2]):null;
@@ -1379,12 +1427,6 @@ function automaticQuarterForecast(ev) {
   const current=currentQuarter?currentQuarter.pair[0]+currentQuarter.pair[1]:null;
   const previousQuarterEntries=Array.from({length:Math.max(0,Number(period||1)-1)},(_,i)=>({period:i+1,total:readPeriodScore(ev,i)})).filter(x=>Number.isFinite(x.total));
   const previousQuarterTotals=previousQuarterEntries.map(x=>x.total);
-  const previousQuarterAverage=previousQuarterTotals.length
-    ?previousQuarterTotals.reduce((sum,value)=>sum+value,0)/previousQuarterTotals.length:null;
-  const matchQuarterAverage=matchForecast.ready&&Number.isFinite(Number(matchForecast.estimate?.projection))
-    ?Number(matchForecast.estimate.projection)/4:null;
-  const earlyQuarterBaseline=Number.isFinite(previousQuarterAverage)&&previousQuarterAverage>0
-    ?previousQuarterAverage:Number.isFinite(matchQuarterAverage)&&matchQuarterAverage>0?matchQuarterAverage:null;
   const quarterLines=[];
   // Quarter markets are not always located in related_factor_groups: PARI
   // responses can nest them under factors, related_factors or related_events.
@@ -1447,7 +1489,7 @@ function automaticQuarterForecast(ev) {
   source=posterior.method+" · "+posterior.quality;
   elapsedMinutes=elapsed/60;
   // Whole-game possession and shooting rates are not silently substituted for period-level evidence.
-  const possessionModel=matchForecast.ready&&matchForecast.estimate?.possession_model?.applied?matchForecast.estimate.possession_model:null;
+  const possessionModel=matchForecast?.ready&&matchForecast.estimate?.possession_model?.applied?matchForecast.estimate.possession_model:null;
   const possessionQuarterProjection=null;
   const shootingContext=liveShootingContext(ev,{elapsed_seconds:1});
   const quarterStatsAdjustment=1;
@@ -1464,10 +1506,8 @@ function automaticQuarterForecast(ev) {
   const quarterPbp=ev?.play_by_play||ev?.external_live?.play_by_play;
   const quarterPbpCount=Array.isArray(quarterPbp)?quarterPbp.length:0;
   const quarterPriorCount=previousQuarterTotals.length;
-  const quarterMode=quarterPbpCount>=8?"full_play_by_play":qAvailable>0?"score_clock_partial_statistics":
-    quarterPriorCount>0?"score_clock_period_results":"score_clock_only";
-  const quarterModeLabel={full_play_by_play:"полный play-by-play",score_clock_partial_statistics:"счёт, время и частичная статистика",
-    score_clock_period_results:"счёт, время и результаты периодов",score_clock_only:"только счёт и время"}[quarterMode];
+  const quarterMode=quarterPriorCount>0||canUseAggregatePrior?"score_clock_period_results":"score_clock_only";
+  const quarterModeLabel=quarterMode==="score_clock_period_results"?"счёт, время и результаты периодов":"только счёт и время";
   const quarterQuality={mode:quarterMode,modeLabel:quarterModeLabel,
     statisticsAvailable:qAvailable,statisticsExpected:qExpected,playByPlayEvents:quarterPbpCount,
     scoreSource:ev?.score_source||ev?.external_live?.score_source||"не указан",
@@ -1475,7 +1515,7 @@ function automaticQuarterForecast(ev) {
     statisticsSource:ev?.statistics_source||"не указан",
     apiResponseAgeSeconds:Number.isFinite(quarterFeedAt)?Math.max(0,Math.round((Date.now()-quarterFeedAt)/1000)):null,
     providerEventTimestampAvailable:!!(ev?.updated_at||ev?.raw?.updated_at||ev?.raw?.updatedAt),
-    label:quarterModeLabel+" · статистика "+qAvailable+"/"+qExpected};
+    label:quarterModeLabel+" · дополнительные показатели для просмотра "+qAvailable+"/"+qExpected};
   return {ready:true,period,current:observed??null,projection:Math.round(projection*10)/10,data_quality:quarterQuality,market_lines:quarterLines,
     home:currentQuarter?.pair?.[0]??null,away:currentQuarter?.pair?.[1]??null,
     score_source:source,elapsed:elapsedMinutes,low80:poisson.low80,high80:poisson.high80,
@@ -1639,7 +1679,7 @@ async function refreshLiveMatches() {
             :timerNorm;
           const details = [ev.league || ev.sport_name, score, eventPeriod(ev), eventClock(ev), statsLabel].filter(Boolean).map(escapeHtml).join(" · ");
           const forecast = automaticForecast(ev);
-          const quarterForecast = automaticQuarterForecast(ev);
+          const quarterForecast = automaticQuarterForecast(ev,forecast);
           const aiAnalysis = aiModelAnalysis(ev,forecast,quarterForecast);
           let forecastHtml = "";
           if (forecast.ready) {
@@ -1669,11 +1709,24 @@ async function refreshLiveMatches() {
           } else {
             forecastHtml = '<span class="live-match-meta forecast-pending">Прогноз матча ожидает данные: ' + escapeHtml(forecast.reason) + '</span>';
           }
-          forecastHtml += quarterForecastMarkup(quarterForecast,ev);
+          // The list is for navigation; full probabilities, models and inputs remain in the selected analysis.
+          if(forecast.ready&&forecast.kind!=="market_reference"){
+            const e=forecast.estimate,probabilities=e.poisson?.probabilities||[];
+            const near=probabilities.slice().sort((a,b)=>Math.abs(a.line-e.projection)-Math.abs(b.line-e.projection))[0];
+            forecastHtml='<span class="live-match-meta forecast-live">Матч без ОТ: '+Number(e.projection).toFixed(1)+
+              ' · диапазон модели 80% '+(e.poisson?.low80??e.low)+'–'+(e.poisson?.high80??e.high)+
+              (near?' · линия '+near.line:' · нет линии')+' · оценка не калибрована</span>';
+          }
+          forecastHtml += quarterForecast.ready
+            ?'<span class="live-match-meta forecast-live">Q'+quarterForecast.period+': '+Number(quarterForecast.projection).toFixed(1)+
+              ' · диапазон модели 80% '+quarterForecast.low80+'–'+quarterForecast.high80+'</span>'
+            :quarterForecastMarkup(quarterForecast,ev);
           const quarterHighlight=quarterHighlightInfo(ev);
-          const signals=Array.isArray(data.priority_signals)
-            ?data.priority_signals.filter(card=>String(card.event)===String(ev.id)).map(card=>card.signal)
-            :prioritySignals(ev,forecast,quarterForecast);
+          const evaluations=signalEvaluations(ev,forecast,quarterForecast);
+          const first=evaluations[0];
+          forecastHtml+='<span class="live-match-meta forecast-pending">Сигнала нет · '+escapeHtml(first?.reasons?.[0]||'нет пригодной линии')+' · открыть разбор →</span>';
+          // Re-evaluate locally too: an older server response must not bypass current quality gates.
+          const signals=evaluations.filter(x=>x.priority===true);
           const signalTag=signals.map(s=>'<span class="priority-signal">★ '+escapeHtml(priorityLabel(s))+'</span>').join("");
           for(const s of signals)priorityCards.push({ev,signal:s,teams});
           const highlightTag=signalTag+(quarterHighlight?'<span class="quarter-window-note">Окно 4–8 минут Q'+quarterHighlight.period+' · прошло '+quarterHighlight.minute+':'+String(quarterHighlight.second).padStart(2,"0")+'</span>':"");
@@ -1691,7 +1744,7 @@ async function refreshLiveMatches() {
       if(priorityPanel){
         priorityCards.sort((a,b)=>b.signal.probability-a.signal.probability||String(a.ev.id).localeCompare(String(b.ev.id)));
         prioritySignalsExpiresAt=priorityCards.length?Math.min(...priorityCards.map(x=>Date.parse(x.ev.feed_checked_at_utc)+90000)):0;
-        priorityPanel.innerHTML='<h3>Наиболее вероятные направления по модели</h3><p class="muted">Четверти: 4–8 минута; уверенный сигнал на тотал матча — только Q4, после 2:00 сыгранного времени. Порог 65%, свежий ответ API до 90 с и проверенный таймер. Вероятности не калиброваны; доходность не подтверждена. Коэффициент и правило ОТ сверяйте в PARI.</p>'+(
+        priorityPanel.innerHTML='<h3>Проверенные сигналы</h3><p class="muted">Матч: Q4 после 2:00; четверть: 4–8 минута. Нужны свежие данные, обе цены, совместимые правила ОТ и независимая проверка модели. Текущие расчёты доступны как исследовательские ориентиры; уверенные сигналы отключены до калибровки и подтверждения преимущества.</p>'+(
           priorityCards.length?priorityCards.slice(0,3).map(x=>'<button type="button" class="priority-card" data-event-id="'+escapeHtml(x.ev.id)+'"><b>'+x.teams+'</b><span>'+escapeHtml(priorityLabel(x.signal))+'</span><small>Открыть разбор →</small></button>').join(""):
           '<p>Сейчас нет направлений, прошедших условия отбора. Проверьте таймер, свежесть данных и линии в разборе матча.</p>');
         priorityPanel.querySelectorAll("[data-event-id]").forEach(el=>el.addEventListener("click",()=>{
@@ -1750,6 +1803,22 @@ renderAnalysisHistory();
 if ($("clearHistory")) $("clearHistory").addEventListener("click", clearAnalysisHistory);
 
 
+async function refreshResearchStatus(){
+  try{
+    const response=await fetch('/api/research/status',{cache:'no-store'});
+    if(!response.ok)throw Error('HTTP '+response.status);
+    const data=await response.json();
+    if($("confirmedIndependentMatches"))$("confirmedIndependentMatches").textContent=String(data.confirmed_games??0);
+    if($("researchJournalStatus"))$("researchJournalStatus").textContent='Журнал: '+data.games+' матчей · '+data.forecasts+
+      ' оценок линий · '+data.confirmed+' подтверждённых исходов. Уверенные сигналы отключены до проверки модели. '+
+      'Сохранность данных зависит от настройки постоянного диска.';
+  }catch(error){
+    if($("confirmedIndependentMatches"))$("confirmedIndependentMatches").textContent='—';
+    if($("researchJournalStatus"))$("researchJournalStatus").textContent='Журнал недоступен; результаты не подтверждены этим запросом.';
+  }
+}
+refreshResearchStatus();
+setInterval(refreshResearchStatus,60000);
 async function refreshServerArchiveStatus(){
   const set=(id,value)=>{const el=$(id);if(el)el.textContent=value;};
   try{

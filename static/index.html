@@ -58,6 +58,8 @@
         <div class="metric"><small>ПОДТВЕРЖДЁННЫЕ НЕЗАВИСИМЫЕ МАТЧИ</small><b id="confirmedIndependentMatches">0</b><span>Финалы ещё не сверяются автоматически; точность не заявляется</span></div>
       </div>
       <p class="muted" id="archiveStatusText">Ожидание статуса архива…</p>
+      <p id="researchJournalStatus" class="muted">Проверяем журнал расчётов…</p>
+      <p><a href="/api/research/export">Скачать журнал прогнозов и подтверждённых исходов (JSONL)</a></p>
       <div class="form-actions"><a class="btn-primary" href="/api/archive/export">Скачать локальный ZIP</a><a class="btn-ghost" href="https://github.com/valgvvvvv/pari-basketball-ai./releases" target="_blank" rel="noopener">Ежедневные архивы GitHub</a><button class="btn-ghost" type="button" id="clearServerArchive">Очистить локальную базу</button></div>
     </section>
     <section class="panel" id="history"><div class="section-head"><div><span class="eyebrow">TRACK RECORD</span><h2>История анализов</h2></div><button class="btn-ghost" id="clearHistory">Очистить</button></div><div id="historyList" class="history-list"><p class="muted">Пока нет сохранённых расчётов.</p></div></section>
@@ -76,6 +78,6 @@ window.addEventListener("unhandledrejection", function(event) {
   if (message) message.textContent = "Ошибка выполнения страницы: " + String(event.reason || "неизвестная ошибка");
 });
 </script>
-<script src="/static/forecast-core.js?v=20261120-forecast-core-v5"></script>
-<script src="/static/app.js?v=20261120-integrity-v76-server-signals-v77" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
+<script src="/static/forecast-core.js?v=20261121-quality-v2"></script>
+<script src="/static/app.js?v=20261121-quality-v2-q4-audit" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
 </body></html>

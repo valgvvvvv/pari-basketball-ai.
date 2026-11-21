@@ -108,6 +108,8 @@ async def process(data, history):
     for event in snapshot.get('events', []):
         event['recent_snapshots'] = history.get(str(event.get('id')), [])
     result = await asyncio.to_thread(server_detector.calculate, snapshot)
+    import forecast_journal
+    await asyncio.to_thread(forecast_journal.record, result['evaluations'], result['model_source_sha256'])
     cards = result['cards']
     data['priority_signals'] = cards
     STATUS.update(checked_at_utc=data.get('checked_at_utc'), cards=cards,
