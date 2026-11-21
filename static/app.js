@@ -925,6 +925,7 @@ function showSelectedMatch(ev,options={}){
       '<details class="technical-details"><summary>Технические подробности</summary><p>σ остатка: '+(quarter.poisson?.variance!=null?Math.sqrt(quarter.poisson.variance).toFixed(2):'—')+' · диапазон 95%: '+quarter.low95+'–'+quarter.high95+' · симуляций: '+(quarter.poisson?.simulations??100000)+'</p><p>Исходный код таймера: '+escapeHtml(ev.clock_source||ev.external_live?.clock_source||"не указан")+'</p><p>'+escapeHtml((quarter.context_factors||[]).join(' · '))+'</p></details>'
     : '<p class="muted">'+escapeHtml(quarter.reason||"Недостаточно данных")+'</p>';
   if($("toolsRegistry"))$("toolsRegistry").innerHTML=unifiedToolsPanelHtml(ev,classicMatchModels,classicQuarterModels,matchForecast,quarter,lines);
+  $("matchForecast").insertAdjacentHTML("beforeend",signalQualityMarkup(signalEvaluations(ev,matchForecast,quarter)));
   const statsMeta=statsQuality?'<p>Покрытие: <b>'+Number(statsQuality.coverage_percent||0)+'%</b> · источники: '+escapeHtml(ev.statistics_source||"нет")+'</p>':'';
   const missingStats=statsQuality?.missing_metrics?.length?'<p class="muted">Нет данных: '+escapeHtml(statsQuality.missing_metrics.join(", "))+'</p>':'';
   const statsConflicts=statsQuality?.conflicts?.length?'<p class="warn">Расхождения источников: '+statsQuality.conflicts.length+' · значения не скрыты</p>':'';
@@ -1125,21 +1126,36 @@ function quarterHighlightInfo(ev){
   return {period,elapsed,minute:Math.floor(elapsed/60),second:elapsed%60};
 }
 
-function prioritySignals(ev,forecast,quarterForecast){
+function signalEvaluations(ev,forecast,quarterForecast){
   const at=Date.parse(ev?.feed_checked_at_utc||"");
   const clock=findLiveClock(ev),length=inferPeriodLengthForForecast(ev)?.seconds;
   const timer=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
   const elapsed=timer&&Number.isFinite(length)?length-(Number(timer[1])*60+Number(timer[2])):null;
-  return window.PARIForecastCore.selectPrioritySignals({
+  const withMarkets=(rows,target)=>(rows||[]).map(row=>({...row,market:(ev.verified_total_markets||[]).find(m=>
+    String(m.eventId)===String(ev.id)&&m.target===target&&m.line===row.line&&
+    (target==="match"||m.period===findLivePeriod(ev)))||null}));
+  return window.PARIForecastCore.evaluateSignals({
+    nowMs:Date.now(),
     ageSeconds:Number.isFinite(at)?(Date.now()-at)/1000:null,
     period:findLivePeriod(ev),elapsedSeconds:elapsed,periodLengthSeconds:length,
     timerVerified:ev?.timer_semantics_verified===true,
     clockValid:ev?.clock_integrity?.valid!==false&&!!findLiveClock(ev),
     scoreValid:validateScoreTimeline(ev,findLiveScore(ev),findLivePeriod(ev)).valid,
-    quarter:{ready:quarterForecast.ready,current:quarterForecast.current,preliminary:quarterForecast.preliminary,probabilities:quarterForecast.lines},
+    quarter:{ready:quarterForecast.ready,current:quarterForecast.current,preliminary:quarterForecast.preliminary,probabilities:withMarkets(quarterForecast.lines,"quarter")},
     match:{ready:forecast.ready&&forecast.kind==="live_tempo",current:forecast.estimate?.current,preliminary:forecast.estimate?.preliminary,
-      probabilities:forecast.estimate?.poisson?.probabilities}
+      probabilities:withMarkets(forecast.estimate?.poisson?.probabilities,"match")}
   });
+}
+function prioritySignals(ev,forecast,quarterForecast){
+  return signalEvaluations(ev,forecast,quarterForecast).filter(x=>x.priority===true);
+}
+function signalQualityMarkup(evaluations){
+  const rows=["match","quarter"].map(target=>evaluations.find(x=>x.target===target)).filter(Boolean);
+  if(!rows.length)return '<p class="muted">Сигнала нет: нет пригодного расчёта и линии.</p>';
+  return '<details class="technical-details"><summary>Почему нет уверенного сигнала</summary>'+rows.map(x=>
+    '<p><b>'+(x.target==="match"?'Матч':'Четверть')+' · '+escapeHtml(x.status)+'</b>: '+escapeHtml(x.reasons.join('; '))+'.</p>'+
+    (x.comparison?'<p>Коэффициент '+x.comparison.odds+' · безубыточность без возвратов '+(100*x.comparison.breakEvenConditional).toFixed(1)+
+      '% · модельная доходность '+(100*x.comparison.modelExpectedReturn).toFixed(1)+'% (не подтверждённое преимущество).</p>':'' )).join('')+'</details>';
 }
 function priorityLabel(signal){
   const probability=signal.probability>=0.999?"≥99.9":(signal.probability*100).toFixed(1);
@@ -1669,11 +1685,24 @@ async function refreshLiveMatches() {
           } else {
             forecastHtml = '<span class="live-match-meta forecast-pending">Прогноз матча ожидает данные: ' + escapeHtml(forecast.reason) + '</span>';
           }
-          forecastHtml += quarterForecastMarkup(quarterForecast,ev);
+          // The list is for navigation; full probabilities, models and inputs remain in the selected analysis.
+          if(forecast.ready&&forecast.kind!=="market_reference"){
+            const e=forecast.estimate,probabilities=e.poisson?.probabilities||[];
+            const near=probabilities.slice().sort((a,b)=>Math.abs(a.line-e.projection)-Math.abs(b.line-e.projection))[0];
+            forecastHtml='<span class="live-match-meta forecast-live">Матч без ОТ: '+Number(e.projection).toFixed(1)+
+              ' · диапазон модели 80% '+(e.poisson?.low80??e.low)+'–'+(e.poisson?.high80??e.high)+
+              (near?' · линия '+near.line:' · нет линии')+' · оценка не калибрована</span>';
+          }
+          forecastHtml += quarterForecast.ready
+            ?'<span class="live-match-meta forecast-live">Q'+quarterForecast.period+': '+Number(quarterForecast.projection).toFixed(1)+
+              ' · диапазон модели 80% '+quarterForecast.low80+'–'+quarterForecast.high80+'</span>'
+            :quarterForecastMarkup(quarterForecast,ev);
           const quarterHighlight=quarterHighlightInfo(ev);
-          const signals=Array.isArray(data.priority_signals)
-            ?data.priority_signals.filter(card=>String(card.event)===String(ev.id)).map(card=>card.signal)
-            :prioritySignals(ev,forecast,quarterForecast);
+          const evaluations=signalEvaluations(ev,forecast,quarterForecast);
+          const first=evaluations[0];
+          forecastHtml+='<span class="live-match-meta forecast-pending">Сигнала нет · '+escapeHtml(first?.reasons?.[0]||'нет пригодной линии')+' · открыть разбор →</span>';
+          // Re-evaluate locally too: an older server response must not bypass current quality gates.
+          const signals=evaluations.filter(x=>x.priority===true);
           const signalTag=signals.map(s=>'<span class="priority-signal">★ '+escapeHtml(priorityLabel(s))+'</span>').join("");
           for(const s of signals)priorityCards.push({ev,signal:s,teams});
           const highlightTag=signalTag+(quarterHighlight?'<span class="quarter-window-note">Окно 4–8 минут Q'+quarterHighlight.period+' · прошло '+quarterHighlight.minute+':'+String(quarterHighlight.second).padStart(2,"0")+'</span>':"");
@@ -1691,7 +1720,7 @@ async function refreshLiveMatches() {
       if(priorityPanel){
         priorityCards.sort((a,b)=>b.signal.probability-a.signal.probability||String(a.ev.id).localeCompare(String(b.ev.id)));
         prioritySignalsExpiresAt=priorityCards.length?Math.min(...priorityCards.map(x=>Date.parse(x.ev.feed_checked_at_utc)+90000)):0;
-        priorityPanel.innerHTML='<h3>Наиболее вероятные направления по модели</h3><p class="muted">Четверти: 4–8 минута; уверенный сигнал на тотал матча — только Q4, после 2:00 сыгранного времени. Порог 65%, свежий ответ API до 90 с и проверенный таймер. Вероятности не калиброваны; доходность не подтверждена. Коэффициент и правило ОТ сверяйте в PARI.</p>'+(
+        priorityPanel.innerHTML='<h3>Проверенные сигналы</h3><p class="muted">Матч: Q4 после 2:00; четверть: 4–8 минута. Нужны свежие данные, обе цены, совместимые правила ОТ и независимая проверка модели. Текущие расчёты доступны как исследовательские ориентиры; уверенные сигналы отключены до калибровки и подтверждения преимущества.</p>'+(
           priorityCards.length?priorityCards.slice(0,3).map(x=>'<button type="button" class="priority-card" data-event-id="'+escapeHtml(x.ev.id)+'"><b>'+x.teams+'</b><span>'+escapeHtml(priorityLabel(x.signal))+'</span><small>Открыть разбор →</small></button>').join(""):
           '<p>Сейчас нет направлений, прошедших условия отбора. Проверьте таймер, свежесть данных и линии в разборе матча.</p>');
         priorityPanel.querySelectorAll("[data-event-id]").forEach(el=>el.addEventListener("click",()=>{
@@ -1750,6 +1779,22 @@ renderAnalysisHistory();
 if ($("clearHistory")) $("clearHistory").addEventListener("click", clearAnalysisHistory);
 
 
+async function refreshResearchStatus(){
+  try{
+    const response=await fetch('/api/research/status',{cache:'no-store'});
+    if(!response.ok)throw Error('HTTP '+response.status);
+    const data=await response.json();
+    if($("confirmedIndependentMatches"))$("confirmedIndependentMatches").textContent=String(data.confirmed_games??0);
+    if($("researchJournalStatus"))$("researchJournalStatus").textContent='Журнал: '+data.games+' матчей · '+data.forecasts+
+      ' оценок линий · '+data.confirmed+' подтверждённых исходов. Уверенные сигналы отключены до проверки модели. '+
+      'Сохранность данных зависит от настройки постоянного диска.';
+  }catch(error){
+    if($("confirmedIndependentMatches"))$("confirmedIndependentMatches").textContent='—';
+    if($("researchJournalStatus"))$("researchJournalStatus").textContent='Журнал недоступен; результаты не подтверждены этим запросом.';
+  }
+}
+refreshResearchStatus();
+setInterval(refreshResearchStatus,60000);
 async function refreshServerArchiveStatus(){
   const set=(id,value)=>{const el=$(id);if(el)el.textContent=value;};
   try{
