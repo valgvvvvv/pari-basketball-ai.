@@ -94,7 +94,7 @@ const { chromium } = require("playwright");
         };
         try {
           const match = automaticForecast(ev);
-          const quarter = automaticQuarterForecast(ev);
+          const quarter = automaticQuarterForecast(ev, match);
           row.lines = getMatchTotalLines(ev) || [];
           row.match = match;
           row.quarter = quarter;
