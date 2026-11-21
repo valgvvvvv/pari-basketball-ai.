@@ -6,6 +6,7 @@ confirmed, identity-matched final record with the exact market settlement rule.
 from __future__ import annotations
 
 from typing import Any
+import math
 
 
 def settle_prediction(contract: dict[str, Any], final_record: dict[str, Any] | None) -> dict[str, Any]:
@@ -38,6 +39,9 @@ def settle_prediction(contract: dict[str, Any], final_record: dict[str, Any] | N
         includes_overtime = final_record.get("includes_overtime")
         if not isinstance(includes_overtime, bool) or final_record.get("market_rule_confirmed") is not True:
             return {"status": "unresolved", "reason": "market overtime settlement rule is not independently confirmed",
+                    "event_id": event_id, "snapshot_id": snapshot_id}
+        if isinstance(target.get("includes_overtime"), bool) and target['includes_overtime'] != includes_overtime:
+            return {"status": "disputed", "reason": "result overtime rule differs from prediction-time market contract",
                     "event_id": event_id, "snapshot_id": snapshot_id}
         total_key = "total_with_overtime" if includes_overtime else "regulation_total"
         total = final_record.get(total_key)
@@ -72,7 +76,7 @@ def settle_prediction(contract: dict[str, Any], final_record: dict[str, Any] | N
     if not any(abs(captured - line) < 1e-9 for captured in captured_lines):
         return {"status": "unresolved", "reason": "settlement line was not captured in this prediction snapshot",
                 "event_id": event_id, "snapshot_id": snapshot_id}
-    if total < 0 or line < 0 or not total.is_integer():
+    if not math.isfinite(total) or not math.isfinite(line) or total < 0 or line < 0 or not total.is_integer():
         return {"status": "disputed", "reason": "negative total or line is invalid",
                 "event_id": event_id, "snapshot_id": snapshot_id}
     if total > line:
