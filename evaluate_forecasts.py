@@ -44,7 +44,7 @@ def summarize(rows):
             c = d.get('comparison')
             if c and d['pPush'] == 0 and (d.get('market') or {}).get('includesOvertime') is False:
                 market_briers.append(sum((p - truth) ** 2 for p, truth in zip([c['noVigOver'], c['noVigUnder'], 0], y)))
-            if actual != d['line']:
+            if actual != d['line'] and d['pPush'] < 1:
                 confidence = d['probability'] / (1 - d['pPush'])
                 won = (actual > d['line']) == (d['direction'] == 'ТБ')
                 bins[min(9, int(confidence * 10))].append((confidence, won))
@@ -64,6 +64,11 @@ def summarize(rows):
 
 
 def evaluate(rows):
+    versions = {x.get('model_source_sha256', 'unknown') for x in rows}
+    if len(versions) > 1:
+        return {'schema': 1, 'promotion_allowed': False, 'by_model_source_sha256': {
+            version: evaluate([x for x in rows if x.get('model_source_sha256', 'unknown') == version])
+            for version in sorted(versions)}, 'note': 'Different model versions are never pooled'}
     # A single predeclared first checkpoint per game/target/quarter, not per line.
     # Choose BEFORE looking at whether a result exists; missing first results remain missing.
     first = {}
@@ -98,8 +103,9 @@ def evaluate(rows):
 def load_database(location):
     with closing(sqlite3.connect(location)) as db:
         rows = []
-        for identity, payload, outcome in db.execute('SELECT f.id,f.payload,o.payload FROM forecasts f LEFT JOIN outcomes o ON o.forecast_id=f.id'):
-            rows.append({'id': identity, **json.loads(payload), 'outcome': json.loads(outcome) if outcome else None})
+        for identity, payload, outcome, label in db.execute('SELECT f.id,f.payload,o.payload,l.payload FROM forecasts f LEFT JOIN outcomes o ON o.forecast_id=f.id LEFT JOIN labels l ON l.forecast_id=f.id'):
+            resolved = json.loads(outcome) if outcome else {'source_record': json.loads(label), 'virtual_unit_pnl': None} if label else None
+            rows.append({'id': identity, **json.loads(payload), 'outcome': resolved})
         return rows
 
 

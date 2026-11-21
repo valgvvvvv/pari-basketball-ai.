@@ -9,7 +9,7 @@ from typing import Any
 import math
 
 
-def settle_prediction(contract: dict[str, Any], final_record: dict[str, Any] | None) -> dict[str, Any]:
+def validate_final_evidence(contract: dict[str, Any], final_record: dict[str, Any] | None):
     event_id = str(contract.get("event_id") or "")
     snapshot_id = str(contract.get("snapshot_id") or "")
     target = contract.get("target") if isinstance(contract.get("target"), dict) else {}
@@ -34,6 +34,17 @@ def settle_prediction(contract: dict[str, Any], final_record: dict[str, Any] | N
         return {"status": "unresolved", "reason": "final result source is missing",
                 "event_id": event_id, "snapshot_id": snapshot_id}
 
+    return None
+
+
+def settle_prediction(contract: dict[str, Any], final_record: dict[str, Any] | None) -> dict[str, Any]:
+    invalid = validate_final_evidence(contract, final_record)
+    if invalid:
+        return invalid
+    event_id = str(contract.get("event_id") or "")
+    snapshot_id = str(contract.get("snapshot_id") or "")
+    target = contract.get("target") if isinstance(contract.get("target"), dict) else {}
+    source = str(final_record.get("source") or "").strip()
     target_type = target.get("type")
     if target_type == "match":
         includes_overtime = final_record.get("includes_overtime")
