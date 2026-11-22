@@ -26,6 +26,15 @@ def fixture():
 
 
 class DataContractTests(unittest.TestCase):
+    def test_sparse_duplicate_broadcast_cannot_erase_explicit_format(self):
+        payload, info = fixture()
+        sparse = dict(info, extra={'coverage': 'tv'})
+        for rows in [[info, sparse], [sparse, info]]:
+            merged = pari_data.metadata_index(rows)['70112200']
+            self.assertEqual(pari_data.explicit_format(payload['events'][0], merged, 'source')['period_length_seconds'], 600)
+        conflict = pari_data.metadata_index([info, dict(info, extra={'quarters': '4x12'})])['70112200']
+        self.assertIsNone(pari_data.explicit_format(payload['events'][0], conflict, 'source'))
+
     def test_format_requires_exact_identity_and_explicit_format(self):
         payload, info = fixture()
         event = payload['events'][0]
