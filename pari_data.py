@@ -34,6 +34,28 @@ def same_event(event, info):
                 for a, b in [('fon_team1', 'team1'), ('fon_team2', 'team2')]))
 
 
+def metadata_index(items):
+    """Several broadcasts may describe one event; a sparse one cannot erase format."""
+    grouped = {}
+    for row in items:
+        if isinstance(row, dict) and str(row.get('sport_code')) == '11726632':
+            grouped.setdefault(str(row.get('fon_code')), []).append(row)
+    result = {}
+    for identity, rows in grouped.items():
+        teams = {(row.get('fon_team1'), row.get('fon_team2')) for row in rows}
+        if len(teams) != 1:
+            continue
+        formats = {str((row.get('extra') or {}).get('quarters')) for row in rows
+                   if (row.get('extra') or {}).get('quarters')}
+        chosen = next((row for row in rows if (row.get('extra') or {}).get('quarters')), rows[0])
+        chosen = copy.deepcopy(chosen)
+        if len(formats) > 1:
+            chosen['extra'] = {**chosen.get('extra', {}), 'quarters': None}
+            chosen['format_conflict'] = True
+        result[identity] = chosen
+    return result
+
+
 def explicit_format(event, info, source_url):
     if not same_event(event, info):
         return None
@@ -99,8 +121,7 @@ async def enrich_payload(client, host, payload):
             items = data.get('items')
             if not isinstance(items, list):
                 raise ValueError('No items')
-            cached = {'saved': time.monotonic(), 'items': {str(e.get('fon_code')): e for e in items
-                      if isinstance(e, dict) and str(e.get('sport_code')) == '11726632'}}
+            cached = {'saved': time.monotonic(), 'items': metadata_index(items)}
             _METADATA[host] = cached
         except Exception:
             cached = None  # Expired metadata is not silently reused.
