@@ -16,7 +16,7 @@ assert.ok(decision({includesOvertime:true}).reasonCodes.includes('overtime'));
 assert.equal(decision({includesOvertime:true}).status,'shadow');
 for(const patch of [{rulesConfirmed:false},{ruleSource:''},{includesOvertime:null}])assert.ok(decision(patch).reasonCodes.includes('rules'));
 for(const patch of [{pricesVerified:false},{overOdds:1},{underOdds:null}])assert.ok(decision(patch).reasonCodes.includes('prices'));
-for(const patch of [{quotedAtUtc:null},{quotedAtUtc:new Date(at-91000).toISOString()},{quotedAtUtc:new Date(at+1000).toISOString()},{suspended:true}])assert.ok(decision(patch).reasonCodes.includes('quote'));
+for(const patch of [{quotedAtUtc:null},{quotedAtUtc:new Date(at-91000).toISOString()},{quotedAtUtc:new Date(at+1000).toISOString()}])assert.ok(decision(patch).reasonCodes.includes('quote'));
 assert.ok(decision({overOdds:1.2}).reasonCodes.includes('edge'),'high probability with a bad price is not value');
 assert.equal(core.marketComparison({pOver:.5,pUnder:.4,pPush:.1},{...market,overOdds:1.8}).modelExpectedReturn,0,'push is not a loss');
 for(const patch of [{elapsedSeconds:119},{period:3}])assert.ok(core.evaluateSignals({...input,...patch})[0].reasonCodes.includes('window'));
@@ -44,3 +44,9 @@ assert.equal(sensitivity.directionStable,false,'current low tempo can disagree w
 assert.equal(core.selectResearchCandidates([{...watched,robustness:sensitivity}]).length,0);
 assert.equal(core.summarizeSignals([watched]).reasons.find(x=>x.code==='calibration').lines,1);
 console.log('research sensitivity regressions: OK');
+assert.equal(decision({includesOvertime:true}).comparison,null,'regulation probabilities must not imply EV against an overtime market');
+assert.ok(!decision({includesOvertime:true}).reasonCodes.includes('prices'),'a target mismatch is not missing prices');
+
+assert.ok(decision({suspended:true}).reasonCodes.includes("suspended"));
+assert.ok(!decision({suspended:true}).reasonCodes.includes("quote"));
+assert.equal(core.selectResearchCandidates([{...watched,reasonCodes:["suspended"]}]).length,0);
