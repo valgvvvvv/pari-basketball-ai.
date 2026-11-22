@@ -12,33 +12,27 @@ function collectEventObjects(root){
   walk(root,0);return out;
 }
 function parseScore(value){
+  const count=x=>x!=null&&typeof x!=="boolean"&&String(x).trim()!==""&&Number.isInteger(Number(x))&&Number(x)>=0;
   if(value==null)return null;
-  if(Array.isArray(value)&&value.length>=2){
-    const a=Number(value[0]),b=Number(value[1]);
-    if(Number.isFinite(a)&&Number.isFinite(b))return [a,b];
-  }
+  if(Array.isArray(value))return value.length===2&&value.every(count)?value.map(Number):null;
   if(typeof value==="object"){
-    const pairs=[
-      ["team1","team2"],["home","away"],["score1","score2"],
-      ["homeScore","awayScore"],["scoreHome","scoreAway"],
-      ["team1Score","team2Score"],["team1_score","team2_score"],
-      ["home_score","away_score"],["homePoints","awayPoints"],
-      ["participant1","participant2"]
-    ];
-    for(const [aKey,bKey] of pairs){
-      const a=Number(value[aKey]),b=Number(value[bKey]);
-      if(value[aKey]!=null&&value[bKey]!=null&&Number.isFinite(a)&&Number.isFinite(b))return [a,b];
+    for(const [a,b] of [["team1","team2"],["home","away"],["score1","score2"],
+      ["homeScore","awayScore"],["scoreHome","scoreAway"],["team1Score","team2Score"],
+      ["team1_score","team2_score"],["home_score","away_score"],["homePoints","awayPoints"],
+      ["participant1","participant2"]]){
+      if(count(value[a])&&count(value[b]))return [Number(value[a]),Number(value[b])];
     }
-    for(const [key,nested] of Object.entries(value)){
-      if(/score|result|period/i.test(key)){const found=parseScore(nested);if(found)return found;}
+    // A nested period or team-statistic result is not the root match score.
+    for(const key of ["score","scoreInfo","currentScore","liveScore","matchScore","totalScore"]){
+      if(value[key]&&value[key]!==value){const result=parseScore(value[key]);if(result)return result;}
     }
     return null;
   }
-  const m=String(value).match(/(?:^|[^0-9])(\d{1,3})\s*[:\-]\s*(\d{1,3})(?:[^0-9]|$)/);
+  const m=String(value).match(/^\s*(\d{1,3})\s*[:\-]\s*(\d{1,3})\s*$/);
   return m?[Number(m[1]),Number(m[2])]:null;
 }
 function findLiveScore(ev){
-  const objects=collectEventObjects({root:{...(ev.raw||{}), external_live:ev.external_live||{}, live_score:ev.live_score, live_clock:ev.live_clock, live_period:ev.live_period},related:ev.related_events||[],live:ev.live_fields||{}});
+  const objects=collectEventObjects({root:{...(ev.raw||{}), external_live:ev.external_live||{}, live_score:ev.live_score, live_clock:ev.live_clock, live_period:ev.live_period},live:ev.live_fields||{}});
   const direct=parseScore(ev.score);if(direct)return direct;
   for(const obj of objects){
     for(const [key,value] of Object.entries(obj)){
@@ -48,7 +42,7 @@ function findLiveScore(ev){
     }
     const home=Object.entries(obj).find(([k,v])=>/^(homeScore|scoreHome|team1Score|team1Points|home_points)$/i.test(k)&&v!=null);
     const away=Object.entries(obj).find(([k,v])=>/^(awayScore|scoreAway|team2Score|team2Points|away_points)$/i.test(k)&&v!=null);
-    if(home&&away){const a=Number(home[1]),b=Number(away[1]);if(Number.isFinite(a)&&Number.isFinite(b))return [a,b];}
+    if(home&&away){const a=Number(home[1]),b=Number(away[1]);if(parseScore([home[1],away[1]]))return [a,b];}
   }
   return null;
 }
@@ -1077,6 +1071,8 @@ function marketReferenceForecast(lines) {
 }
 function automaticForecast(ev) {
   const feedChecked=Date.parse(ev?.feed_checked_at_utc||"");
+  if(Number.isFinite(feedChecked)&&feedChecked-Date.now()>5000)
+    return {ready:false,reason:"Время снимка находится в будущем: проверьте часы и синхронизацию"};
   if(Number.isFinite(feedChecked)&&Date.now()-feedChecked>120000)
     return {ready:false,reason:"Снимок LIVE устарел: ответ API получен более 2 минут назад"};
   if(ev?.clock_integrity?.valid===false)
@@ -1429,6 +1425,8 @@ function findQuarterClockFromElapsed(ev,period,length){
 }
 function automaticQuarterForecast(ev,matchForecast=null) {
   const feedChecked=Date.parse(ev?.feed_checked_at_utc||"");
+  if(Number.isFinite(feedChecked)&&feedChecked-Date.now()>5000)
+    return {ready:false,reason:"Время снимка находится в будущем: проверьте часы и синхронизацию"};
   if(Number.isFinite(feedChecked)&&Date.now()-feedChecked>120000)
     return {ready:false,reason:"Снимок LIVE устарел: ответ API получен более 2 минут назад"};
   if(ev?.clock_integrity?.valid===false)
@@ -1801,8 +1799,11 @@ async function refreshLiveMatches() {
               ' Открыть разбор →</small></button>';
           }).join("")+
           (!visibleCards.length?'<p>Подходящих кандидатов сейчас нет. Направление должно сохраняться при изменении оценки темпа; отбирается центральная линия, а не самая удобная альтернатива.</p>':'')+
+          '<p class="muted">Технические данные готовы для '+summary.inputReadyLines+' из '+summary.evaluatedLines+' линий. Это не оценка точности модели.</p>'+
           '<details class="technical-details"><summary>Что блокирует сигналы · оценено линий: '+summary.evaluatedLines+'</summary><p>Счётчики относятся к линиям текущего снимка, не к уникальным матчам за день.</p>'+
-          summary.reasons.map(x=>'<p>'+escapeHtml(x.label)+': '+x.lines+'</p>').join("")+
+          Object.entries({inputs:'Получение данных',model:'Готовность модели',selection:'Условия отбора и состояние рынка'}).map(([key,title])=>
+            '<h4>'+title+'</h4>'+(summary.blockerGroups[key].length?summary.blockerGroups[key].map(x=>'<p>'+escapeHtml(x.label)+': '+x.lines+'</p>').join(""):'<p>Отказов по оценённым линиям нет.</p>')).join("")+
+
           Object.entries(modelBlockers).map(([reason,n])=>'<p>'+escapeHtml(reason)+': '+n+'</p>').join("")+'</details>';
         priorityPanel.querySelectorAll("[data-event-id]").forEach(el=>el.addEventListener("click",()=>{
           const ev=window.pariLiveEvents.find(x=>String(x.id)===el.dataset.eventId);

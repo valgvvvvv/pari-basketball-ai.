@@ -5,11 +5,20 @@
 })(typeof globalThis!=="undefined"?globalThis:null,function(){
   "use strict";
   function quarterPosterior(input){
+    const count=x=>x!=null&&typeof x!=="boolean"&&String(x).trim()!==""&&Number.isInteger(Number(x))&&Number(x)>=0;
+    const seconds=x=>x!=null&&typeof x!=="boolean"&&String(x).trim()!==""&&Number.isFinite(Number(x));
+    const priorRows=input.completedQuarterTotals??[];
+    if(!count(input.current)||!seconds(input.elapsedSeconds)||!seconds(input.periodLengthSeconds)||
+       !Array.isArray(priorRows)||!priorRows.every(count))return {ready:false,reason:"неполный или некорректный счёт/экспозиция"};
+    const aggregateProvided=input.priorPoints!=null||input.priorExposureSeconds!=null;
+    if(aggregateProvided&&(!count(input.priorPoints)||!seconds(input.priorExposureSeconds)||Number(input.priorExposureSeconds)<=0||priorRows.length))
+      return {ready:false,reason:"некорректный исторический ориентир"};
+    if(input.priorQuarterCount!=null&&(!count(input.priorQuarterCount)||Number(input.priorQuarterCount)<1))
+      return {ready:false,reason:"некорректное число завершённых периодов"};
     const current=Number(input.current),elapsedSeconds=Number(input.elapsedSeconds),periodLengthSeconds=Number(input.periodLengthSeconds);
-    const completed=(Array.isArray(input.completedQuarterTotals)?input.completedQuarterTotals:[])
-      .map(Number).filter(x=>Number.isFinite(x)&&x>=0);
+    const completed=priorRows.map(Number);
     const aggregatePriorPoints=Number(input.priorPoints),aggregatePriorExposureSeconds=Number(input.priorExposureSeconds);
-    const hasAggregatePrior=Number.isFinite(aggregatePriorPoints)&&aggregatePriorPoints>=0&&
+    const hasAggregatePrior=aggregateProvided&&Number.isFinite(aggregatePriorPoints)&&aggregatePriorPoints>=0&&
       Number.isFinite(aggregatePriorExposureSeconds)&&aggregatePriorExposureSeconds>0;
     if(!Number.isFinite(current)||current<0||!Number.isFinite(elapsedSeconds)||!Number.isFinite(periodLengthSeconds)||
        periodLengthSeconds<300||periodLengthSeconds>1200||elapsedSeconds<0||elapsedSeconds>periodLengthSeconds)
@@ -187,9 +196,15 @@
   function summarizeSignals(evaluations){
     const reasons={};
     for(const row of evaluations||[])for(const reason of new Set(row.reasonCodes||[]))reasons[reason]=(reasons[reason]||0)+1;
+    const inputCodes=["data","probabilities","prices","quote","rules"];
+    const modelCodes=["calibration","validation","overtime"];
+    const selectionCodes=["window","preliminary","threshold","edge","suspended"];
+    const counts=codes=>Object.entries(reasons).filter(([code])=>codes.includes(code))
+      .map(([code,lines])=>({code,lines,label:REASONS[code]||code}));
     return {evaluatedLines:(evaluations||[]).length,
       confidentSignals:(evaluations||[]).filter(x=>x.priority).length,
-
+      inputReadyLines:(evaluations||[]).filter(x=>!x.reasonCodes.some(c=>inputCodes.includes(c))).length,
+      blockerGroups:{inputs:counts(inputCodes),model:counts(modelCodes),selection:counts(selectionCodes)},
       automaticPriorityEnabled:false,calibrated:false,
       reasons:Object.entries(reasons).map(([code,lines])=>({code,lines,label:REASONS[code]||code})).sort((a,b)=>b.lines-a.lines||(a.code<b.code?-1:a.code>b.code?1:0))};
   }
