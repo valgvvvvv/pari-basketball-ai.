@@ -1110,7 +1110,9 @@ function automaticForecast(ev) {
     if(!period)missing.push("период");
     if(!clock)missing.push("таймер");
     if(!periodLength)missing.push("длительность");
-    return {...market,reason:"Игровая модель уточнит ориентир после получения: "+missing.join(", ")};
+    const detail=ev.timer_block_reason||ev.live_fields?.timer_block_reason;
+    return {...market,reason:"Расчёт по игре недоступен: отсутствуют "+missing.join(", ")+
+      (detail?". Причина: "+detail:"")+". Показана линия букмекера."};
   }
   const missing=[];
   if(!score)missing.push("счёт");
