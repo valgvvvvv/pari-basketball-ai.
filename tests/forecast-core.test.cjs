@@ -179,7 +179,7 @@ assert.ok(!applyPoissonSource.includes("dataQuality.rolling_snapshot_count="), "
 assert.ok(appSource.includes("priorExposureSeconds:aggregatePriorExposureSeconds"), "missing period splits must use aggregate historical score and exact exposure");
 assert.ok(!appSource.slice(appSource.indexOf("function saveAnalysisHistory("),appSource.indexOf("function clearAnalysisHistory(")).includes("if(!estimate&&!quarter?.ready)return"), "raw snapshot history must persist even when no forecast is available");
 assert.ok(appSource.includes('forecastStatus:estimate||quarter?.ready?"calculated":"not_available"'), "history must distinguish snapshot from forecast availability");
-assert.ok(htmlSource.includes("20261122-pari-ingestion-v4"), "history fix must bump frontend cache");
+assert.ok(htmlSource.includes("20261123-readiness-v5"), "history fix must bump frontend cache");
 assert.ok(htmlSource.includes("confirmedIndependentMatches") && htmlSource.includes("Финалы ещё не сверяются автоматически"), "quality panel must show zero confirmed independent finals and not claim accuracy without settlement");
 assert.ok(archivePublisherSource.startsWith("import hashlib"), "permanent archive publisher must import hashlib before calculating checksums");
 assert.ok(archiveCollectorSource.includes("contract.snapshot_id = row.snapshot_id") && archiveCollectorSource.includes("contract.contract_id = crypto.createHash"), "all prediction blocks from one source update must share snapshot_id; target identity uses contract_id");
@@ -188,7 +188,7 @@ assert.ok(!archiveCollectorSource.includes("window.automaticForecast") && archiv
 assert.ok(archiveCollectorSource.includes("result.source_checked_at_utc || row.captured_at_utc") && archiveCollectorSource.includes("String(row.score || \"\"),"), "archive snapshot IDs must use the same source timestamp, score, period and clock key as the UI");
 assert.ok(archiveCollectorSource.includes("source_event_snapshot: JSON.parse(JSON.stringify(rawEvent))") && archiveCollectorSource.includes("model_versions:"), "archive must preserve immutable raw source event and method versions separately from forecasts");
 assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
-assert.ok(htmlSource.includes("20261122-pari-ingestion-v4"), "frontend cache must be bumped after display fixes");
+assert.ok(htmlSource.includes("20261123-readiness-v5"), "frontend cache must be bumped after display fixes");
 assert.ok(appSource.includes("const qLines=") && !appSource.includes("qLines+="), "quarter forecast text must be immutable after declaration");
 const timerFnStart = appSource.indexOf("function findQuarterClockFromElapsed(");
 const timerFnEnd = appSource.indexOf("function automaticQuarterForecast(", timerFnStart);
@@ -347,7 +347,7 @@ assert.equal(mcResult.momentum,20);
 assert.equal(mcResult.research_scheme,true);
 assert.ok(htmlSource.indexOf("forecast-core.js") < htmlSource.indexOf("app.js"),
   "the tested forecast core must load before the UI code");
-assert.ok(htmlSource.includes("20261122-pari-ingestion-v4"), "forecast core cache must be refreshed with model changes");
+assert.ok(htmlSource.includes("20261123-readiness-v5"), "forecast core cache must be refreshed with model changes");
 assert.ok(appSource.includes("market.prices.push"), "quarter market prices must preserve both factor IDs");
 assert.ok(appSource.includes('outcomeStatus:"unresolved"'), "unconfirmed history outcomes must not be shown as settled");
 assert.ok(appSource.includes('overtime_policy:"not_included_market_rule_unverified"'), "regulation-only forecasts must not imply overtime inclusion");
@@ -416,3 +416,17 @@ assert.ok(appSource.includes("statusLabels[missingStatuses[0]]"),
   "statistics gaps must show a specific reason rather than a generic no-statistics label");
 
 console.log("forecast core regressions: OK");
+const malformedBase={current:20,elapsedSeconds:300,periodLengthSeconds:600,completedQuarterTotals:[40,42]};
+for(const patch of [{current:null},{current:''},{current:true},{current:2.5},{current:-1},
+  {elapsedSeconds:null},{periodLengthSeconds:''},{completedQuarterTotals:[40,null]},
+  {completedQuarterTotals:[-1,40]},{completedQuarterTotals:[40.5]},
+  {priorPoints:80,priorExposureSeconds:1200},{completedQuarterTotals:[],priorPoints:null,priorExposureSeconds:1200}])
+  assert.equal(core.quarterPosterior({...malformedBase,...patch}).ready,false,'invalid counts/exposure must not silently become zero or disappear');
+const parsingSandbox={};
+vm.runInNewContext(appSource.slice(0,appSource.indexOf('function findLivePeriod('))+';this.parse=parseScore;this.liveScore=findLiveScore;',parsingSandbox);
+for(const value of [[null,null],['',10],[true,10],[-1,10],[2.5,10],'-2:10','2.5:10',{score1:null,score2:10}])
+  assert.equal(parsingSandbox.parse(value),null);
+assert.equal(parsingSandbox.parse([0,0]).join(':'),'0:0');
+assert.equal(parsingSandbox.liveScore({score:null,related_events:[{score:[30,20]}]}),null,'a child statistic or quarter is not the root score');
+assert.equal(parsingSandbox.liveScore({score:[50,45],related_events:[{score:[30,20]}]}).join(':'),'50:45');
+console.log('input validation regressions: OK');

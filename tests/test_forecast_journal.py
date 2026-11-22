@@ -34,6 +34,19 @@ class JournalTests(unittest.TestCase):
         journal.record([self.row], 'source-hash')
         return journal.export_rows()[0]['id']
 
+    def test_tempo_baseline_uses_actual_period_count(self):
+        self.row['prediction'].update(current=120, period=2, clock='05:00', periodLengthSeconds=1200, periodCount=2)
+        identity = self.save()
+        journal.confirm(identity, self.final)
+        report = evaluate(load_database(self.dbpath))
+        self.assertAlmostEqual(report['partitions']['development']['match']['simple_tempo_mae'], abs(120*2400/2100-160))
+
+    def test_unknown_period_count_has_no_fabricated_baseline(self):
+        identity = self.save()
+        journal.confirm(identity, self.final)
+        report = evaluate(load_database(self.dbpath))
+        self.assertIsNone(report['partitions']['development']['match']['simple_tempo_mae'])
+
     def test_immutable_deduplicated_snapshot_and_model_hash(self):
         self.save(); self.save()
         self.assertEqual(journal.status()['forecasts'], 1)

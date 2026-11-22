@@ -26,6 +26,22 @@ def fixture():
 
 
 class DataContractTests(unittest.TestCase):
+    def test_malformed_card_is_rejected_without_changing_base_feed(self):
+        payload, _ = fixture()
+        before = copy.deepcopy(payload)
+        for detail in [None, [], {'events': None}, {'events': [None]},
+                       dict(payload, customFactors=[None]), dict(payload, liveEventInfos=[{}])]:
+            self.assertFalse(pari_data.merge_detail(payload, detail, 70112200))
+            self.assertEqual(payload, before)
+
+    def test_lagging_detail_cannot_roll_back_score(self):
+        payload, _ = fixture()
+        detail = copy.deepcopy(payload)
+        detail['liveEventInfos'][0]['scores'][0][0]['c1'] = '40'
+        before = copy.deepcopy(payload)
+        self.assertFalse(pari_data.merge_detail(payload, detail, 70112200))
+        self.assertEqual(payload, before)
+
     def test_sparse_duplicate_broadcast_cannot_erase_explicit_format(self):
         payload, info = fixture()
         sparse = dict(info, extra={'coverage': 'tv'})
@@ -77,6 +93,34 @@ class DataContractTests(unittest.TestCase):
 
 
 class UpstreamIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_fallback_server_is_used_after_failure(self):
+        requests = []
+        def respond(request):
+            requests.append(request.url.host)
+            return httpx.Response(503 if request.url.host.startswith('line-vk01') else 200,
+                                  json={'items': []}, request=request)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            data = await pari_data.request_json(client, 'https://line-vk01-w.pb06e2-resources.ru',
+                                                '/sportscast/actrans', {}, 1)
+        self.assertEqual(data, {'items': []})
+        self.assertEqual(len(requests), 2)
+        self.assertTrue(requests[-1].startswith('line-vk02'))
+
+    async def test_transient_failure_retains_only_scoped_static_format(self):
+        payload, info = fixture()
+        host = 'https://line-vk01-w.pb06e2-resources.ru'
+        def respond(request):
+            return httpx.Response(503 if request.url.path == '/sportscast/actrans' else 200,
+                                  json=payload, request=request)
+        for age, expected in [(61, True), (86401, False)]:
+            cached = {'saved': pari_data.time.monotonic()-age, 'items': {str(info['fon_code']): info}}
+            with patch.dict(pari_data._METADATA, {host: cached}, clear=True):
+                async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+                    formats, _, diagnostics = await pari_data.enrich_payload(client, host, copy.deepcopy(payload))
+            self.assertEqual('70112200' in formats, expected)
+            if expected:
+                self.assertEqual(diagnostics['metadata'], 'cached_static_format_only')
+
     async def test_brazil_cold_start_uses_pari_event_specific_format_and_prices(self):
         payload, info = fixture()
         real_client = httpx.AsyncClient
