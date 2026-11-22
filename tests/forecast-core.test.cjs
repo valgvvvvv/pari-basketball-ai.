@@ -252,6 +252,7 @@ vm.runInNewContext(highlightSource+";this.highlight=quarterHighlightInfo",runtim
 assert.equal(runtimeSandbox.highlight({period:3,clock:"06:00",period_length_seconds:600}).elapsed,240);
 assert.equal(runtimeSandbox.highlight({period:3,clock:"02:00",period_length_seconds:600}).elapsed,480);
 assert.equal(runtimeSandbox.highlight({period:3,clock:"06:01",period_length_seconds:600}),null);
+assert.equal(runtimeSandbox.highlight({period:2,clock:"15:00",period_length_seconds:1200,period_count:2}),null,"a half is not a quarter-window candidate");
 const prioritySandbox={window:{PARIForecastCore:core},findLiveClock:e=>e.clock,
   inferPeriodLengthForForecast:()=>({seconds:600}),findLivePeriod:e=>e.period,
   findLiveScore:()=>[60,60],validateScoreTimeline:()=>({valid:true})};
