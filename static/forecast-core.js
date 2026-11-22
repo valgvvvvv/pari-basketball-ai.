@@ -38,57 +38,75 @@
         priorQuarterCount===1?"низкая · prior по одному периоду":"низкая · недостаточно истории",
       method:"Gamma-Poisson posterior predictive · Jeffreys prior"};
   }
-  function makeRng(seedText){
-    let seed=2166136261;
-    for(const ch of String(seedText||""))seed=Math.imul(seed^ch.charCodeAt(0),16777619)>>>0;
-    return ()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return (seed+1)/4294967297;};
-  }
-  function sampleGamma(shape,random){
-    if(shape<1)return sampleGamma(shape+1,random)*Math.pow(Math.max(random(),1e-15),1/shape);
-    const d=shape-1/3,c=1/Math.sqrt(9*d);
-    for(let i=0;i<100;i++){
-      const u1=Math.max(random(),1e-15),u2=random();
-      const x=Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2);
-      const v0=1+c*x;if(v0<=0)continue;
-      const v=v0*v0*v0,u=random();
-      if(u<1-0.0331*x*x*x*x||Math.log(Math.max(u,1e-15))<0.5*x*x+d*(1-v+Math.log(v)))return d*v;
+  // Exact Gamma-Poisson predictive PMF. No normal approximation or random seed.
+  // Tail truncation is checked rather than silently returning a partial distribution.
+  function predictiveDistribution(posterior){
+    if(!posterior?.ready||!Number.isInteger(posterior.current)||posterior.current<0||
+       ![posterior.alpha,posterior.beta,posterior.remainingMinutes].every(Number.isFinite)||
+       posterior.alpha<=0||posterior.beta<=0||posterior.remainingMinutes<0)return null;
+    const {alpha,beta,remainingMinutes:t}=posterior,mu=alpha*t/beta;
+    let mass=Math.exp(-alpha*Math.log1p(t/beta)),sum=mass;
+    if(!(mass>0))return null;
+    const cdf=[sum],pmf=[mass],ratio=t/(beta+t);
+    for(let k=1;k<20000&&(sum<1-1e-13||k<=mu);k++){
+      mass*=((alpha+k-1)/k)*ratio;
+      sum+=mass;pmf.push(mass);cdf.push(Math.min(1,sum));
     }
-    return shape;
+    if(!Number.isFinite(sum)||Math.abs(1-sum)>1e-10)return null;
+    const at=k=>k<0?0:k>=cdf.length?1:cdf[Math.floor(k)];
+    const quantile=q=>posterior.current+cdf.findIndex(x=>x>=q);
+    return {at,pmf,quantile,tailErrorBound:Math.max(0,1-sum)};
   }
-  function samplePoisson(lambda,random){
-    if(lambda<=0)return 0;
-    if(lambda>35){
-      const u=Math.max(random(),1e-15),v=random(),z=Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
-      return Math.max(0,Math.round(lambda+Math.sqrt(lambda)*z));
-    }
-    const limit=Math.exp(-lambda);let product=1,k=0;
-    do{k++;product*=random();}while(product>limit&&k<1000);
-    return k-1;
+  function lineProbability(posterior,distribution,row){
+    const line=Number(row.line),cut=line-posterior.current;
+    const pUnder=distribution.at(Math.ceil(cut)-1);
+    const pPush=Number.isInteger(cut)&&cut>=0?(distribution.pmf[cut]||0):0;
+    const pOver=Math.max(0,1-pUnder-pPush),decisive=pOver+pUnder;
+    const conditionalOver=decisive?pOver/decisive:.5;
+    return {...row,pOver,pUnder,pPush,
+      direction:conditionalOver>=.57?"ТБ":conditionalOver<=.43?"ТМ":"без выраженного преимущества",
+      edge:Math.abs(conditionalOver-.5)};
   }
-  function quantile(sorted,q){return sorted[Math.min(sorted.length-1,Math.max(0,Math.ceil(q*sorted.length)-1))];}
+  // Keep the public entry point for archive replay compatibility; there are no simulations now.
   function simulateQuarter(posterior,lines,seedText,n){
-    if(!posterior||!posterior.ready)return null;
-    const count=Math.max(1000,Math.min(100000,Number(n)||100000)),random=makeRng(seedText),outcomes=new Array(count);
-    for(let i=0;i<count;i++){
-      const rate=sampleGamma(posterior.alpha,random)/posterior.beta;
-      outcomes[i]=posterior.current+samplePoisson(rate*posterior.remainingMinutes,random);
-    }
-    outcomes.sort((a,b)=>a-b);
-    const probabilities=(Array.isArray(lines)?lines:[]).filter(x=>Number.isFinite(Number(x.line))).map(x=>{
-      const line=Number(x.line);let over=0,under=0,push=0;
-      for(const total of outcomes){if(total>line)over++;else if(total<line)under++;else push++;}
-      const pOver=over/count,pUnder=under/count,pPush=push/count,decisive=over+under;
-      const conditionalOver=decisive?over/decisive:0.5;
-      return {...x,pOver,pUnder,pPush,
-        direction:conditionalOver>=0.57?"ТБ":conditionalOver<=0.43?"ТМ":"без выраженного преимущества",
-        edge:Math.abs(conditionalOver-0.5)};
-    });
-    return {simulations:count,mu:posterior.expectedRemaining,variance:posterior.varianceRemaining,
-      meanUncertaintyVariance:posterior.meanUncertaintyVariance,meanUncertaintySd:posterior.meanUncertaintySd,
-      low80:quantile(outcomes,.10),high80:quantile(outcomes,.90),low95:quantile(outcomes,.025),high95:quantile(outcomes,.975),
-      probabilities,method:posterior.method,distribution:"negative-binomial predictive (Gamma-Poisson)"};
+    const distribution=predictiveDistribution(posterior);
+    if(!distribution)return null;
+    return {simulations:0,calculation:"analytic_negative_binomial",mu:posterior.expectedRemaining,
+      variance:posterior.varianceRemaining,meanUncertaintyVariance:posterior.meanUncertaintyVariance,
+      meanUncertaintySd:posterior.meanUncertaintySd,
+      low80:distribution.quantile(.10),high80:distribution.quantile(.90),
+      low95:distribution.quantile(.025),high95:distribution.quantile(.975),
+      probabilities:(lines||[]).filter(x=>x.line!=null&&Number.isFinite(Number(x.line)))
+        .map(x=>lineProbability(posterior,distribution,x)),tailErrorBound:distribution.tailErrorBound,
+      method:posterior.method+" · точный расчёт",distribution:"negative-binomial predictive (Gamma-Poisson)"};
   }
-  const MODEL_VERSION="regulation-research-v2";
+  // Sensitivity, not independent model votes or calibration: the same observed game
+  // with full history, the last completed period, and current-period-only exposure.
+  function quarterSensitivity(posterior,lines){
+    if(!posterior?.ready)return [];
+    const base={current:posterior.current,elapsedSeconds:posterior.elapsedSeconds,
+      periodLengthSeconds:posterior.periodMinutes*60};
+    const variants=[{name:"Вся история матча",posterior}];
+    const last=posterior.completedQuarterTotals?.slice(-1);
+    if(last?.length)variants.push({name:"Последний завершённый период",
+      posterior:quarterPosterior({...base,completedQuarterTotals:last})});
+    variants.push({name:"Только текущий период",posterior:quarterPosterior({...base,completedQuarterTotals:[]})});
+    return variants.filter(v=>v.posterior.ready).map(v=>({name:v.name,
+      projection:v.posterior.projection,probabilities:simulateQuarter(v.posterior,lines)?.probabilities||[]}));
+  }
+  function assessSensitivity(rows,variants){
+    return (rows||[]).map(row=>{
+      const direction=row.pOver>=row.pUnder?"ТБ":"ТМ";
+      const checks=[{name:"Основной расчёт",row},...(variants||[]).map(v=>({name:v.name,
+        row:v.probabilities.find(x=>Number(x.line)===Number(row.line))})).filter(v=>v.row)];
+      const probabilities=checks.map(v=>direction==="ТБ"?v.row.pOver:v.row.pUnder);
+      return {...row,robustness:{variantCount:checks.length,available:checks.length>=3,
+        directionStable:checks.every(v=>(v.row.pOver>=v.row.pUnder?"ТБ":"ТМ")===direction),
+        probabilityMin:Math.min(...probabilities),probabilityMax:Math.max(...probabilities),
+        variants:checks.map((v,i)=>({name:v.name,probability:probabilities[i]}))}};
+    });
+  }
+  const MODEL_VERSION="regulation-research-v3-exact";
   const REASONS={data:"Не подтверждены свежесть, счёт или таймер",window:"Вне окна отбора",preliminary:"Предварительный расчёт",
     probabilities:"Некорректное распределение",rules:"Правила рынка не подтверждены",overtime:"Прогноз основного времени несовместим с рынком с ОТ",
     prices:"Не подтверждены обе цены ТБ/ТМ",quote:"Линия устарела или время котировки неизвестно",
@@ -138,13 +156,41 @@
         if(comparison&&comparison.modelExpectedReturn<=0)reasons.push("edge");
         const critical=reasons.some(r=>!["calibration","validation","threshold","edge"].includes(r));
         result.push({target,period,line:Number(x.line),direction:x.pOver>=x.pUnder?"ТБ":"ТМ",probability,
-          pOver:x.pOver,pUnder:x.pUnder,pPush:x.pPush||0,push:x.pPush||0,
+          pOver:x.pOver,pUnder:x.pUnder,pPush:x.pPush||0,push:x.pPush||0,robustness:x.robustness||null,
           status:critical?"shadow":"research",priority:false,calibrated:false,modelVersion:MODEL_VERSION,
           predictionIncludesOvertime:false,market,comparison,reasonCodes:reasons,reasons:reasons.map(r=>REASONS[r])});
       }
     }
-    return result.sort((a,b)=>b.probability-a.probability||a.target.localeCompare(b.target)||a.line-b.line);
+    return result.sort((a,b)=>b.probability-a.probability||(a.target<b.target?-1:a.target>b.target?1:0)||a.line-b.line);
   }
   function selectPrioritySignals(input){return evaluateSignals(input).filter(x=>x.priority===true);}
-  return {quarterPosterior,simulateQuarter,selectPrioritySignals,evaluateSignals,marketComparison,MODEL_VERSION};
+  // Watchlist only. Never feeds selectPrioritySignals or Telegram delivery.
+  function selectResearchCandidates(evaluations){
+    const eligible=(evaluations||[]).filter(x=>!x.reasonCodes.some(r=>["data","window","preliminary","probabilities"].includes(r)));
+    const selected=[];
+    for(const target of ["match","quarter"]){
+      const rows=eligible.filter(x=>x.target===target).sort((a,b)=>a.line-b.line);
+      if(!rows.length)continue;
+      // Pick the central quoted line BEFORE inspecting probabilities. Alternative
+      // lines far from the score must not win a ranking just because they pay less.
+      const row=rows[Math.floor((rows.length-1)/2)],r=row.robustness;
+      if(!r?.available||!r.directionStable||r.probabilityMin<.65)continue;
+      if(row.comparison&&row.comparison.modelExpectedReturn<=0)continue;
+      if(row.comparison&&r.probabilityMin*row.comparison.odds-1<=0)continue;
+      selected.push({...row,watchlist:true,priority:false,calibrated:false,
+        rankingProbability:r.probabilityMin,marketReady:!row.reasonCodes.some(x=>["rules","overtime","prices","quote"].includes(x))});
+    }
+    return selected.sort((a,b)=>b.rankingProbability-a.rankingProbability);
+  }
+  function summarizeSignals(evaluations){
+    const reasons={};
+    for(const row of evaluations||[])for(const reason of new Set(row.reasonCodes||[]))reasons[reason]=(reasons[reason]||0)+1;
+    return {evaluatedLines:(evaluations||[]).length,
+      confidentSignals:(evaluations||[]).filter(x=>x.priority).length,
+
+      automaticPriorityEnabled:false,calibrated:false,
+      reasons:Object.entries(reasons).map(([code,lines])=>({code,lines,label:REASONS[code]||code})).sort((a,b)=>b.lines-a.lines||(a.code<b.code?-1:a.code>b.code?1:0))};
+  }
+  return {quarterPosterior,simulateQuarter,quarterSensitivity,assessSensitivity,selectResearchCandidates,
+    summarizeSignals,selectPrioritySignals,evaluateSignals,marketComparison,MODEL_VERSION};
 });

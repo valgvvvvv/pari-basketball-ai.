@@ -174,3 +174,8 @@ html,body,#selectedMatch{overflow-anchor:none}
 .priority-signal{display:block;padding:6px 0;font-size:13px}
 .quarter-window-note{display:block;color:#adb9ce;font-size:11px}
 .priority-card:focus-visible,.live-match:focus-visible{outline:3px solid #79baff;outline-offset:3px}
+
+.research-card{border-color:#5986b6;background:#18283b}
+.research-card span,.research-signal{color:#a8d0fa}
+.research-signal{display:block;font-size:12px;padding:6px 0}
+.live-match.live-match-research{border:2px solid #5986b6;background:#182437}
