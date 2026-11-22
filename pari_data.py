@@ -17,6 +17,19 @@ _METADATA = {}
 _DETAILS = {}
 
 
+async def request_json(client, host, path, params, timeout):
+    """Retry only configured public PARI line servers, never an arbitrary host."""
+    known = ['https://line-vk01-w.pb06e2-resources.ru', 'https://line-vk02-w.pb06e2-resources.ru']
+    hosts = [host]+[other for other in known if other != host] if host in known else [host]
+    failure = None
+    for current in hosts[:2]:
+        try:
+            return decode(await client.get(current+path, params=params, timeout=timeout))
+        except Exception as exc:
+            failure = exc
+    raise RuntimeError('PARI public request unavailable') from failure
+
+
 def decode(response):
     response.raise_for_status()
     try:
@@ -85,10 +98,34 @@ def descendants(events, root):
 
 def merge_detail(payload, detail, root):
     """Replace an entire event subtree atomically, never just its price/score."""
+    if not isinstance(payload, dict) or not isinstance(detail, dict):
+        return False
+    fields = [('events', 'id'), ('eventMiscs', 'id'), ('liveEventInfos', 'eventId'),
+              ('customFactors', 'e'), ('eventBlocks', 'eventId')]
+    for data in [payload, detail]:
+        for key, field in fields:
+            rows = data.get(key, [])
+            if not isinstance(rows, list) or any(not isinstance(row, dict) or row.get(field) is None for row in rows):
+                return False
+    if not detail.get('events'):
+        return False
     original = next((e for e in payload.get('events', []) if str(e.get('id')) == str(root)), None)
     current = next((e for e in detail.get('events', []) if str(e.get('id')) == str(root)), None)
     if not original or not current or any(str(original.get(k)) != str(current.get(k))
                                          for k in ['sportId', 'team1', 'team2']):
+        return False
+    # A lagging detail server must not replace a newer scoreboard. Corrections
+    # remain available from the base feed on its next complete snapshot.
+    def root_score(data):
+        info = next((r for r in data.get('liveEventInfos', []) if str(r.get('eventId')) == str(root)), {})
+        try:
+            row = info['scores'][0][0]
+            score = tuple(int(row[k]) for k in ['c1', 'c2'])
+            return score if all(v >= 0 for v in score) else None
+        except (KeyError, IndexError, TypeError, ValueError, OverflowError):
+            return None
+    before, after = root_score(payload), root_score(detail)
+    if before and (not after or any(a < b for a, b in zip(after, before))):
         return False
     new_ids = descendants(detail['events'], root)
     # Reject any foreign event injected into the detailed response.
@@ -117,16 +154,22 @@ async def enrich_payload(client, host, payload):
                    'detail_events': 0, 'detail_errors': 0, 'format_events': 0}
     if not cached or now-cached['saved'] > 60:
         try:
-            data = decode(await client.get(source, params={'lang': 'multi'}, timeout=4))
+            data = await request_json(client, host, '/sportscast/actrans', {'lang': 'multi'}, 3)
             items = data.get('items')
             if not isinstance(items, list):
                 raise ValueError('No items')
             cached = {'saved': time.monotonic(), 'items': metadata_index(items)}
             _METADATA[host] = cached
         except Exception:
-            cached = None  # Expired metadata is not silently reused.
+            # The playing format is static, unlike the score and prices. Retain
+            # its exact ID/team-scoped evidence for at most 24h, with an explicit state.
+            if cached and now-cached['saved'] < 86400:
+                diagnostics['metadata'] = 'cached_static_format_only'
+            else:
+                cached = None
     infos = cached['items'] if cached else {}
-    diagnostics['metadata'] = 'available' if cached else 'unavailable'
+    if diagnostics['metadata'] != 'cached_static_format_only':
+        diagnostics['metadata'] = 'available' if cached else 'unavailable'
     roots = [e for e in payload.get('events', []) if e.get('level') == 1 and e.get('place') == 'live'
              and same_event(e, infos.get(str(e.get('id')), {}))]
     # Oldest first avoids starving matches outside the first page of the feed.
@@ -140,8 +183,8 @@ async def enrich_payload(client, host, payload):
         if stored is None:
             async with sem:
                 try:
-                    detail = decode(await client.get(host+'/events/event',
-                                    params={'eventId': event['id'], 'lang': 'ru', 'scopeMarket': '2300'}, timeout=3))
+                    detail = await request_json(client, host, '/events/event',
+                                    {'eventId': event['id'], 'lang': 'ru', 'scopeMarket': '2300'}, 2)
                     stored = {'saved': time.monotonic(), 'data': detail,
                               'received': datetime.now(timezone.utc).isoformat()}
                     _DETAILS[identity] = stored
@@ -151,6 +194,8 @@ async def enrich_payload(client, host, payload):
         if merge_detail(payload, stored['data'], event['id']):
             received[str(event['id'])] = stored['received']
             diagnostics['detail_events'] += 1
+        else:
+            diagnostics['detail_errors'] += 1
 
     try:
         await asyncio.wait_for(asyncio.gather(*(card(e) for e in roots[:24])), timeout=7)

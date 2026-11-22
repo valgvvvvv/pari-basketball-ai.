@@ -32,7 +32,8 @@ function serverPriorityCards(data){
     captured_at_utc:data.checked_at_utc,decision,source_event_snapshot:ev,
     prediction:{center:forecast?.projection,interval80:[forecast?.poisson?.low80??forecast?.low80,forecast?.poisson?.high80??forecast?.high80],
      current:forecast?.current,score:findLiveScore(ev),clock:findLiveClock(ev),period:findLivePeriod(ev),
-     periodLengthSeconds:inferPeriodLengthForForecast(ev)?.seconds}});
+     periodLengthSeconds:inferPeriodLengthForForecast(ev)?.seconds,
+     periodCount:inferPeriodLengthForForecast(ev)?.periods}});
   }
   for(const signal of decisions.filter(x=>x.priority===true)){
    cards.push({event:String(ev.id),teams:ev.team1+' — '+ev.team2,

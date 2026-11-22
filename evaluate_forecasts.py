@@ -35,8 +35,9 @@ def summarize(rows):
                 total_time = length
                 if d['target'] == 'match':
                     elapsed += length * (pred['period'] - 1)
-                    total_time *= 4
-                if elapsed > 0:
+                    count = pred.get('periodCount')
+                    total_time = length*count if count in (2, 4) else None
+                if elapsed > 0 and total_time is not None:
                     baseline_errors.append(pred['current'] * total_time / elapsed - actual)
             y = [float(actual > d['line']), float(actual < d['line']), float(actual == d['line'])]
             briers.append(sum((p - truth) ** 2 for p, truth in zip([d['pOver'], d['pUnder'], d['pPush']], y)))

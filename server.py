@@ -3773,7 +3773,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             v = v[-1]
                         try:
                             n = float(v)
-                            return int(n) if math.isfinite(n) and n >= 0 else None
+                            return int(n) if math.isfinite(n) and n >= 0 and n.is_integer() else None
                         except (TypeError, ValueError, OverflowError):
                             return None
                     h, a = numeric(home), numeric(away)

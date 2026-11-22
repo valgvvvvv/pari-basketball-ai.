@@ -140,6 +140,13 @@ def status():
         return {**counts, 'persistent': False,
                 'storage': 'configure FORECAST_JOURNAL_PATH on a persistent disk; default is ephemeral; custom path alone does not verify persistence',
                 'calibrated': False, 'automatic_priority_enabled': False,
+                'readiness': {
+                    'independent_results': 'missing' if counts['confirmed_games'] == 0 else 'collected_not_yet_validated',
+                    'calibrator': 'not_trained', 'independent_edge_test': 'not_completed',
+                    'match_overtime_model': 'not_implemented',
+                    'automatic_final_verification': False,
+                    'sample_size_alone_enables_signals': False,
+                    'next_step': 'Collect independently verified finals, train/calibrate on earlier games, and evaluate on untouched later games. Regulation and overtime targets must stay separate.'},
                 'reason': 'No independently validated calibrator/edge artifact for the current model'}
     finally:
         db.close()

@@ -181,3 +181,11 @@ JSON финала использует контракт `result_validation.py`: 
 `pari_total_catalog.json` — компактная проверенная выдержка LIVE-конфигурации баскетбола, таблиц 18319/2673. Стороны 930/931 и альтернативных пар подтверждены заголовками «Больше»/«Меньше», а не порядком цен. Сохраняются sourceEventId, factor IDs, версия/ссылка справочника, обе цены одной линии и блокировки root/child. `quotedAtUtc` — момент получения ответа, **не** известная дата последнего изменения котировки провайдером; `quoteTimestampKind` это явно указывает. Неизвестные и конфликтующие факторы не сопоставляются.
 
 Правила PARI 8.1 подтверждают учёт ОТ для тотала матча. Модель по-прежнему считает основное время: ценам даётся корректный статус, но EV для несовместимого рынка не выводится и формальный допуск не включается. Тотал конкретной четверти определяется точным eventKind 100401–100404, без примеси командных статистических подрынков. Наличие «Показателей команд» не означает, что источник передаёт FGA/ORB/TO: отсутствующие поля не заполняются вымышленными значениями. Диагностика подключения находится в `pari_data_diagnostics` каждого события.
+
+### Input reliability and model readiness (2026-11-23)
+- Reject missing, negative and fractional scores rather than converting them to zero; reject malformed prior periods and future-dated snapshots.
+- Retry the secondary PARI feed on request failures. Cache only event/team-scoped static format evidence for at most 24 hours, never cached live scores or prices.
+- Reject malformed or score-regressing detail cards without replacing the valid base snapshot.
+- Separate input, model and selection blockers in the signal panel and expose research readiness in `/api/research/status`.
+- Evaluate full-match tempo using the actual period count (including 2x20); omit this baseline when format is unknown.
+- Confident promotion still requires independently verified finals, trained calibration and untouched later-game evaluation. Full-match PARI totals include overtime; the regulation model is not an overtime model. Persistent journal storage and automatic independent final verification are not configured by this patch.
