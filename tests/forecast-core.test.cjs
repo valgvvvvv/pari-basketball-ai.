@@ -78,7 +78,8 @@ assert.ok(Math.abs(nanjingOldSnapshot.beta - 21.05) < 1e-9);
 const nanjingDistribution = core.simulateQuarter(nanjingOldSnapshot, [{line:40.5},{line:40}], "nanjing-xinjiang-fixed-snapshot", 100000);
 assert.ok(Math.abs(nanjingDistribution.mu - nanjingOldSnapshot.expectedRemaining) < 1e-9,
   "predictive distribution mean must equal posterior expected remaining points");
-assert.equal(nanjingDistribution.low80, 30);
+// Exact negative-binomial quantile; the previous normal-approximation sampler returned 30.
+assert.equal(nanjingDistribution.low80, 31);
 assert.equal(nanjingDistribution.high80, 50);
 assert.ok(Math.abs(nanjingDistribution.variance - nanjingDistribution.mu - nanjingDistribution.meanUncertaintyVariance) < 1e-8,
   "predictive variance must equal Poisson variance plus posterior mean uncertainty");
@@ -178,7 +179,7 @@ assert.ok(!applyPoissonSource.includes("dataQuality.rolling_snapshot_count="), "
 assert.ok(appSource.includes("priorExposureSeconds:aggregatePriorExposureSeconds"), "missing period splits must use aggregate historical score and exact exposure");
 assert.ok(!appSource.slice(appSource.indexOf("function saveAnalysisHistory("),appSource.indexOf("function clearAnalysisHistory(")).includes("if(!estimate&&!quarter?.ready)return"), "raw snapshot history must persist even when no forecast is available");
 assert.ok(appSource.includes('forecastStatus:estimate||quarter?.ready?"calculated":"not_available"'), "history must distinguish snapshot from forecast availability");
-assert.ok(htmlSource.includes("20261121-quality-v2"), "history fix must bump frontend cache");
+assert.ok(htmlSource.includes("20261122-robust-v3"), "history fix must bump frontend cache");
 assert.ok(htmlSource.includes("confirmedIndependentMatches") && htmlSource.includes("Финалы ещё не сверяются автоматически"), "quality panel must show zero confirmed independent finals and not claim accuracy without settlement");
 assert.ok(archivePublisherSource.startsWith("import hashlib"), "permanent archive publisher must import hashlib before calculating checksums");
 assert.ok(archiveCollectorSource.includes("contract.snapshot_id = row.snapshot_id") && archiveCollectorSource.includes("contract.contract_id = crypto.createHash"), "all prediction blocks from one source update must share snapshot_id; target identity uses contract_id");
@@ -187,7 +188,7 @@ assert.ok(!archiveCollectorSource.includes("window.automaticForecast") && archiv
 assert.ok(archiveCollectorSource.includes("result.source_checked_at_utc || row.captured_at_utc") && archiveCollectorSource.includes("String(row.score || \"\"),"), "archive snapshot IDs must use the same source timestamp, score, period and clock key as the UI");
 assert.ok(archiveCollectorSource.includes("source_event_snapshot: JSON.parse(JSON.stringify(rawEvent))") && archiveCollectorSource.includes("model_versions:"), "archive must preserve immutable raw source event and method versions separately from forecasts");
 assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
-assert.ok(htmlSource.includes("20261121-quality-v2"), "frontend cache must be bumped after display fixes");
+assert.ok(htmlSource.includes("20261122-robust-v3"), "frontend cache must be bumped after display fixes");
 assert.ok(appSource.includes("const qLines=") && !appSource.includes("qLines+="), "quarter forecast text must be immutable after declaration");
 const timerFnStart = appSource.indexOf("function findQuarterClockFromElapsed(");
 const timerFnEnd = appSource.indexOf("function automaticQuarterForecast(", timerFnStart);
@@ -254,7 +255,7 @@ assert.equal(runtimeSandbox.highlight({period:3,clock:"06:01",period_length_seco
 const prioritySandbox={window:{PARIForecastCore:core},findLiveClock:e=>e.clock,
   inferPeriodLengthForForecast:()=>({seconds:600}),findLivePeriod:e=>e.period,
   findLiveScore:()=>[60,60],validateScoreTimeline:()=>({valid:true})};
-vm.runInNewContext(appSource.slice(appSource.indexOf("function signalEvaluations("),appSource.indexOf("function priorityLabel("))+";this.select=prioritySignals;this.evaluate=signalEvaluations;",prioritySandbox);
+vm.runInNewContext(appSource.slice(appSource.indexOf("function forecastSensitivity("),appSource.indexOf("function priorityLabel("))+";this.select=prioritySignals;this.evaluate=signalEvaluations;",prioritySandbox);
 const matchForPriority={ready:true,kind:"live_tempo",estimate:{current:120,poisson:{probabilities:priorityFixture.match.probabilities}}};
 const signalEvent={period:4,clock:"08:00",feed_checked_at_utc:new Date().toISOString(),timer_semantics_verified:true};
 assert.equal(prioritySandbox.evaluate(signalEvent,matchForPriority,{ready:false}).filter(x=>!x.reasonCodes.includes('window')).length,1,"Q4 2:00 elapsed must not depend on the separate 4–8-minute quarter window");
@@ -345,7 +346,7 @@ assert.equal(mcResult.momentum,20);
 assert.equal(mcResult.research_scheme,true);
 assert.ok(htmlSource.indexOf("forecast-core.js") < htmlSource.indexOf("app.js"),
   "the tested forecast core must load before the UI code");
-assert.ok(htmlSource.includes("20261121-quality-v2"), "forecast core cache must be refreshed with model changes");
+assert.ok(htmlSource.includes("20261122-robust-v3"), "forecast core cache must be refreshed with model changes");
 assert.ok(appSource.includes("market.prices.push"), "quarter market prices must preserve both factor IDs");
 assert.ok(appSource.includes('outcomeStatus:"unresolved"'), "unconfirmed history outcomes must not be shown as settled");
 assert.ok(appSource.includes('overtime_policy:"not_included_market_rule_unverified"'), "regulation-only forecasts must not imply overtime inclusion");

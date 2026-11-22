@@ -49,11 +49,16 @@ class DetectorTests(unittest.TestCase):
         self.assertEqual(decision['direction'], 'ТМ')
         self.assertEqual(decision['line'], 190.5)
         self.assertIn('calibration', decision['reasonCodes'])
+        self.assertEqual(len(result['researchCandidates']), 1)
+        self.assertFalse(result['researchCandidates'][0]['signal']['priority'])
+        self.assertFalse(result['researchCandidates'][0]['signal']['marketReady'])
+        self.assertGreater(result['diagnostics']['evaluatedLines'], 0)
 
     def test_stale_unverified_and_q3_never_emit_match_signal(self):
         for change, age in [({'timer_semantics_verified': False}, 0), ({}, 100), ({'period': 3}, 0)]:
             data = {'events': [dict(fixture(), **change)], 'checked_at_utc': (datetime.now(timezone.utc)-timedelta(seconds=age)).isoformat()}
             self.assertEqual(server_detector.calculate(data)['cards'], [])
+            self.assertEqual(server_detector.calculate(data)['researchCandidates'], [])
 
     def test_sofascore_period_array_keeps_match_and_quarter_separate(self):
         item = {'name': 'Assists', 'home': '3', 'away': '4'}

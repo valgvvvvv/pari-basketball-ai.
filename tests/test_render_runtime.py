@@ -12,6 +12,25 @@ import server
 
 
 class FeedIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_verified_senior_competitions_have_usable_clock_on_first_snapshot(self):
+        for sport_id, name in [(13822, 'Италия. Серия А'), (59996, 'Италия. Серия А2'),
+                               (13721, 'Франция. Про А'), (13639, 'Польша. PLK'),
+                               (14047, 'Швеция. Баскетлиган')]:
+            with self.subTest(sport_id=sport_id):
+                result = await self.fetch_fixture({
+                    'sports': [{'id': 1, 'name': 'Баскетбол'}, {'id': sport_id, 'parentId': 1, 'name': name}],
+                    'events': [{'id': 80000002, 'sportId': sport_id, 'level': 1, 'place': 'live', 'team1': 'Home', 'team2': 'Away'}],
+                    'eventMiscs': [{'id': 80000002, 'score1': 65, 'score2': 65, 'timerSeconds': 2100, 'timerDirection': 0}],
+                    'liveEventInfos': [{'eventId': 80000002, 'scoreFunction': 'Basketball', 'timerSeconds': 2100,
+                                        'scores': [[{'c1': '65', 'c2': '65'}],
+                                                   [{'c1': '20', 'c2': '20', 'title': 'четверть'}]*3+
+                                                   [{'c1': '5', 'c2': '5', 'title': 'четверть'}]]}]})
+                event = result['events'][0]
+                self.assertEqual(event['period'], 4)
+                self.assertEqual(event['clock'], '05:00')
+                self.assertTrue(event['timer_semantics_verified'])
+                self.assertEqual(event['period_length_seconds'], 600)
+
     async def test_ncaa_payload_from_render_log_is_normalized_end_to_end(self):
         payload = {"sports": [{"id": 1, "name": "Баскетбол"}, {"id": 19166, "parentId": 1, "name": "NCAA"}],
             "events": [{"id": 69999268, "sportId": 19166, "level": 1, "place": "live", "team1": "California", "team2": "East Texas"}],

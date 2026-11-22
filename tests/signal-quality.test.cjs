@@ -24,3 +24,23 @@ for(const patch of [{elapsedSeconds:null},{elapsedSeconds:600},{ageSeconds:91},{
 assert.equal(core.selectPrioritySignals({...input,match:{...input.match,calibrated:true,validation:{verified:true}}}).length,0,'untrusted feed flags cannot enable formal signals');
 assert.equal(core.evaluateSignals({...input,match:{ready:true,probabilities:[{...row,pOver:.8,pUnder:.8}]}}).length,0);
 console.log('signal quality regressions: OK');
+const stableRobustness={available:true,variantCount:3,directionStable:true,probabilityMin:.68,probabilityMax:.77};
+const evaluated=decision();
+const watched={...evaluated,robustness:stableRobustness};
+assert.equal(core.selectResearchCandidates([watched]).length,1);
+assert.equal(core.selectResearchCandidates([watched])[0].priority,false);
+assert.equal(core.selectResearchCandidates([{...watched,reasonCodes:[...watched.reasonCodes,'prices','rules']}])[0].marketReady,false);
+for(const reason of ['data','window','preliminary'])assert.equal(core.selectResearchCandidates([{...watched,reasonCodes:[reason]}]).length,0);
+for(const robustness of [null,{...stableRobustness,available:false},{...stableRobustness,directionStable:false},{...stableRobustness,probabilityMin:.649}])
+  assert.equal(core.selectResearchCandidates([{...watched,robustness}]).length,0);
+assert.equal(core.selectResearchCandidates([{...watched,line:140.5}, {...watched,line:160.5,robustness:{...stableRobustness,probabilityMin:.51}}, {...watched,line:180.5}]).length,0,'no cherry-picking an easier alternative line');
+assert.equal(core.selectResearchCandidates([{...watched,comparison:{...watched.comparison,odds:1.4}}]).length,0,'all sensitivity cases must have positive modeled return when prices are known');
+const prior=core.quarterPosterior({current:10,elapsedSeconds:300,periodLengthSeconds:600,completedQuarterTotals:[50,50]});
+const base=core.simulateQuarter(prior,[{line:30.5}]);
+const variants=core.quarterSensitivity(prior,[{line:30.5}]).filter(x=>x.name!=='Вся история матча');
+const sensitivity=core.assessSensitivity(base.probabilities,variants)[0].robustness;
+assert.equal(sensitivity.available,true);
+assert.equal(sensitivity.directionStable,false,'current low tempo can disagree with the full historical prior');
+assert.equal(core.selectResearchCandidates([{...watched,robustness:sensitivity}]).length,0);
+assert.equal(core.summarizeSignals([watched]).reasons.find(x=>x.code==='calibration').lines,1);
+console.log('research sensitivity regressions: OK');
