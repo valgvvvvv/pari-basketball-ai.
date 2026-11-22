@@ -1124,6 +1124,7 @@ function automaticForecast(ev) {
 
 function quarterHighlightInfo(ev){
   const period=findLivePeriod(ev),clock=findLiveClock(ev);
+  if(Number(ev?.period_count||ev?.external_live?.period_count||inferPeriodLengthForForecast(ev)?.periods||4)!==4)return null;
   const length=Number(ev?.period_length_seconds||ev?.external_live?.period_length_seconds||inferPeriodLengthForForecast(ev)?.seconds||0);
   const match=String(clock||"").match(/^(\d{1,2}):([0-5]\d)$/);
   if(!period||!match||!Number.isFinite(length)||length<300||length>1200)return null;
@@ -1348,14 +1349,14 @@ function unifiedToolsPanelHtml(ev,matchData,quarterData,matchForecast,quarterFor
   const marketM=nearest(matchMarketLines,m?.projection),marketQ=nearest(q?.market_lines,q?.projection);
   const pick=(d,market,c)=>Array.isArray(d?.probabilities)?(market?d.probabilities.find(x=>Number(x.line)===Number(market.line))||null:d.probabilities.slice().sort((a,b)=>Math.abs(Number(a.line)-Number(c))-Math.abs(Number(b.line)-Number(c)))[0]||null):null;
   const ml=pick(md,marketM,m?.projection),ql=pick(qd,marketQ,q?.projection),mln=marketM?.line??ml?.line??null,qln=marketQ?.line??ql?.line??null;
-  const numeric=(v,l)=>{if(!Number.isFinite(Number(v)))return "—";if(!Number.isFinite(Number(l)))return Number(v).toFixed(1)+" · линия отсутствует";const d=Number(v)-Number(l);return Number(v).toFixed(1)+" · "+(Math.abs(d)<.05?"числовой центр совпадает с линией":d>0?"числовой центр выше на "+d.toFixed(1):"числовой центр ниже на "+Math.abs(d).toFixed(1))+" · не вероятность";};
+  const numeric=(v,l)=>{if(v==null||!Number.isFinite(Number(v)))return "—";if(l==null||!Number.isFinite(Number(l)))return Number(v).toFixed(1)+" · линия отсутствует";const d=Number(v)-Number(l);return Number(v).toFixed(1)+" · "+(Math.abs(d)<.05?"числовой центр совпадает с линией":d>0?"числовой центр выше на "+d.toFixed(1):"числовой центр ниже на "+Math.abs(d).toFixed(1))+" · не вероятность";};
   const prob=(d,l,c,line)=>!d?"—":!l?numeric(c,line):"ТБ "+(l.pOver*100).toFixed(1)+"% / ТМ "+(l.pUnder*100).toFixed(1)+"% / возврат "+((l.pPush||0)*100).toFixed(1)+"%"+(l.direction==="без выраженного преимущества"?" · вероятности близки":"");
   const find=(d,n)=>d?.models?.find(x=>x.name===n)||null;
   const reg=[
     {id:"primary",name:"Единый основной прогноз",role:"единственный основной расчёт",mv:m?{distribution:true}:null,qv:q?{distribution:true}:null,status:"активен"},
     {id:"linear-pace",name:"Линейный темп",role:"числовой центр по очкам и времени",mv:find(matchData,"Линейный темп"),qv:find(quarterData,"Линейный темп"),status:"числовой центр"},
     {id:"poisson",name:"Пуассон",role:"механизм генерации распределения; не отдельный голос",mv:md?{distribution:true}:null,qv:qd?{distribution:true}:null,status:"часть распределения"},
-    {id:"monte-carlo",name:"Монте‑Карло",role:"способ симуляции распределения",mv:md?{distribution:true}:null,qv:qd?{distribution:true}:null,status:"симулятор, не отдельная модель"},
+    {id:"monte-carlo",name:"Монте‑Карло",role:"способ симуляции распределения",mv:md?{distribution:true}:null,qv:qd?.simulations>0?{distribution:true}:null,status:"симулятор, не отдельная модель"},
     {id:"scenario-ensemble",name:"Ансамбль сценариев",role:"взвешенная смесь сценариев; не независимый голос",mv:md?.scenarios?.length?{distribution:true}:null,qv:null,status:"экспериментальный · не калиброван"},
     {id:"dynamic-tempo",name:"Динамика темпа / концовки",role:"зависимая эвристическая оценка",mv:find(matchData,"Динамический темп")||find(matchData,"Модель концовки"),qv:find(quarterData,"Динамика четверти"),status:"эвристика"},
     {id:"possessions",name:"Модель владений",role:"ожидаемые владения × PPP",mv:find(matchData,"Модель владений"),qv:null,status:m?.possession_model?.reason||"нет владений"},
