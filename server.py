@@ -2325,6 +2325,36 @@ def _pari_explicit_text_format(*rows):
 
 
 PARI_COMPETITION_FORMATS = {
+    "13822": {
+        "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "Italy Serie A; national federation official FIBA playing rules",
+        "rules_version": "Article 8: four 10-minute quarters, 5-minute overtime; checked 2026-11-22",
+        "source_url": "https://fip.it/regolamenti/",
+    },
+    "59996": {
+        "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "Italy Serie A2; national federation official FIBA playing rules",
+        "rules_version": "Article 8: four 10-minute quarters, 5-minute overtime; checked 2026-11-22",
+        "source_url": "https://fip.it/regolamenti/",
+    },
+    "13721": {
+        "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "France Pro A; national federation official FIBA playing rules",
+        "rules_version": "Article 8: four 10-minute quarters, 5-minute overtime; checked 2026-11-22",
+        "source_url": "https://www.ffbb.com/reglement-de-jeu",
+    },
+    "13639": {
+        "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "Poland PLK; national federation official FIBA playing rules",
+        "rules_version": "Article 8: four 10-minute quarters, 5-minute overtime; checked 2026-11-22",
+        "source_url": "https://szkolenie.pzkosz.pl/dokumenty/pobierz/4002/Oficjalne_Przepisy_Gry_FIBA_2024.pdf",
+    },
+    "14047": {
+        "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "Sweden Basketligan; national federation official FIBA playing rules",
+        "rules_version": "Article 8: four 10-minute quarters, 5-minute overtime; checked 2026-11-22",
+        "source_url": "https://www.basket.se/aktiva/domare/regler/",
+    },
     "116789": {
         "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
         "source": "EPC 2026 organizer announcement: FIBA Official Basketball Rules 2024",

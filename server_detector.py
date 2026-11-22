@@ -13,12 +13,19 @@ globalThis.setInterval=()=>0;
 """
 CALCULATE = """
 function serverPriorityCards(data){
- const cards=[],errors=[],evaluations=[];
+ const cards=[],errors=[],evaluations=[],researchCandidates=[],modelBlockers=[];
  for(const original of data.events||[]){
   const ev={...original,feed_checked_at_utc:data.checked_at_utc};
   try {
   const match=automaticForecast(ev),quarter=automaticQuarterForecast(ev,match);
   const decisions=signalEvaluations(ev,match,quarter);
+  for(const [target,f] of [['match',match],['quarter',quarter]]){
+   if(!f.ready||f.kind==='market_reference')modelBlockers.push({event:String(ev.id),target,reason:f.reason||'No game forecast'});
+  }
+  for(const decision of PARIForecastCore.selectResearchCandidates(decisions)){
+   researchCandidates.push({event:String(ev.id),teams:ev.team1+' — '+ev.team2,
+    signal:decision,expires:Date.parse(data.checked_at_utc)+90000});
+  }
   for(const decision of decisions){
    const forecast=decision.target==='match'?match.estimate:quarter;
    evaluations.push({event_id:String(ev.id),snapshot_id:ev.snapshot_id||data.checked_at_utc+':'+String(ev.id),
@@ -34,7 +41,9 @@ function serverPriorityCards(data){
   }
   } catch(error){errors.push({event:String(ev.id),error:String(error.message||error).slice(0,160)});}
  }
- return {cards:cards.sort((a,b)=>b.signal.probability-a.signal.probability||a.event.localeCompare(b.event)).slice(0,3),evaluations,errors};
+ return {cards:cards.sort((a,b)=>b.signal.probability-a.signal.probability||(a.event<b.event?-1:a.event>b.event?1:0)).slice(0,3),
+  researchCandidates:researchCandidates.sort((a,b)=>b.signal.rankingProbability-a.signal.rankingProbability||(a.event<b.event?-1:a.event>b.event?1:0)),
+  diagnostics:{...PARIForecastCore.summarizeSignals(evaluations.map(x=>x.decision)),modelBlockers},evaluations,errors};
 }
 """
 

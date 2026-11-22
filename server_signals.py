@@ -112,9 +112,13 @@ async def process(data, history):
     await asyncio.to_thread(forecast_journal.record, result['evaluations'], result['model_source_sha256'])
     cards = result['cards']
     data['priority_signals'] = cards
+    data['research_candidates'] = result.get('researchCandidates', [])
+    data['signal_diagnostics'] = result.get('diagnostics', {})
     STATUS.update(checked_at_utc=data.get('checked_at_utc'), cards=cards,
                   error='partial_model_errors' if result['errors'] else None,
-                  calculation_errors=result['errors'])
+                  calculation_errors=result['errors'],
+                  research_candidates=result.get('researchCandidates', []),
+                  diagnostics=result.get('diagnostics', {}))
     await deliver(cards)
 
 
