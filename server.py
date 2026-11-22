@@ -2325,6 +2325,24 @@ def _pari_explicit_text_format(*rows):
 
 
 PARI_COMPETITION_FORMATS = {
+    "12071": {
+        "period_length_seconds": 720, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "NBA official Rule No. 5, section II",
+        "rules_version": "NBA regulation timing",
+        "source_url": "https://official.nba.com/rule-no-5-scoring-and-timing/",
+    },
+    "13827": {
+        "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "B.LEAGUE official game rules; PARI B.ONE",
+        "rules_version": "B.LEAGUE four 10-minute quarters",
+        "source_url": "https://www.bleague.jp/en/basketball_rule/",
+    },
+    "37576": {
+        "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "B.LEAGUE official game rules; PARI B.NEXT",
+        "rules_version": "B.LEAGUE four 10-minute quarters",
+        "source_url": "https://www.bleague.jp/en/basketball_rule/",
+    },
     "42338": {
         "period_length_seconds": 720, "period_count": 4,
         "overtime_mode": "target_score",
