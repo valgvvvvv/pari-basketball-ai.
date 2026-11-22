@@ -2325,6 +2325,13 @@ def _pari_explicit_text_format(*rows):
 
 
 PARI_COMPETITION_FORMATS = {
+    "116789": {
+        "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
+        "source": "EPC 2026 organizer announcement: FIBA Official Basketball Rules 2024",
+        "rules_version": "FIBA 2024 article 8: four 10-minute quarters, 5-minute overtime",
+        "source_url": "https://assets.fiba.basketball/image/upload/documents-corporate-fiba-official-rules-2024-v10a.pdf",
+        "competition_rules_url": "https://kumparan.com/kumparansport/dewa-united-gelar-elite-pro-championship-jaring-talenta-basket-muda-28VS2ZxAtZA",
+    },
     "12071": {
         "period_length_seconds": 720, "period_count": 4, "overtime_length_seconds": 300,
         "source": "NBA official Rule No. 5, section II",
