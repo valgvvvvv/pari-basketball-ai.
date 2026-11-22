@@ -917,7 +917,7 @@ function showSelectedMatch(ev,options={}){
       '<p>Сейчас '+estimate.current+' · ожидаемый остаток '+Number(estimate.poisson?.mu??estimate.calculation?.expectedRemaining??(estimate.projection-estimate.current)).toFixed(1)+' оч.</p>'+
       '<p>Линия: '+(matchLineValue??'не получена')+' · '+(matchLine?(matchLine.direction==="без выраженного преимущества"?"вероятности близки":escapeHtml(matchLine.direction))+' · '+escapeHtml(numericBias(estimate.projection,matchLineValue))+' · '+probText(matchLine):escapeHtml(numericBias(estimate.projection,matchLineValue)))+'</p>'+
       '<p>Диапазон 80%: '+(estimate.poisson?.low80??estimate.low)+'–'+(estimate.poisson?.high80??estimate.high)+' · качество данных: '+escapeHtml(estimate.data_quality?.label||'не оценено')+' · надёжность модели: не калибрована'+'</p>'+
-      (estimate.overtime_policy==="not_included_market_rule_unverified"?'<p class="warn">ОТ не включён; правило рынка не подтверждено.</p>':'')+'</div>'+
+      (estimate.overtime_policy==="not_included_market_rule_unverified"?'<p class="warn">ОТ не включён в модель; тотал матча PARI по правилу 8.1 включает ОТ.</p>':'')+'</div>'+
       calculationStepsHtml({kind:"match",projection:Number(estimate.projection),current:Number(estimate.current),calculation:estimate.calculation,lines:matchProb,preliminary:!!estimate.preliminary})+
       '<details class="technical-details"><summary>Технические подробности</summary><p>σ остатка: '+(estimate.sigma??'—')+' · диапазон 95%: '+(estimate.poisson?.low95??'—')+'–'+(estimate.poisson?.high95??'—')+' · симуляций: '+(estimate.poisson?.simulations??100000)+'</p><p>Исходный код таймера: '+escapeHtml(ev.clock_source||ev.external_live?.clock_source||"не указан")+'</p><p>'+escapeHtml((estimate.context_factors||[]).join(' · '))+'</p></details>'
     : '<p class="muted">'+escapeHtml(matchForecast.reason||"Недостаточно данных")+'</p>';
@@ -1015,7 +1015,7 @@ function getMatchTotalLines(ev) {
   const candidates = Array.isArray(ev?.match_total_candidates) ? ev.match_total_candidates : [];
   const byLine = new Map(), lines = [];
   for (const factor of candidates) {
-    if (!factor || !["930","931"].includes(String(factor.f))) continue;
+    if (!factor || !(ev.total_factor_sides?.[String(factor.f)]||["930","931"].includes(String(factor.f)))) continue;
     // PARI's pt is the line; p is not substituted because it may be a price/parameter.
     if (factor.pt == null || String(factor.pt).trim() === "") continue;
     const line = Number(factor.pt);
@@ -1028,7 +1028,9 @@ function getMatchTotalLines(ev) {
     if(!row){row={line,odds:null,factorId:null,prices:[],source:"PARI",market:"full_game_total"};byLine.set(key,row);lines.push(row);}
     row.prices.push({factorId:String(factor.f),odds:String(factor.v),
       label:factor.name||factor.shortName||factor.kindName||null});
-    // Do not infer which factor is Over/Under without a provider-side mapping.
+    const mappedSide=ev.total_factor_sides?.[String(factor.f)];
+    if(mappedSide)row.prices[row.prices.length-1].side=mappedSide;
+    // The server mapping is backed by the PARI basketball LIVE catalogue.
     if(row.odds==null){row.odds=String(factor.v);row.factorId=String(factor.f);}
   }
   // Do not reuse cached lines: an old market association can survive a
@@ -1210,6 +1212,9 @@ function signalQualityMarkup(evaluations){
   if(!rows.length)return '<p class="muted">Сигнала нет: нет пригодного расчёта и линии.</p>';
   return '<details class="technical-details"><summary>Почему нет уверенного сигнала</summary>'+rows.map(x=>
     '<p><b>'+(x.target==="match"?'Матч':'Четверть')+' · '+escapeHtml(x.status)+'</b>: '+escapeHtml(x.reasons.join('; '))+'.</p>'+
+    (x.market?.pricesVerified?'<p>Данные PARI получены: ТБ '+escapeHtml(x.market.overOdds)+' · ТМ '+escapeHtml(x.market.underOdds)+
+      ' · линия '+escapeHtml(x.line)+' · '+(x.market.includesOvertime?'рынок с ОТ':'тотал конкретной четверти')+
+      '. Свежесть — по времени ответа; время изменения котировки провайдером неизвестно.</p>':'')+
     (x.comparison?'<p>Коэффициент '+x.comparison.odds+' · безубыточность без возвратов '+(100*x.comparison.breakEvenConditional).toFixed(1)+
       '% · модельная доходность '+(100*x.comparison.modelExpectedReturn).toFixed(1)+'% (не подтверждённое преимущество).</p>':'' )).join('')+'</details>';
 }
@@ -1378,7 +1383,7 @@ function unifiedToolsPanelHtml(ev,matchData,quarterData,matchForecast,quarterFor
     (mv||qv?active:inactive).push(t);
   }
   const critical=[];
-  if(m?.overtime_policy==="not_included_market_rule_unverified")critical.push("ОТ не включён в прогноз; правило расчёта линии не подтверждено.");
+  if(m?.overtime_policy==="not_included_market_rule_unverified")critical.push("Модель считает основное время; тотал матча PARI включает ОТ (правило 8.1).");
   if(ev?.clock_integrity?.valid===false)critical.push("Таймер источника противоречив — прогноз четверти заблокирован.");
   const formatInfo=inferPeriodLengthForForecast(ev||{});
   if(!formatInfo||String(formatInfo.method||"").includes("предварительно"))critical.push("Формат / длительность периода не подтверждены.");
@@ -1473,7 +1478,7 @@ function automaticQuarterForecast(ev,matchForecast=null) {
     const explicit=rawPeriod==null?contextPeriod:Number(rawPeriod);
     const isTargetPeriod=Number.isInteger(period)&&period>=1&&period<=4&&
       (explicit===period||(!Number.isInteger(explicit)&&quarterPatterns.some(rx=>rx.test(label))));
-    if(["930","931"].includes(String(node.f))&&isTargetPeriod){
+    if((ev.quarter_total_factor_sides?.[String(node.f)]||["930","931"].includes(String(node.f)))&&isTargetPeriod){
       const line=node.pt!=null?Number(node.pt):NaN;
       if(Number.isFinite(line)&&line>=20&&line<100&&Math.abs(line*2-Math.round(line*2))<=1e-8){
         let market=quarterLines.find(x=>x.line===line);
@@ -1727,7 +1732,7 @@ async function refreshLiveMatches() {
               else if(ev?.source_timer_seconds!=null)
                 lineText+=" · таймер PARI не использован: "+String(ev?.timer_block_reason||"семантика не подтверждена");
               if(estimate.preliminary)lineText+=" · ранняя оценка, низкая уверенность";
-              lineText+=" · модельная вероятность не калибрована · ОТ не включён, правило PARI не подтверждено";
+              lineText+=" · модельная вероятность не калибрована · Модель без ОТ; тотал матча PARI с ОТ (правило 8.1)";
             }
             forecastHtml = '<span class="live-match-meta forecast-live">Прогноз матча: ' + escapeHtml(lineText) + '</span>';
           } else {
@@ -1792,7 +1797,7 @@ async function refreshLiveMatches() {
               escapeHtml((x.signal.target==="match"?'Матч без ОТ':'Q'+x.signal.period)+' · '+x.signal.direction+' '+x.signal.line)+
               '</span><small>Оценки '+(r.probabilityMin*100).toFixed(1)+'–'+(r.probabilityMax*100).toFixed(1)+
               '% при разных предположениях о темпе. Это не доверительный интервал.</small><small>'+
-              escapeHtml(x.signal.marketReady?'Рынок совместим; преимущество не проверено.':'Правила/цены рынка не подтверждены — выгодность не рассчитана.')+
+              escapeHtml(x.signal.marketReady?'Рынок совместим; преимущество не проверено.':x.signal.reasonCodes.includes('overtime')?'Цены получены. Рынок с ОТ; модель без ОТ — выгодность не рассчитана.':'Нет полного подтверждения рынка — выгодность не рассчитана.')+
               ' Открыть разбор →</small></button>';
           }).join("")+
           (!visibleCards.length?'<p>Подходящих кандидатов сейчас нет. Направление должно сохраняться при изменении оценки темпа; отбирается центральная линия, а не самая удобная альтернатива.</p>':'')+

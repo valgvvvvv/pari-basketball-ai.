@@ -106,10 +106,10 @@
         variants:checks.map((v,i)=>({name:v.name,probability:probabilities[i]}))}};
     });
   }
-  const MODEL_VERSION="regulation-research-v3-exact";
+  const MODEL_VERSION="regulation-research-v4-pari-markets";
   const REASONS={data:"Не подтверждены свежесть, счёт или таймер",window:"Вне окна отбора",preliminary:"Предварительный расчёт",
     probabilities:"Некорректное распределение",rules:"Правила рынка не подтверждены",overtime:"Прогноз основного времени несовместим с рынком с ОТ",
-    prices:"Не подтверждены обе цены ТБ/ТМ",quote:"Линия устарела или время котировки неизвестно",
+    prices:"Не подтверждены обе цены ТБ/ТМ",suspended:"Рынок приостановлен PARI",quote:"Линия устарела или время котировки неизвестно",
     calibration:"Вероятности не калиброваны на независимых матчах",validation:"Преимущество не подтверждено независимой проверкой",
     edge:"Нет положительного преимущества с учётом погрешности",threshold:"Оценка модели ниже 65%"};
   // These are diagnostic prices, not calibrated probabilities or demonstrated edge.
@@ -146,9 +146,11 @@
         if(market.rulesConfirmed!==true||!market.ruleSource||typeof market.includesOvertime!=="boolean")reasons.push("rules");
         else if(market.includesOvertime!==false)reasons.push("overtime");
         // Both current models target regulation only. No unvalidated OT adjustment is invented.
-        const comparison=marketComparison(x,market);
-        if(!comparison)reasons.push("prices");
-        if(!Number.isFinite(quoteAge)||quoteAge<0||quoteAge>90||market.suspended!==false)reasons.push("quote");
+        const priceComparison=marketComparison(x,market);
+        if(!priceComparison)reasons.push("prices");
+        const comparison=market.rulesConfirmed===true&&market.includesOvertime===false?priceComparison:null;
+        if(!Number.isFinite(quoteAge)||quoteAge<0||quoteAge>90||market.suspended==null)reasons.push("quote");
+        if(market.suspended===true)reasons.push("suspended");
         // Current model has no independently fitted calibrator. A feed-supplied flag cannot promote it.
         reasons.push("calibration","validation");
         const probability=Math.max(x.pOver,x.pUnder);
@@ -166,7 +168,7 @@
   function selectPrioritySignals(input){return evaluateSignals(input).filter(x=>x.priority===true);}
   // Watchlist only. Never feeds selectPrioritySignals or Telegram delivery.
   function selectResearchCandidates(evaluations){
-    const eligible=(evaluations||[]).filter(x=>!x.reasonCodes.some(r=>["data","window","preliminary","probabilities"].includes(r)));
+    const eligible=(evaluations||[]).filter(x=>!x.reasonCodes.some(r=>["data","window","preliminary","probabilities","suspended"].includes(r)));
     const selected=[];
     for(const target of ["match","quarter"]){
       const rows=eligible.filter(x=>x.target===target).sort((a,b)=>a.line-b.line);
@@ -178,7 +180,7 @@
       if(row.comparison&&row.comparison.modelExpectedReturn<=0)continue;
       if(row.comparison&&r.probabilityMin*row.comparison.odds-1<=0)continue;
       selected.push({...row,watchlist:true,priority:false,calibrated:false,
-        rankingProbability:r.probabilityMin,marketReady:!row.reasonCodes.some(x=>["rules","overtime","prices","quote"].includes(x))});
+        rankingProbability:r.probabilityMin,marketReady:!row.reasonCodes.some(x=>["rules","overtime","prices","quote","suspended"].includes(x))});
     }
     return selected.sort((a,b)=>b.rankingProbability-a.rankingProbability);
   }
