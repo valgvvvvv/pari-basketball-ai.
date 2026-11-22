@@ -15,6 +15,7 @@ from result_validation import settle_prediction
 from match_identity import match_context_compatible as external_match_context_compatible
 import server_signals
 import forecast_journal
+import pari_data
 
 app = FastAPI(title="PARI Basketball AI", version="0.2.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -3524,6 +3525,11 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                 successful_feed_url = str(response.url)
                 successful_source = _pari_successful_source(response) or successful_feed_url.split("/events/list", 1)[0]
                 _PARI_LAST_WORKING_HOST = host
+                feed_received_at = datetime.now(timezone.utc).isoformat()
+                if not catalog_only:
+                    pari_formats, pari_detail_received, pari_data_diagnostics = await pari_data.enrich_payload(client, host, payload)
+                else:
+                    pari_formats, pari_detail_received, pari_data_diagnostics = {}, {}, {}
                 all_events = payload["events"]
                 # PARI/Fonbet-style feeds keep live scoreboard data in top-level
                 # eventMiscs/liveEventInfos arrays, keyed by event id, not inside
@@ -3923,7 +3929,15 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # per-event format fields may establish their period duration.
                     period_length_seconds = None
                     period_count = None
-                    period_format_source = None
+                    period_format_source = pari_formats.get(str(event_id))
+                    if period_format_source:
+                        period_length_seconds = period_format_source["period_length_seconds"]
+                        period_count = period_format_source["period_count"]
+                        regulation_rule = PARI_COMPETITION_FORMATS.get(str(event.get("sportId")), {})
+                        if (regulation_rule.get("period_length_seconds"), regulation_rule.get("period_count")) == (period_length_seconds, period_count):
+                            period_format_source = {**period_format_source,
+                                "overtime_mode": regulation_rule.get("overtime_mode"),
+                                "overtime_rules_source": regulation_rule.get("source_url")}
                     competition_id_candidates = [
                         event.get("competitionId"), event.get("tournamentId"),
                         event.get("championshipId"), event.get("sportId"),
@@ -3931,6 +3945,8 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         live_info.get("competitionId"), live_info.get("tournamentId"),
                     ]
                     for candidate_id in competition_id_candidates:
+                        if period_format_source is not None:
+                            break
                         if candidate_id is None:
                             continue
                         rule = PARI_COMPETITION_FORMATS.get(str(candidate_id))
@@ -4376,7 +4392,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         ],
                         "match_total_candidates": [
                             factor for factor in root_factors
-                            if str(factor.get("f")) in ("930", "931")
+                            if str(factor.get("f")) in pari_data.factor_sides("18319")
                         ],
                     })
                 # Extract explicit named team statistics if PARI includes them in
@@ -4384,6 +4400,12 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                 # statisticsTypes/S1 codes are retained for diagnostics, not guessed.
                 for pari_row in basketball:
                     pari_id = str(pari_row.get("id") or "")
+                    pari_row["total_factor_sides"] = pari_data.factor_sides("18319")
+                    pari_row["quarter_total_factor_sides"] = pari_data.factor_sides("2673")
+                    pari_row["verified_total_markets"] = pari_data.markets_for(
+                        pari_row, pari_detail_received.get(pari_id, feed_received_at), event_blocks_by_id)
+                    pari_row["pari_data_diagnostics"] = pari_data_diagnostics
+                    pari_row["market_rule_status"] = "PARI match totals include overtime by rules section 8.1; current model excludes overtime"
                     pari_stat_result = _extract_pari_live_statistics([
                         pari_row.get("raw", {}),
                         pari_row.get("live_fields", {}),
