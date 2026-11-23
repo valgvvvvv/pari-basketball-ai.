@@ -15,9 +15,15 @@ import httpx
 
 logging.getLogger('httpx').setLevel(logging.WARNING)
 STATE_PATH = Path(os.environ.get('SIGNAL_STATE_PATH', str(Path(tempfile.gettempdir()) / 'pari_signal_state.sqlite3')))
-STATUS = {'mode': 'server', 'interval_seconds': 30, 'checked_at_utc': None,
+INTERVAL_SECONDS = 10
+STATUS = {'mode': 'server', 'delivery_version': '2026-11-23-v3',
+          'interval_seconds': INTERVAL_SECONDS, 'checked_at_utc': None,
           'cards': [], 'error': None, 'sent': 0, 'commands_checked_at_utc': None}
 LOCK = asyncio.Lock()
+COMMAND_LOCK = asyncio.Lock()
+PENDING = {}
+RETRY_AT = {}
+WAKE = asyncio.Event()
 
 
 def enabled():
@@ -39,21 +45,21 @@ def experimental_cards(result):
     if not experimental_enabled():
         return []
     selected = []
-    blocked = {'data', 'window', 'preliminary', 'probabilities', 'suspended',
-               'rules', 'overtime', 'prices', 'quote'}
+    # Mirror the website's research watchlist, not the stricter betting-market
+    # gate. Incompatible/unknown markets remain explicitly informational.
+    blocked = {'data', 'window', 'preliminary', 'probabilities', 'suspended'}
     for card in result.get('researchCandidates', []):
         signal = card.get('signal', {})
         robust = signal.get('robustness') or {}
         probability = robust.get('probabilityMin')
-        if (signal.get('marketReady') is not True or
-                signal.get('watchlist') is not True or
+        if (signal.get('watchlist') is not True or
                 robust.get('available') is not True or robust.get('directionStable') is not True or
                 isinstance(probability, bool) or not isinstance(probability, (int, float)) or
                 not math.isfinite(probability) or not .65 <= probability <= 1 or
                 blocked.intersection(signal.get('reasonCodes', []))):
             continue
         selected.append({**card, 'experimental': True})
-    return sorted(selected, key=lambda card: (-card['signal']['robustness']['probabilityMin'], str(card['event'])))[:3]
+    return sorted(selected, key=lambda card: (-card['signal']['robustness']['probabilityMin'], str(card['event'])))
 
 
 def message_for(card):
@@ -63,10 +69,16 @@ def message_for(card):
     signal = card['signal']
     target = 'Матч · основное время' if signal['target'] == 'match' else 'Четверть Q' + str(signal['period'])
     label = target + ' · ' + signal['direction'] + ' ' + format(signal['line'], 'g')
-    return ('🔔 Сигнал · экспериментальный прогноз\n' + card['teams'] + '\n' + label +
+    market_note = ('\nРынок совместим; преимущество не проверено.' if signal.get('marketReady') else
+                   '\nТолько ориентир для наблюдения: правила или цены рынка не подтверждены.')
+    if 'overtime' in signal.get('reasonCodes', []):
+        market_note = '\nТолько ориентир для наблюдения: рынок с ОТ, прогноз без ОТ. Для этого рынка не применять.'
+    return (('🔄 Обновление · экспериментальный прогноз\n' if card.get('update') else
+             '🔔 Сигнал · экспериментальный прогноз\n') + card['teams'] + '\n' + label +
             '\nНаправление сохраняется в сценариях риска. Это не проверенная вероятность выигрыша.' +
             '\n' + card.get('context', '') +
-            '\nОдна рекомендация на этот матч и период; изменение линии не является новым входом.' +
+            market_note +
+            '\nИзменение линии — обновление наблюдения, а не новый вход.' +
             '\n\nПредварительное направление. Вероятность и преимущество не подтверждены независимой проверкой.' +
             '\nhttps://pari-basketball-ai.onrender.com/')
 
@@ -90,9 +102,14 @@ def put(db, key, value):
 
 def key_for(card):
     s = card['signal']
-    # A different price/line or a direction flip is still the same risk exposure.
-    identity = ['one-decision-v2', card['event'], s['target'], s['period'] if s['target'] == 'quarter' else 0]
+    identity = ['notification-v3', str(card['event']), s['target'],
+                s['period'] if s['target'] == 'quarter' else 0, float(s['line']), s['direction']]
     return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+
+
+def exposure_key(card):
+    s = card['signal']
+    return json.dumps([str(card['event']), s['target'], s['period'] if s['target'] == 'quarter' else 0])
 
 
 def audit_delivery(card, state, message_id=None):
@@ -127,36 +144,63 @@ def public_status():
             'limitation': 'Runs while the free Render service is awake; state is lost after ephemeral disk resets.'}
 
 
-async def deliver(cards):
+async def deliver(cards, current_only=False):
     if not enabled():
         return
     async with LOCK:
         db = connection()
         try:
-            if get(db, 'baseline') != '1':
-                for card in cards:
-                    db.execute('INSERT OR IGNORE INTO sent VALUES (?,?)', (key_for(card), time.time()))
-                put(db, 'baseline', '1')
-                return
             if get(db, 'paused') == '1':
                 return
+            failures = []
+            decisions = []
             for card in cards:
                 key = key_for(card)
-                if card['expires'] <= time.time()*1000 or db.execute('SELECT 1 FROM sent WHERE key=?', (key,)).fetchone():
+                decision = {'event': str(card['event']), 'target': card['signal']['target'],
+                            'period': card['signal']['period'], 'line': card['signal']['line'],
+                            'direction': card['signal']['direction']}
+                decisions.append(decision)
+                if current_only and key not in PENDING:
+                    decision['state'] = 'replaced'
+                    continue
+                if card['expires'] <= time.time()*1000:
+                    decision['state'] = 'expired'
+                    continue
+                if db.execute('SELECT 1 FROM sent WHERE key=?', (key,)).fetchone():
+                    decision['state'] = 'already_sent'
+                    continue
+                if RETRY_AT.get(key, 0) > time.time():
+                    decision['state'] = 'retry_wait'
                     continue
                 if not card.get('forecast_id'):
                     STATUS['error'] = 'notification_missing_saved_forecast'
+                    decision['state'] = 'missing_saved_forecast'
                     continue
-                audit_delivery(card, 'attempt')
+                card = {**card, 'update': get(db, 'exposure:' + exposure_key(card)) == '1'}
                 try:
+                    audit_delivery(card, 'attempt')
                     result = await say(message_for(card))
                 except Exception:
-                    audit_delivery(card, 'failed')
-                    raise
+                    RETRY_AT[key] = time.time() + 3
+                    decision['state'] = 'failed_retrying'
+                    failures.append({'event': str(card['event']), 'target': card['signal']['target']})
+                    try:
+                        audit_delivery(card, 'failed')
+                    except Exception:
+                        pass
+                    continue  # A failed card must never suppress the next one.
                 db.execute('INSERT OR IGNORE INTO sent VALUES (?,?)', (key, time.time()))
-                db.commit()
+                put(db, 'exposure:' + exposure_key(card), '1')
                 STATUS['sent'] += 1
-                audit_delivery(card, 'sent', result.get('message_id') if isinstance(result, dict) else None)
+                decision['state'] = 'sent'
+                STATUS['last_sent_at_utc'] = datetime.now(timezone.utc).isoformat()
+                RETRY_AT.pop(key, None)
+                try:
+                    audit_delivery(card, 'sent', result.get('message_id') if isinstance(result, dict) else None)
+                except Exception:
+                    STATUS['audit_error'] = 'sent_receipt_not_saved'
+            STATUS['delivery_failures'] = failures
+            STATUS['delivery_decisions'] = decisions
         finally:
             db.close()
 
@@ -188,13 +232,35 @@ async def process(data, history):
                   diagnostics=result.get('diagnostics', {}))
     notifications = cards + [card for card in experimental_cards(result) if key_for(card) not in {key_for(x) for x in cards}]
     STATUS['notification_candidates'] = len(notifications)
-    await deliver(notifications)
+    # Refresh the queue atomically. Disappeared/replaced lines are not retried
+    # from an old snapshot, and Telegram latency cannot delay the next fetch.
+    PENDING.clear()
+    PENDING.update({key_for(card): card for card in notifications})
+    for key in list(RETRY_AT):
+        if key not in PENDING:
+            RETRY_AT.pop(key, None)
+    WAKE.set()
+
+
+async def delivery_loop():
+    while True:
+        try:
+            await asyncio.wait_for(WAKE.wait(), timeout=3)
+        except asyncio.TimeoutError:
+            pass
+        WAKE.clear()
+        try:
+            await deliver(list(PENDING.values()), current_only=True)
+        except Exception as exc:
+            STATUS['delivery_error'] = type(exc).__name__
+        else:
+            STATUS.pop('delivery_error', None)
 
 
 async def commands_once():
     if not enabled():
         return
-    async with LOCK:
+    async with COMMAND_LOCK:
         db = connection()
         try:
             updates = await telegram('getUpdates', offset=int(get(db, 'offset', '0')), timeout=0, allowed_updates=['message'])
@@ -204,7 +270,7 @@ async def commands_once():
                     command = msg.get('text', '').strip().split('@')[0]
                     if command in ('/start', '/resume'):
                         put(db, 'paused', '0')
-                        await say('Сигнал включён. Сервер проверяет детектор примерно каждые 30 секунд, пока Render активен.')
+                        await say('Сигнал включён. Сервер проверяет детектор примерно каждые 10 секунд, пока Render активен. Изменения линии приходят как обновления.')
                     elif command == '/pause':
                         put(db, 'paused', '1')
                         await say('Уведомления приостановлены. /resume — включить. При сбросе временного диска Render настройка может сброситься.')
@@ -217,7 +283,7 @@ async def commands_once():
                         checked = (datetime.fromisoformat(checked).astimezone(timezone(timedelta(hours=3))).strftime('%d.%m %H:%M:%S МСК')
                                    if checked else 'ожидание первого расчёта')
                         await say(('Пауза. ' if get(db, 'paused') == '1' else 'Включён. ') +
-                                  'Работаю на сервере сайта. Интервал около 30 секунд.\nПоследний расчёт: ' + checked +
+                                  'Работаю на сервере сайта. Интервал около 10 секунд.\nПоследний расчёт: ' + checked +
                                   '\nКарточек: ' + str(len(STATUS['cards'])) +
                                   ('\nУведомления: экспериментальный прогноз. Предварительных направлений: ' +
                                    str(STATUS.get('notification_candidates', 0)) if experimental_enabled() else '') +
