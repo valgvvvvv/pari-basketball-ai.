@@ -5087,7 +5087,7 @@ async def _archive_collector_loop():
             _ARCHIVE_LAST.update({"checked_at":datetime.now(timezone.utc).isoformat(),
                                   "error":type(exc).__name__ + ": " + str(exc)[:180]})
             emit_diagnostic("MATCH_ARCHIVE_ERROR", {"error": str(exc)[:240]}, level="error")
-        await asyncio.sleep(max(1, 30 - (asyncio.get_running_loop().time() - cycle_started)))
+        await asyncio.sleep(max(1, server_signals.INTERVAL_SECONDS - (asyncio.get_running_loop().time() - cycle_started)))
 
 @app.get('/api/signals/status')
 def signal_status():
@@ -5107,6 +5107,7 @@ def research_export(deliveries_only: bool = False):
 @app.on_event('startup')
 async def _start_signal_commands():
     asyncio.create_task(server_signals.commands_loop())
+    asyncio.create_task(server_signals.delivery_loop())
 
 @app.get("/api/archive/status")
 def archive_status():
