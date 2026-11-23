@@ -146,9 +146,12 @@ async def commands_once():
                         await say(('Пауза. ' if get(db, 'paused') == '1' else 'Включён. ') +
                                   'Работаю на сервере сайта. Интервал около 30 секунд.\nПоследний расчёт: ' + checked +
                                   '\nКарточек: ' + str(len(STATUS['cards'])) +
+                                  ('\nАвтоматические сигналы отключены: модель ещё не прошла независимую проверку.'
+                                   if STATUS.get('diagnostics', {}).get('automaticPriorityEnabled') is False else '') +
                                   ('\nОшибка: ' + STATUS['error'] if STATUS['error'] else ''))
                 put(db, 'offset', update['update_id'] + 1)
             STATUS['commands_checked_at_utc'] = datetime.now(timezone.utc).isoformat()
+            STATUS.pop('command_error', None)
         finally:
             db.close()
 
