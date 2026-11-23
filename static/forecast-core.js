@@ -53,12 +53,15 @@
     if(!posterior?.ready||!Number.isInteger(posterior.current)||posterior.current<0||
        ![posterior.alpha,posterior.beta,posterior.remainingMinutes].every(Number.isFinite)||
        posterior.alpha<=0||posterior.beta<=0||posterior.remainingMinutes<0)return null;
-    const {alpha,beta,remainingMinutes:t}=posterior,mu=alpha*t/beta;
-    let mass=Math.exp(-alpha*Math.log1p(t/beta)),sum=mass;
+    const {alpha,beta,remainingMinutes:t}=posterior,unit=posterior.scoringUnit??1;
+    if(![1,2,3].includes(unit))return null;
+    const mu=alpha*t/beta,exposure=beta*unit;
+    let mass=Math.exp(-alpha*Math.log1p(t/exposure)),sum=mass;
     if(!(mass>0))return null;
-    const cdf=[sum],pmf=[mass],ratio=t/(beta+t);
-    for(let k=1;k<20000&&(sum<1-1e-13||k<=mu);k++){
+    const cdf=[sum],pmf=[mass],ratio=t/(exposure+t);
+    for(let k=1;k<20000&&(sum<1-1e-13||k<=mu/unit);k++){
       mass*=((alpha+k-1)/k)*ratio;
+      for(let j=1;j<unit;j++){pmf.push(0);cdf.push(Math.min(1,sum));}
       sum+=mass;pmf.push(mass);cdf.push(Math.min(1,sum));
     }
     if(!Number.isFinite(sum)||Math.abs(1-sum)>1e-10)return null;
@@ -81,13 +84,15 @@
     const distribution=predictiveDistribution(posterior);
     if(!distribution)return null;
     return {simulations:0,calculation:"analytic_negative_binomial",mu:posterior.expectedRemaining,
-      variance:posterior.varianceRemaining,meanUncertaintyVariance:posterior.meanUncertaintyVariance,
+      variance:(posterior.scoringUnit??1)*posterior.expectedRemaining+posterior.meanUncertaintyVariance,meanUncertaintyVariance:posterior.meanUncertaintyVariance,
       meanUncertaintySd:posterior.meanUncertaintySd,
       low80:distribution.quantile(.10),high80:distribution.quantile(.90),
       low95:distribution.quantile(.025),high95:distribution.quantile(.975),
       probabilities:(lines||[]).filter(x=>x.line!=null&&Number.isFinite(Number(x.line)))
         .map(x=>lineProbability(posterior,distribution,x)),tailErrorBound:distribution.tailErrorBound,
-      method:posterior.method+" · точный расчёт",distribution:"negative-binomial predictive (Gamma-Poisson)"};
+      scoringUnit:posterior.scoringUnit??1,stressOnly:(posterior.scoringUnit??1)>1,
+      method:posterior.method+" · точный расчёт",distribution:(posterior.scoringUnit??1)>1?
+        "marked negative-binomial scoring stress":"negative-binomial predictive (Gamma-Poisson)"};
   }
   // Sensitivity, not independent model votes or calibration: the same observed game
   // with full history, the last completed period, and current-period-only exposure.
@@ -100,8 +105,30 @@
     if(last?.length)variants.push({name:"Последний завершённый период",
       posterior:quarterPosterior({...base,completedQuarterTotals:last})});
     variants.push({name:"Только текущий период",posterior:quarterPosterior({...base,completedQuarterTotals:[]})});
-    return variants.filter(v=>v.posterior.ready).map(v=>({name:v.name,
-      projection:v.posterior.projection,probabilities:simulateQuarter(v.posterior,lines)?.probabilities||[]}));
+    // Marked scoring stress tests preserve the mean. They do not fit a multiplier
+    // to losses: an event contributes 2 or 3 points, rather than one Poisson point.
+    for(const scoringUnit of [2,3])variants.push({name:"Серии по "+scoringUnit+" очка",posterior:{...posterior,scoringUnit}});
+    const history=posterior.completedQuarterTotals||[];
+    if(history.length){
+      // A low current segment need not persist. Test a return to the highest
+      // already observed complete-period rate, without looking at any final.
+      const alpha=.5+Math.max(...history),beta=posterior.periodMinutes;
+      const expectedRemaining=alpha/beta*posterior.remainingMinutes;
+      const meanUncertaintyVariance=expectedRemaining**2/alpha;
+      variants.push({name:"Возврат к высокой наблюдавшейся результативности",posterior:{...posterior,alpha,beta,
+        projection:posterior.current+expectedRemaining,expectedRemaining,meanUncertaintyVariance,meanUncertaintySd:Math.sqrt(meanUncertaintyVariance),
+        varianceRemaining:3*expectedRemaining+meanUncertaintyVariance,scoringUnit:3}});
+    }
+    const signature=p=>[p.alpha,p.beta,p.scoringUnit??1].join(":");
+    const seen=new Set([signature(posterior)]);
+    return variants.filter(v=>{
+      if(!v.posterior.ready||seen.has(signature(v.posterior)))return false;
+      seen.add(signature(v.posterior));return true;
+    }).map(v=>{
+      const result=simulateQuarter(v.posterior,lines);
+      return {name:v.name,projection:v.posterior.projection,interval80:[result.low80,result.high80],
+        interval95:[result.low95,result.high95],probabilities:result.probabilities};
+    });
   }
   function assessSensitivity(rows,variants){
     return (rows||[]).map(row=>{
@@ -110,12 +137,13 @@
         row:v.probabilities.find(x=>Number(x.line)===Number(row.line))})).filter(v=>v.row)];
       const probabilities=checks.map(v=>direction==="ТБ"?v.row.pOver:v.row.pUnder);
       return {...row,robustness:{variantCount:checks.length,available:checks.length>=3,
+        independentModels:false,calibrated:false,policy:"observed-rate-marked-scoring-stress-v1",
         directionStable:checks.every(v=>(v.row.pOver>=v.row.pUnder?"ТБ":"ТМ")===direction),
         probabilityMin:Math.min(...probabilities),probabilityMax:Math.max(...probabilities),
         variants:checks.map((v,i)=>({name:v.name,probability:probabilities[i]}))}};
     });
   }
-  const MODEL_VERSION="regulation-research-v4-pari-markets";
+  const MODEL_VERSION="regulation-research-v5-marked-scoring-stress";
   const REASONS={data:"Не подтверждены свежесть, счёт или таймер",window:"Вне окна отбора",preliminary:"Предварительный расчёт",
     probabilities:"Некорректное распределение",rules:"Правила рынка не подтверждены",overtime:"Прогноз основного времени несовместим с рынком с ОТ",
     prices:"Не подтверждены обе цены ТБ/ТМ",suspended:"Рынок приостановлен PARI",quote:"Линия устарела или время котировки неизвестно",

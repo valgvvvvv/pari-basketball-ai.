@@ -1543,7 +1543,9 @@ function automaticQuarterForecast(ev,matchForecast=null) {
     apiResponseAgeSeconds:Number.isFinite(quarterFeedAt)?Math.max(0,Math.round((Date.now()-quarterFeedAt)/1000)):null,
     providerEventTimestampAvailable:!!(ev?.updated_at||ev?.raw?.updated_at||ev?.raw?.updatedAt),
     label:quarterModeLabel+" · дополнительные показатели для просмотра "+qAvailable+"/"+qExpected};
-  return {ready:true,period,current:observed??null,projection:Math.round(projection*10)/10,data_quality:quarterQuality,market_lines:quarterLines,
+  const riskVariants=window.PARIForecastCore.quarterSensitivity(posterior,[]);
+  const scenarioRange=[Math.min(poisson.low95,...riskVariants.map(v=>v.interval95[0])),Math.max(poisson.high95,...riskVariants.map(v=>v.interval95[1]))];
+  return {ready:true,period,current:observed??null,projection:Math.round(projection*10)/10,data_quality:quarterQuality,scenarioRange,market_lines:quarterLines,
     home:currentQuarter?.pair?.[0]??null,away:currentQuarter?.pair?.[1]??null,
     score_source:source,elapsed:elapsedMinutes,low80:poisson.low80,high80:poisson.high80,
     low95:poisson.low95,high95:poisson.high95,poisson,lines:poisson.probabilities,
@@ -1746,7 +1748,7 @@ async function refreshLiveMatches() {
           }
           forecastHtml += quarterForecast.ready
             ?'<span class="live-match-meta forecast-live">Q'+quarterForecast.period+': '+Number(quarterForecast.projection).toFixed(1)+
-              ' · диапазон модели 80% '+quarterForecast.low80+'–'+quarterForecast.high80+'</span>'
+              ' · коридор сценариев '+quarterForecast.scenarioRange[0]+'–'+quarterForecast.scenarioRange[1]+' · покрытие не проверено</span>'
             :quarterForecastMarkup(quarterForecast,ev);
           const quarterHighlight=quarterHighlightInfo(ev);
           const evaluations=signalEvaluations(ev,forecast,quarterForecast);
@@ -1765,7 +1767,7 @@ async function refreshLiveMatches() {
           const signals=evaluations.filter(x=>x.priority===true);
           const signalTag=signals.map(s=>'<span class="priority-signal">★ '+escapeHtml(priorityLabel(s))+'</span>').join("");
           for(const s of signals)priorityCards.push({ev,signal:s,teams});
-          const researchTag=research.length?'<span class="research-signal">◉ Устойчивый исследовательский ориентир · не уверенный сигнал</span>':"";
+          const researchTag=research.length?'<span class="research-signal">◉ Направление прошло сценарии риска · точность не проверена</span>':"";
           const highlightTag=signalTag+researchTag+(quarterHighlight?'<span class="quarter-window-note">Окно 4–8 минут Q'+quarterHighlight.period+' · прошло '+quarterHighlight.minute+':'+String(quarterHighlight.second).padStart(2,"0")+'</span>':"");
           return '<button type="button" class="live-match'+(signals.length?' live-match-priority':research.length?' live-match-research':'')+'" data-event-id="' + escapeHtml(ev.id) + '">' +
             highlightTag + '<span class="live-match-title">' + teams + '</span><span class="live-match-meta">' + (details || "Событие получено из LIVE API PARI") + '</span>' + forecastHtml + '</button>';
@@ -1787,14 +1789,14 @@ async function refreshLiveMatches() {
         const summary=window.PARIForecastCore.summarizeSignals(allEvaluations);
         priorityPanel.innerHTML='<h3>Сигналы и кандидаты для наблюдения</h3><p class="muted">Уверенных: '+priorityCards.length+
           ' · исследовательских ориентиров: '+researchCards.length+'. Матч: Q4 после 2:00; четверть: 4–8 минута. Порог 65% сохранён.</p>'+
-          '<p class="muted">Уверенные сигналы отключены: вероятности и преимущество ещё не проверены на независимых исходах. Ниже — устойчивость расчёта, а не подтверждённый шанс выигрыша.</p>'+
+          '<p class="muted">Уверенные сигналы отключены: вероятности и преимущество ещё не проверены на независимых исходах. Ниже — сценарная проверка риска, а не подтверждённый шанс выигрыша. Изменения линии — обновления, а не новые рекомендации.</p>'+
           priorityCards.slice(0,3).map(x=>'<button type="button" class="priority-card" data-event-id="'+escapeHtml(x.ev.id)+'"><b>'+x.teams+'</b><span>'+escapeHtml(priorityLabel(x.signal))+'</span><small>Открыть разбор →</small></button>').join("")+
           displayedResearch.map(x=>{
             const r=x.signal.robustness;
             return '<button type="button" class="priority-card research-card" data-event-id="'+escapeHtml(x.ev.id)+'"><b>'+x.teams+'</b><span>'+
               escapeHtml((x.signal.target==="match"?'Матч без ОТ':'Q'+x.signal.period)+' · '+x.signal.direction+' '+x.signal.line)+
-              '</span><small>Оценки '+(r.probabilityMin*100).toFixed(1)+'–'+(r.probabilityMax*100).toFixed(1)+
-              '% при разных предположениях о темпе. Это не доверительный интервал.</small><small>'+
+              '</span><small>Сценарные оценки '+(r.probabilityMin*100).toFixed(1)+'–'+(r.probabilityMax*100).toFixed(1)+
+              '%. Проверены серии попаданий и возврат к наблюдавшейся результативности. Это не вероятность выигрыша и не доверительный интервал.</small><small>'+
               escapeHtml(x.signal.marketReady?'Рынок совместим; преимущество не проверено.':x.signal.reasonCodes.includes('overtime')?'Цены получены. Рынок с ОТ; модель без ОТ — выгодность не рассчитана.':'Нет полного подтверждения рынка — выгодность не рассчитана.')+
               ' Открыть разбор →</small></button>';
           }).join("")+
