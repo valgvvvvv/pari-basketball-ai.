@@ -3387,7 +3387,7 @@ async def _refresh_live_enrichment_background(events_snapshot):
                 continue
             external_rows = [
                 row for row in (event.get("external_statistics") or [])
-                if str(row.get("source") or "") not in ("PARI", "derived")
+                if str(row.get("source") or "") not in ("PARI", "PARI-PBP", "PARI-derived", "derived")
             ]
             match_status = "matched" if external_rows or event.get("external_live") else (
                 "source_no_live_events" if no_live_events_seen else
@@ -3410,7 +3410,7 @@ async def _refresh_live_enrichment_background(events_snapshot):
                 "external_live": copy.deepcopy(event.get("external_live")),
                 "external_statistics": copy.deepcopy([
                     row for row in (event.get("external_statistics") or [])
-                    if str(row.get("source") or "") not in ("PARI", "derived")
+                    if str(row.get("source") or "") not in ("PARI", "PARI-PBP", "PARI-derived", "derived")
                 ]),
                 "statistics_source_diagnostics": copy.deepcopy(event["statistics_source_diagnostics"]),
                 "diagnostics": copy.deepcopy(diagnostics),
