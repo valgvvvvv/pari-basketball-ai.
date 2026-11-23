@@ -1385,6 +1385,17 @@ function unifiedToolsPanelHtml(ev,matchData,quarterData,matchForecast,quarterFor
   if(!formatInfo||String(formatInfo.method||"").includes("предварительно"))critical.push("Формат / длительность периода не подтверждены.");
   const feedAt=Date.parse(ev?.feed_checked_at_utc||"");
   if(Number.isFinite(feedAt)&&Date.now()-feedAt>120000)critical.push("Снимок LIVE устарел более чем на 2 минуты.");
+  if(ev?.model_scope_note)critical.push(ev.model_scope_note);
+  const centre=ev?.pari_match_centre;
+  if(centre&&centre.state!=="score_reconciled"){
+    const states={not_available:"поток статистики не подключён для этого события",no_events:"источник не передал события",request_failed:"запрос не выполнен",identity_mismatch:"не совпала идентичность матча",score_not_synchronized:"счёт источника отличается от линии",period_score_conflict:"не совпали очки периодов",source_score_conflict:"в потоке противоречит счёт",period_not_synchronized:"не совпал период",clock_not_synchronized:"игровые часы отличаются более чем на 90 секунд"};
+    critical.push("Матч-центр PARI: "+(states[centre.state]||"ответ не прошёл проверку согласованности")+". Эти данные не добавлены в расчёт.");
+  }
+  const possessionMissing=ev?.statistics_quality?.possession_model_missing||[];
+  if(possessionMissing.length){
+    const labels={field_goals_attempted:"попытки с игры",free_throws_attempted:"попытки штрафных",offensive_rebounds:"подборы в нападении",turnovers:"потери"};
+    critical.push("Для модели владений ещё нужны: "+possessionMissing.map(k=>labels[k]||k).join(", ")+". Общий счёт не заменяет эти показатели.");
+  }
   if(ev?.statistics_quality?.conflicts?.length)critical.push("Обнаружены расхождения статистических источников: "+ev.statistics_quality.conflicts.length+".");
   const warningsHtml=critical.length?'<div class="live-critical-warnings"><b>Ограничения</b><ul>'+critical.map(x=>'<li>'+escapeHtml(x)+'</li>').join("")+'</ul></div>':"";
   const row=t=>'<tr><td data-label="Инструмент"><b>'+escapeHtml(t.name)+'</b><small>'+escapeHtml(t.id)+'</small></td><td data-label="Статус / роль">'+escapeHtml(t.status)+'<small>'+escapeHtml(t.role)+'</small></td><td data-label="Матч">'+escapeHtml(t.match)+'</td><td data-label="Четверть">'+escapeHtml(t.quarter)+'</td></tr>';
@@ -1528,7 +1539,7 @@ function automaticQuarterForecast(ev,matchForecast=null) {
     return {ready:false,reason:!period?"не определён номер четверти":!length?"не определена длительность четверти":!matchScore?"нет подтверждённого счёта":"нет данных для оценки темпа"};
   }
   const preliminary=elapsed<180||(!previousQuarterTotals.length&&!canUseAggregatePrior)||String(info?.method||"").includes("предварительно")||recoveredClock;
-  const qAvailable=Number(ev?.statistics_quality?.available_count||0),qExpected=Number(ev?.statistics_quality?.expected_count||19);
+  const qAvailable=new Set((ev?.period_statistics||[]).filter(r=>Number(r.period)===Number(period)).map(r=>r.metric_key).filter(Boolean)).size,qExpected=Number(ev?.statistics_quality?.expected_count||19);
   const quarterFeedAt=Date.parse(ev?.feed_checked_at_utc||"");
   const quarterPbp=ev?.play_by_play||ev?.external_live?.play_by_play;
   const quarterPbpCount=Array.isArray(quarterPbp)?quarterPbp.length:0;
@@ -1706,7 +1717,7 @@ async function refreshLiveMatches() {
           const timerDebug=timerRaw!=null
             ?("PARI timerSeconds: "+timerRaw+" с · timerDirection: "+(ev.timer_direction??"—")+" · "+timerNorm)
             :timerNorm;
-          const details = [ev.league || ev.sport_name, score, eventPeriod(ev), eventClock(ev), statsLabel].filter(Boolean).map(escapeHtml).join(" · ");
+          const details = [ev.gender==="women"?"Женский матч":null, ev.league || ev.sport_name, score, eventPeriod(ev), eventClock(ev), statsLabel].filter(Boolean).map(escapeHtml).join(" · ");
           const forecast = automaticForecast(ev);
           const quarterForecast = automaticQuarterForecast(ev,forecast);
           const aiAnalysis = aiModelAnalysis(ev,forecast,quarterForecast);
