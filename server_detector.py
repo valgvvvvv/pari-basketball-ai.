@@ -24,7 +24,8 @@ function serverPriorityCards(data){
   }
   for(const decision of PARIForecastCore.selectResearchCandidates(decisions)){
    researchCandidates.push({event:String(ev.id),teams:ev.team1+' — '+ev.team2,
-    signal:decision,expires:Date.parse(data.checked_at_utc)+90000});
+    signal:decision,expires:Date.parse(data.checked_at_utc)+90000,
+    context:[ev.league||'',(findLiveScore(ev)||[]).join(':'),'Q'+findLivePeriod(ev),findLiveClock(ev)].join(' · ')});
   }
   for(const decision of decisions){
    const forecast=decision.target==='match'?match.estimate:quarter;
