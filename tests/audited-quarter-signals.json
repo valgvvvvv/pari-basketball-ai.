@@ -1,0 +1,216 @@
+[
+  {
+    "id": "34812",
+    "event_id": "70178801",
+    "input": {
+      "current": 11,
+      "elapsedSeconds": 245,
+      "periodLengthSeconds": 600,
+      "completedQuarterTotals": [
+        31
+      ]
+    },
+    "line": 33.5,
+    "actual_total": 37,
+    "oldScenarioMinimum": 0.825
+  },
+  {
+    "id": "34818",
+    "event_id": "70178801",
+    "input": {
+      "current": 15,
+      "elapsedSeconds": 344,
+      "periodLengthSeconds": 600,
+      "completedQuarterTotals": [
+        31
+      ]
+    },
+    "line": 31.5,
+    "actual_total": 37,
+    "oldScenarioMinimum": 0.8370000000000001
+  },
+  {
+    "id": "34819",
+    "event_id": "70178801",
+    "input": {
+      "current": 15,
+      "elapsedSeconds": 372,
+      "periodLengthSeconds": 600,
+      "completedQuarterTotals": [
+        31
+      ]
+    },
+    "line": 30.5,
+    "actual_total": 37,
+    "oldScenarioMinimum": 0.89
+  },
+  {
+    "id": "34822",
+    "event_id": "70178801",
+    "input": {
+      "current": 17,
+      "elapsedSeconds": 433,
+      "periodLengthSeconds": 600,
+      "completedQuarterTotals": [
+        31
+      ]
+    },
+    "line": 29.5,
+    "actual_total": 37,
+    "oldScenarioMinimum": 0.929
+  },
+  {
+    "id": "34850",
+    "event_id": "70169365",
+    "input": {
+      "current": 17,
+      "elapsedSeconds": 288,
+      "periodLengthSeconds": 600,
+      "completedQuarterTotals": [
+        52
+      ]
+    },
+    "line": 43.5,
+    "actual_total": 45,
+    "oldScenarioMinimum": 0.657
+  },
+  {
+    "id": "34854",
+    "event_id": "70169365",
+    "input": {
+      "current": 17,
+      "elapsedSeconds": 318,
+      "periodLengthSeconds": 600,
+      "completedQuarterTotals": [
+        52
+      ]
+    },
+    "line": 40.5,
+    "actual_total": 45,
+    "oldScenarioMinimum": 0.6729999999999999
+  },
+  {
+    "id": "34855",
+    "event_id": "70176810",
+    "input": {
+      "current": 20,
+      "elapsedSeconds": 339,
+      "periodLengthSeconds": 720,
+      "completedQuarterTotals": [
+        45
+      ]
+    },
+    "line": 45.5,
+    "actual_total": 42,
+    "oldScenarioMinimum": 0.65
+  },
+  {
+    "id": "34870",
+    "event_id": "70169365",
+    "input": {
+      "current": 23,
+      "elapsedSeconds": 378,
+      "periodLengthSeconds": 600,
+      "completedQuarterTotals": [
+        52
+      ]
+    },
+    "line": 42.5,
+    "actual_total": 45,
+    "oldScenarioMinimum": 0.71
+  },
+  {
+    "id": "34877",
+    "event_id": "70169365",
+    "input": {
+      "current": 23,
+      "elapsedSeconds": 388,
+      "periodLengthSeconds": 600,
+      "completedQuarterTotals": [
+        52
+      ]
+    },
+    "line": 41.5,
+    "actual_total": 45,
+    "oldScenarioMinimum": 0.7120000000000001
+  },
+  {
+    "id": "34896",
+    "event_id": "70176810",
+    "input": {
+      "current": 22,
+      "elapsedSeconds": 401,
+      "periodLengthSeconds": 720,
+      "completedQuarterTotals": [
+        45
+      ]
+    },
+    "line": 43.5,
+    "actual_total": 42,
+    "oldScenarioMinimum": 0.6920000000000001
+  },
+  {
+    "id": "34910",
+    "event_id": "70178801",
+    "input": {
+      "current": 8,
+      "elapsedSeconds": 256,
+      "periodLengthSeconds": 600,
+      "completedQuarterTotals": [
+        31,
+        37
+      ]
+    },
+    "line": 29.5,
+    "actual_total": 31,
+    "oldScenarioMinimum": 0.7490000000000001
+  },
+  {
+    "id": "34932",
+    "event_id": "70178801",
+    "input": {
+      "current": 10,
+      "elapsedSeconds": 322,
+      "periodLengthSeconds": 600,
+      "completedQuarterTotals": [
+        31,
+        37
+      ]
+    },
+    "line": 28.5,
+    "actual_total": 31,
+    "oldScenarioMinimum": 0.836
+  },
+  {
+    "id": "34948",
+    "event_id": "70178801",
+    "input": {
+      "current": 14,
+      "elapsedSeconds": 413,
+      "periodLengthSeconds": 600,
+      "completedQuarterTotals": [
+        31,
+        37
+      ]
+    },
+    "line": 26.5,
+    "actual_total": 31,
+    "oldScenarioMinimum": 0.8190000000000001
+  },
+  {
+    "id": "34954",
+    "event_id": "70178801",
+    "input": {
+      "current": 14,
+      "elapsedSeconds": 444,
+      "periodLengthSeconds": 600,
+      "completedQuarterTotals": [
+        31,
+        37
+      ]
+    },
+    "line": 25.5,
+    "actual_total": 31,
+    "oldScenarioMinimum": 0.89
+  }
+]

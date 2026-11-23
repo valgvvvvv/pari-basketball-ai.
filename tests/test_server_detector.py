@@ -86,17 +86,22 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.lock.start()
         self.send = patch.object(server_signals, 'say', new_callable=AsyncMock)
         self.say = self.send.start()
-        self.card = {'event': 'x', 'teams': 'Home — Away', 'label': 'Матч · ТМ 190.5',
+        self.audit = patch.object(server_signals, 'audit_delivery'); self.audit.start()
+        self.card = {'event': 'x', 'forecast_id': 'saved-test-forecast', 'teams': 'Home — Away', 'label': 'Матч · ТМ 190.5',
                      'signal': {'target': 'match', 'period': 4, 'line': 190.5, 'direction': 'ТМ'},
                      'expires': (time.time()+90)*1000, 'context': 'Test'}
 
     async def asyncTearDown(self):
-        self.send.stop(); self.lock.stop(); self.path.stop(); self.env.stop(); self.folder.cleanup()
+        self.audit.stop(); self.send.stop(); self.lock.stop(); self.path.stop(); self.env.stop(); self.folder.cleanup()
 
-    async def test_baseline_then_new_line_is_sent_once(self):
+    async def test_baseline_new_line_is_ignored_and_new_event_is_sent_once(self):
         await server_signals.deliver([self.card])
         self.say.assert_not_awaited()
         new = dict(self.card, signal=dict(self.card['signal'], line=191.5))
+        await server_signals.deliver([new])
+        await server_signals.deliver([new])
+        self.say.assert_not_awaited()
+        new = dict(new, event='another-game')
         await server_signals.deliver([new])
         await server_signals.deliver([new])
         self.assertEqual(self.say.await_count, 1)

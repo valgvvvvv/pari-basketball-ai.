@@ -50,3 +50,26 @@ assert.ok(!decision({includesOvertime:true}).reasonCodes.includes('prices'),'a t
 assert.ok(decision({suspended:true}).reasonCodes.includes("suspended"));
 assert.ok(!decision({suspended:true}).reasonCodes.includes("quote"));
 assert.equal(core.selectResearchCandidates([{...watched,reasonCodes:["suspended"]}]).length,0);
+const auditCases=require('./audited-quarter-signals.json');
+for(const scoringUnit of [1,2,3]){
+  const p=core.quarterPosterior({current:17,elapsedSeconds:433,periodLengthSeconds:600,completedQuarterTotals:[31]});
+  const tested={...p,scoringUnit};
+  const sim=core.simulateQuarter(tested,Array.from({length:400},(_,k)=>({line:p.current+k+.5})));
+  let previous=0,mean=0,square=0;
+  sim.probabilities.forEach((r,k)=>{const mass=r.pUnder-previous;previous=r.pUnder;mean+=k*mass;square+=k*k*mass;});
+  assert.ok(Math.abs(mean-p.expectedRemaining)<1e-7,'marked scoring preserves the expected points');
+  assert.ok(Math.abs(square-mean*mean-sim.variance)<1e-6,'predictive PMF and reported variance agree');
+  assert.ok(Math.abs(sim.variance-(scoringUnit*p.expectedRemaining+p.meanUncertaintyVariance))<1e-10);
+}
+assert.equal(core.simulateQuarter({...prior,scoringUnit:4},[]),null);
+for(const fixture of auditCases){
+ const p=core.quarterPosterior(fixture.input),lines=[{line:fixture.line}],sim=core.simulateQuarter(p,lines);
+ const variants=core.quarterSensitivity(p,lines),r=core.assessSensitivity(sim.probabilities,variants)[0].robustness;
+ assert.equal(r.calibrated,false);assert.equal(r.independentModels,false);
+ assert.ok(r.probabilityMin<=fixture.oldScenarioMinimum+.00051,'risk scenarios must not silently reproduce the audited extreme confidence');
+ assert.ok(variants.some(v=>v.name==='Серии по 3 очка'));
+ assert.ok(variants.every(v=>v.interval95[0]<=v.interval95[1]));
+ assert.ok(!variants.some(v=>v.name==='Вся история матча'),'the base calculation is not an additional model vote');
+ // actual_total is retained for evaluation only; never passed to any forecast.
+}
+console.log('marked scoring distribution and 14 audited snapshot regressions: OK');

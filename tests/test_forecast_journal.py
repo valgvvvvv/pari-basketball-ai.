@@ -34,6 +34,22 @@ class JournalTests(unittest.TestCase):
         journal.record([self.row], 'source-hash')
         return journal.export_rows()[0]['id']
 
+    def test_delivery_log_links_to_immutable_original_decision(self):
+        identity = self.save()
+        self.assertEqual(journal.export_rows(deliveries_only=True), [])
+        journal.record_notification(identity, 'attempt')
+        journal.record_notification(identity, 'sent', 42)
+        record = journal.export_rows()[0]
+        self.assertEqual(record['decision']['line'], 165.5)
+        self.assertEqual([x['state'] for x in record['notifications']], ['attempt', 'sent'])
+        self.assertEqual(record['notifications'][1]['telegram_message_id'], 42)
+        self.assertEqual(journal.export_rows(deliveries_only=True)[0]['id'], identity)
+        with self.assertRaises(ValueError):
+            journal.record_notification('missing', 'sent', 43)
+        with closing(journal.connect()) as db:
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute('DELETE FROM notifications')
+
     def test_tempo_baseline_uses_actual_period_count(self):
         self.row['prediction'].update(current=120, period=2, clock='05:00', periodLengthSeconds=1200, periodCount=2)
         identity = self.save()
