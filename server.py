@@ -1085,12 +1085,7 @@ async def _enrich_with_sofascore_live(events):
                 away_name = str(away_raw.get("name") or away_raw.get("title") or away_raw.get("shortName") or "") if isinstance(away_raw, dict) else str(away_raw)
                 if not home_name or not away_name:
                     continue
-                # Women's competitions are intentionally excluded from this project.
-                gender_text = " ".join((home_name, away_name, status_text,
-                                        str(item.get("competition") or item.get("league") or ""),
-                                        str(item.get("tournament") or ""))).casefold()
-                if re.search(r"\b(women|woman|female|ladies|girls|wbb|womens|u\s*\d+\s*girls)\b|женск|девуш", gender_text):
-                    continue
+                # Both women and men are retained; identity matching keeps them separate.
                 status_label = " ".join(str(item.get(key) or "") for key in
                                          ("status_text", "status", "state", "period", "quarter"))
                 period_match = re.search(
@@ -1865,7 +1860,7 @@ async def _enrich_with_sofascore_live(events):
                 "source": "SportScore (fallback)",
                 "status": "ok" if external_rows else "no_live_events",
                 "live_events": len(external_rows), "matched": matched,
-                "live_events_excludes_women": True,
+                "live_events_excludes_women": False,
                 "clock_policy": "Only explicit countdown fields or a valid MM:SS in status_text; timestamps are ignored; values above 15:00 are rejected.",
                 "statistics_matches": 0, "statistics_errors": [],
                 "unmatched_pari": max(0, len(events) - matched), "ambiguous": ambiguous,
@@ -3104,17 +3099,17 @@ def _finalize_live_statistics(events):
         observed_at = event.get("feed_checked_at_utc") or event.get("checked_at_utc")
         received_at = datetime.now(timezone.utc).isoformat()
         external_match = event.get("external_live") if isinstance(event.get("external_live"), dict) else {}
-        for stat_row in normalized:
+        for stat_row in normalized + period_rows:
             source_name = str(stat_row.get("source") or "unknown")
             stat_row.setdefault("event_id", str(event.get("id") or ""))
             source_observed_at = stat_row.get("observed_at_utc")
             observation_basis = "provider_timestamp" if source_observed_at else "pari_feed_snapshot_proxy"
-            if source_name == "PARI":
+            if source_name in ("PARI", "PARI-PBP"):
                 stat_row.setdefault("source_event_id", str(event.get("id") or ""))
                 stat_row.setdefault("match_status", "pari_event_id")
                 if source_observed_at is None:
                     source_observed_at = observed_at
-                    observation_basis = "pari_feed_timestamp"
+                    observation_basis = "pari_score_reconciled_stream" if source_name == "PARI-PBP" else "pari_feed_timestamp"
             else:
                 if stat_row.get("source_event_id") is None and external_match.get("source") == source_name:
                     stat_row["source_event_id"] = external_match.get("event_id")
@@ -3129,7 +3124,7 @@ def _finalize_live_statistics(events):
             stat_row.setdefault("received_at_utc", received_at)
             stat_row.setdefault("availability", "available")
             stat_row["freshness_seconds"] = None
-            if source_name != "PARI" and observation_basis == "pari_feed_snapshot_proxy":
+            if source_name not in ("PARI", "PARI-PBP") and observation_basis == "pari_feed_snapshot_proxy":
                 stat_row["freshness_status"] = "source_timestamp_unavailable"
             elif source_observed_at:
                 try:
@@ -3151,7 +3146,7 @@ def _finalize_live_statistics(events):
                 stat_row["freshness_status"] = "source_timestamp_unavailable"
         def source_rank(row):
             source = str(row.get("source") or "").casefold()
-            source_priority = {"pari": 4, "sofascore": 3, "sportscore": 2, "derived": 1}.get(source, 0)
+            source_priority = {"pari": 4, "pari-pbp": 4, "sofascore": 3, "sportscore": 2, "derived": 1}.get(source, 0)
             freshness = {"fresh": 3, "source_timestamp_unavailable": 1, "timestamp_unparseable": 0, "stale": 0}.get(row.get("freshness_status"), 1)
             match_quality = {"pari_event_id": 3, "exact_event_id_match": 3, "matched_external_event": 2, "not_confirmed": 0}.get(row.get("match_status"), 1)
             return (freshness, match_quality, source_priority)
@@ -3187,6 +3182,17 @@ def _finalize_live_statistics(events):
                     vals.append(int(a+b) if (a+b).is_integer() else a+b)
                 item = {"group":"Расчёт по компонентам","name":label,"metric_key":target,
                         "home":vals[0],"away":vals[1],"source":"derived"}
+                components = [by_key[left_bucket], by_key[right_bucket]]
+                ages = [r.get("freshness_seconds") for r in components]
+                oldest = max(components, key=lambda r: r.get("freshness_seconds") or 0)
+                item.update(event_id=str(event.get("id") or ""), target="match", target_period=None,
+                    observed_at_utc=oldest.get("observed_at_utc"),
+                    received_at_utc=received_at, observation_basis="sum_of_observed_components",
+                    component_sources=[{k:r.get(k) for k in ("metric_key","source","source_event_id","observed_at_utc","freshness_status")} for r in components],
+                    freshness_seconds=max(ages) if all(isinstance(age,(int,float)) for age in ages) else None,
+                    freshness_status=("fresh" if all(r.get("freshness_status")=="fresh" for r in components) else
+                                      "stale" if any(r.get("freshness_status")=="stale" for r in components) else "source_timestamp_unavailable"),
+                    match_status="derived_from_confirmed_events" if all(r.get("match_status") in ("pari_event_id","exact_event_id_match","matched_external_event") for r in components) else "not_confirmed")
                 normalized.append(item)
                 by_key[bucket] = item
             except (TypeError, ValueError, OverflowError):
@@ -3244,6 +3250,12 @@ def _finalize_live_statistics(events):
             "coverage_percent":round(len(set(available).intersection(expected))/len(expected)*100),
             "raw_fields_count":len(normalized),"complete":not missing,
             "conflicts":conflicts[:12],"checked_at_utc":datetime.now(timezone.utc).isoformat(),
+            "match_centre": event.get("pari_match_centre", {"state": "not_available"}),
+            "period_available_metrics": {
+                str(period): sorted({r.get("metric_key") for r in period_rows if r.get("period") == period and r.get("metric_key")})
+                for period in sorted({r["period"] for r in period_rows if r.get("period") is not None})},
+            "possession_model_missing": [metric for metric in
+                ("field_goals_attempted", "free_throws_attempted", "offensive_rebounds", "turnovers") if metric not in available],
         }
 
 
@@ -3375,7 +3387,7 @@ async def _refresh_live_enrichment_background(events_snapshot):
                 continue
             external_rows = [
                 row for row in (event.get("external_statistics") or [])
-                if str(row.get("source") or "") not in ("PARI", "derived")
+                if str(row.get("source") or "") not in ("PARI", "PARI-PBP", "PARI-derived", "derived")
             ]
             match_status = "matched" if external_rows or event.get("external_live") else (
                 "source_no_live_events" if no_live_events_seen else
@@ -3398,7 +3410,7 @@ async def _refresh_live_enrichment_background(events_snapshot):
                 "external_live": copy.deepcopy(event.get("external_live")),
                 "external_statistics": copy.deepcopy([
                     row for row in (event.get("external_statistics") or [])
-                    if str(row.get("source") or "") not in ("PARI", "derived")
+                    if str(row.get("source") or "") not in ("PARI", "PARI-PBP", "PARI-derived", "derived")
                 ]),
                 "statistics_source_diagnostics": copy.deepcopy(event["statistics_source_diagnostics"]),
                 "diagnostics": copy.deepcopy(diagnostics),
@@ -3527,7 +3539,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                 _PARI_LAST_WORKING_HOST = host
                 feed_received_at = datetime.now(timezone.utc).isoformat()
                 if not catalog_only:
-                    pari_formats, pari_detail_received, pari_data_diagnostics = await pari_data.enrich_payload(client, host, payload)
+                    pari_formats, pari_detail_received, pari_data_diagnostics = await pari_data.enrich_payload(client, host, payload, PARI_COMPETITION_FORMATS)
                 else:
                     pari_formats, pari_detail_received, pari_data_diagnostics = {}, {}, {}
                 all_events = payload["events"]
@@ -3707,7 +3719,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                 # Retain the two IDs already verified from actual basketball root events.
                 basketball_ids.update({"70206", "12071"})
                 excluded_markers = (
-                    "жен", "women", "female", "wnba", "wkbl", "esports",
+                    "esports",
                     "esportsbattle", "кибер", "cyber", "nba 2k", "2k26", "2k27",
                     "h2h", "ipbl", "виртуал", "3x3", "3х3"
                 )
@@ -3842,7 +3854,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         repair_team_encoding(event.get(key) or "")
                         for key in ("team1", "team2", "name", "competitionName", "sportName")
                     ).casefold()
-                    if re.search(r"\b(women|woman|female|ladies|girls|wbb|womens|lpbl|cater)\b|женск|девуш", pari_gender_text):
+                    if re.search(r"\b(lpbl|cater)\b", pari_gender_text):
                         filter_counts["excluded_by_name"] += 1
                         continue
                     filter_counts["accepted_live_roots"] += 1
@@ -4400,6 +4412,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                 # statisticsTypes/S1 codes are retained for diagnostics, not guessed.
                 for pari_row in basketball:
                     pari_id = str(pari_row.get("id") or "")
+                    pari_row["feed_checked_at_utc"] = pari_detail_received.get(pari_id, feed_received_at)
                     pari_row["total_factor_sides"] = pari_data.factor_sides("18319")
                     pari_row["quarter_total_factor_sides"] = pari_data.factor_sides("2673")
                     pari_row["verified_total_markets"] = pari_data.markets_for(
@@ -4416,6 +4429,28 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     ])
                     pari_stats = pari_stat_result.get("match", [])
                     pari_row["period_statistics"] = pari_stat_result.get("periods", [])
+                    centre = payload.get("pari_match_centres", {}).get(pari_id, {})
+                    source_clock = (centre.get("diagnostics") or {}).get("last_clock")
+                    remaining = pari_row.get("period_remaining_seconds")
+                    period = pari_row.get("period")
+                    if (source_clock and source_clock[0] == period and remaining is not None and
+                            abs(source_clock[1]-remaining) > 90):
+                        centre = {"statistics": [], "periods": [], "diagnostics": {
+                            **centre["diagnostics"], "state": "clock_not_synchronized"}}
+                    pari_row["pari_match_centre"] = centre.get("diagnostics", {"state": "not_available"})
+                    gender_text = " ".join(str(pari_row.get(k) or "") for k in ("team1", "team2", "sport_name", "league"))
+                    is_women = bool(re.search(r"women|female|ladies|girls|wbb|wnba|wcba|wkbl|женщ|женск|девуш|\(ж\)|\(w\)", gender_text, re.I))
+                    pari_row["gender"] = "women" if is_women else "unknown"
+                    if is_women:
+                        pari_row["model_scope_note"] = "Женский матч: исследовательский расчёт; точность для этой лиги отдельно не подтверждена."
+
+                    # Keep provenance and period scope from the reconciled stream.
+                    # Never merge counters from two broadcasts or different scores.
+                    existing = {x["metric_key"] for x in pari_stats}
+                    pari_stats.extend(x for x in centre.get("statistics", []) if x["metric_key"] not in existing)
+                    existing_periods = {(x.get("period"), x["metric_key"]) for x in pari_row["period_statistics"]}
+                    pari_row["period_statistics"].extend(x for x in centre.get("periods", [])
+                        if (x.get("period"), x["metric_key"]) not in existing_periods)
                     pari_row["unmapped_statistics_debug"] = pari_stat_result.get("unmapped", [])
                     if pari_stats:
                         pari_row["external_statistics"] = pari_stats
@@ -4431,7 +4466,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     # A complete field-goal-makes count can be derived only
                     # when both 2PT and 3PT makes are explicitly supplied.
                     by_key = {row["metric_key"]: row for row in pari_stats}
-                    if "two_pointers_made" in by_key and "three_pointers_made" in by_key:
+                    if "field_goals_made" not in by_key and "two_pointers_made" in by_key and "three_pointers_made" in by_key:
                         two, three = by_key["two_pointers_made"], by_key["three_pointers_made"]
                         try:
                             pari_stats.append({
@@ -4678,7 +4713,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     "sample_factor_shape": compact_event(factors[0]) if isinstance(factors, list) and factors else None,
                     "events": basketball,
                     "attempts": attempts,
-                    "note": "Basketball sportIds are resolved dynamically from PARI sports hierarchy or cached listBase metadata. Female, esports, virtual and 3x3 competitions are excluded.",
+                    "note": "Basketball sportIds are resolved dynamically from PARI sports hierarchy or cached listBase metadata. Women and men are included; esports, virtual and 3x3 competitions are excluded.",
                 }
             except httpx.HTTPError as exc:
                 attempts.append({"host": host, "error": type(exc).__name__, "detail": str(exc)[:240]})
@@ -4830,18 +4865,47 @@ async def pari_live_events(catalog_only: bool = False):
     if catalog_only:
         return await _fetch_pari_live_events(catalog_only=True)
 
-    now = datetime.now(timezone.utc).timestamp()
-    cached = globals().get("_PARI_LIVE_CACHE")
-    if cached and now - cached.get("saved_at", 0) <= 35:
-        return cached["data"]
+    return await _refresh_live_snapshot()
 
-    data = await _fetch_pari_live_events(catalog_only=False)
-    if data.get("ok") and data.get("connected"):
-        globals()["_PARI_LIVE_CACHE"] = {
-            "saved_at": datetime.now(timezone.utc).timestamp(),
-            "data": data,
-        }
-    return data
+
+_LIVE_REFRESH_LOCK = asyncio.Lock()
+
+
+async def _refresh_live_snapshot():
+    """The homepage and collector share one fetch, archive and signal calculation."""
+    async with _LIVE_REFRESH_LOCK:
+        cached = globals().get("_PARI_LIVE_CACHE")
+        now = datetime.now(timezone.utc).timestamp()
+        if (cached and now-cached.get("saved_at", 0) < server_signals.INTERVAL_SECONDS
+                and "signal_diagnostics" in cached["data"]):
+            return cached["data"]
+        started = asyncio.get_running_loop().time()
+        data = await _fetch_pari_live_events(catalog_only=False)
+        fetched = asyncio.get_running_loop().time()
+        if data.get("ok") and data.get("connected"):
+            async with _ARCHIVE_LOCK:
+                count, saved = await asyncio.to_thread(_archive_save_events, data)
+            try:
+                ids = ','.join(str(e.get('id')) for e in data.get('events', []))
+                history = await asyncio.to_thread(archive_recent, 10, ids)
+                await server_signals.process(data, history['events'])
+            except Exception as exc:
+                server_signals.STATUS['error'] = type(exc).__name__
+                emit_diagnostic('SIGNAL_DETECTOR_ERROR', {'error': type(exc).__name__}, level='error')
+            finished = asyncio.get_running_loop().time()
+            timing = {'source_seconds': round(fetched-started, 3),
+                      'processing_seconds': round(finished-fetched, 3),
+                      'cycle_seconds': round(finished-started, 3)}
+            server_signals.STATUS['refresh_timing'] = timing
+            _ARCHIVE_LAST.update({'checked_at': datetime.now(timezone.utc).isoformat(),
+                                  'events': count, 'saved': saved, 'error': None, **timing})
+            emit_diagnostic('MATCH_ARCHIVE_COLLECTOR', _ARCHIVE_LAST)
+            # Publish only after the same snapshot has been evaluated for delivery.
+            globals()["_PARI_LIVE_CACHE"] = {"saved_at": now, "data": data}
+        else:
+            _ARCHIVE_LAST.update({'checked_at': datetime.now(timezone.utc).isoformat(),
+                                  'events': 0, 'saved': 0, 'error': 'PARI feed unavailable'})
+        return data
 
 
 async def _pari_startup_stats_discovery():
@@ -5065,24 +5129,7 @@ async def _archive_collector_loop():
     while True:
         cycle_started = asyncio.get_running_loop().time()
         try:
-            data = await _fetch_pari_live_events(catalog_only=False)
-            if data.get("ok") and data.get("connected"):
-                async with _ARCHIVE_LOCK:
-                    count, saved = await asyncio.to_thread(_archive_save_events, data)
-                _ARCHIVE_LAST.update({"checked_at":datetime.now(timezone.utc).isoformat(),
-                                      "events":count,"saved":saved,"error":None})
-                emit_diagnostic('MATCH_ARCHIVE_COLLECTOR', _ARCHIVE_LAST)
-                globals()["_PARI_LIVE_CACHE"] = {"saved_at": datetime.now(timezone.utc).timestamp(), "data": data}
-                try:
-                    ids = ','.join(str(e.get('id')) for e in data.get('events', []))
-                    history = await asyncio.to_thread(archive_recent, 10, ids)
-                    await server_signals.process(data, history['events'])
-                except Exception as signal_error:
-                    server_signals.STATUS['error'] = type(signal_error).__name__
-                    emit_diagnostic('SIGNAL_DETECTOR_ERROR', {'error': type(signal_error).__name__}, level='error')
-            else:
-                _ARCHIVE_LAST.update({"checked_at":datetime.now(timezone.utc).isoformat(),
-                                      "events":0,"saved":0,"error":"PARI feed unavailable"})
+            await _refresh_live_snapshot()
         except Exception as exc:
             _ARCHIVE_LAST.update({"checked_at":datetime.now(timezone.utc).isoformat(),
                                   "error":type(exc).__name__ + ": " + str(exc)[:180]})
@@ -5120,7 +5167,7 @@ def archive_status():
         conn.close()
     return {"ok":True,"matches":matches,"snapshots":snapshots,"database_bytes":size,
             "storage_path":str(_ARCHIVE_DB),"persistent":str(_ARCHIVE_DB).startswith("/var/data/"),
-            "collector":dict(_ARCHIVE_LAST),"interval_seconds":30,
+            "collector":dict(_ARCHIVE_LAST),"interval_seconds":server_signals.INTERVAL_SECONDS,
             "scope":"Render-local SQLite is a temporary cache while the web process is awake. GitHub Actions is the durable archive path: immutable source/forecast snapshots every five minutes, consolidated into timestamped daily ZIP assets in GitHub Releases.",
             "render_local_storage_note":"Render Free has no persistent disk attached; /tmp SQLite may be lost on restart or redeploy and is not a durable database.",
             "github_archive":{"interval_seconds":300,"format":"timestamped daily ZIP release assets","append_only":True,"contains_prediction_contracts":True,"final_outcomes":"unresolved unless an independent final result is confirmed"},
