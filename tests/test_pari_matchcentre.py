@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import unittest
 from datetime import datetime, timezone
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pari_data
@@ -85,6 +85,23 @@ class StreamTests(unittest.TestCase):
 
 
 class PipelineTests(unittest.IsolatedAsyncioTestCase):
+    async def test_optional_provider_cache_never_replays_old_pari_counters(self):
+        # A background snapshot precedes the next score. Its PARI values must
+        # never be reattached as external data to a newer feed snapshot.
+        event = {'id':'cache-test','team1':'A','team2':'B',
+                 'feed_checked_at_utc':datetime.now(timezone.utc).isoformat(),
+                 'external_statistics':[{'name':'turnovers','metric_key':'turnovers',
+                    'home':1,'away':2,'source':source} for source in
+                    ('PARI','PARI-PBP','PARI-derived','SofaScore')]}
+        diagnostics = {'status':'no_live_events','statistics_errors':['timeout']}
+        with patch.object(server,'_enrich_with_sofascore_live',AsyncMock(return_value=diagnostics)), \
+             patch.dict(server._LIVE_ENRICHMENT_CACHE,{},clear=True):
+            await server._refresh_live_enrichment_background([event])
+            cached = server._LIVE_ENRICHMENT_CACHE['cache-test']
+            self.assertEqual({r['source'] for r in cached['external_statistics']}, {'SofaScore'})
+            self.assertEqual({r['source'] for r in event['external_statistics']},
+                             {'PARI','PARI-PBP','PARI-derived','SofaScore'})
+
     async def test_women_match_is_visible_with_lineage_and_period_statistics(self):
         data = fixture(); event = data['event']; identity = event['id']
         payload = {'sports':[{'id':3,'name':'Баскетбол'},
