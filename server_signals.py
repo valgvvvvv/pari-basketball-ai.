@@ -16,7 +16,7 @@ import httpx
 logging.getLogger('httpx').setLevel(logging.WARNING)
 STATE_PATH = Path(os.environ.get('SIGNAL_STATE_PATH', str(Path(tempfile.gettempdir()) / 'pari_signal_state.sqlite3')))
 INTERVAL_SECONDS = 10
-STATUS = {'mode': 'server', 'delivery_version': '2026-11-23-v3',
+STATUS = {'mode': 'server', 'delivery_version': '2026-11-23-v4',
           'interval_seconds': INTERVAL_SECONDS, 'checked_at_utc': None,
           'cards': [], 'error': None, 'sent': 0, 'commands_checked_at_utc': None}
 LOCK = asyncio.Lock()
@@ -244,8 +244,9 @@ async def process(data, history):
 
 async def delivery_loop():
     while True:
+        delay = max(.05, min(3, min(RETRY_AT.values(), default=time.time()+3) - time.time() + .01))
         try:
-            await asyncio.wait_for(WAKE.wait(), timeout=3)
+            await asyncio.wait_for(WAKE.wait(), timeout=delay)
         except asyncio.TimeoutError:
             pass
         WAKE.clear()
