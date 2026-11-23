@@ -9,6 +9,8 @@ import json
 import math
 import re
 import time
+from urllib.parse import urlencode
+import pari_matchcentre
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -62,6 +64,7 @@ def metadata_index(items):
                    if (row.get('extra') or {}).get('quarters')}
         chosen = next((row for row in rows if (row.get('extra') or {}).get('quarters')), rows[0])
         chosen = copy.deepcopy(chosen)
+        chosen['broadcasts'] = copy.deepcopy(rows)
         if len(formats) > 1:
             chosen['extra'] = {**chosen.get('extra', {}), 'quarters': None}
             chosen['format_conflict'] = True
@@ -145,7 +148,7 @@ def merge_detail(payload, detail, root):
     return True
 
 
-async def enrich_payload(client, host, payload):
+async def enrich_payload(client, host, payload, known_formats=None):
     """Bounded optional requests. A failed card must not make the LIVE list fail."""
     now = time.monotonic()
     source = host+'/sportscast/actrans'
@@ -171,11 +174,14 @@ async def enrich_payload(client, host, payload):
     if diagnostics['metadata'] != 'cached_static_format_only':
         diagnostics['metadata'] = 'available' if cached else 'unavailable'
     roots = [e for e in payload.get('events', []) if e.get('level') == 1 and e.get('place') == 'live'
-             and same_event(e, infos.get(str(e.get('id')), {}))]
+             and same_event(e, infos.get(str(e.get('id')), {}))
+             and not re.search(r'esport|ebasket|кибер|cyber|h2h|\b2k\d*|ipbl',
+                               str(infos[str(e['id'])].get('caption', '')), re.I)]
     # Oldest first avoids starving matches outside the first page of the feed.
     roots.sort(key=lambda e: _DETAILS.get((host, str(e['id'])), {}).get('saved', 0))
     received = {}
     sem = asyncio.Semaphore(4)
+    centres = {}
 
     async def card(event):
         identity = (host, str(event['id']))
@@ -194,6 +200,28 @@ async def enrich_payload(client, host, payload):
         if merge_detail(payload, stored['data'], event['id']):
             received[str(event['id'])] = stored['received']
             diagnostics['detail_events'] += 1
+            info = infos[str(event['id'])]
+            known = (known_formats or {}).get(str(event.get('sportId')), {})
+            known_regular = (known.get('period_count'), known.get('period_length_seconds')) in ((4,600),(4,720),(2,1200))
+            if (explicit_format(event, info, source) or
+                    (known_regular and not (info.get('extra') or {}).get('quarters') and not info.get('format_conflict'))):
+                broadcasts = info.get('broadcasts', [info])
+                for broadcast in sorted(broadcasts, key=lambda row: not bool((row.get('extra') or {}).get('quarters')))[:2]:
+                    if not broadcast.get('code') or not same_event(event, broadcast):
+                        continue
+                    params = {'foncode': event['id'], 'code': broadcast['code'], 'needextra': 1}
+                    try:
+                        async with sem:
+                            response = await request_json(client, host, '/sportscast/events', params, 2)
+                        live = next((row for row in stored['data'].get('liveEventInfos', [])
+                                     if str(row.get('eventId')) == str(event['id'])), {})
+                        centre = pari_matchcentre.parse(event, live, broadcast, response,
+                                                       host+'/sportscast/events?'+urlencode(params))
+                    except Exception:
+                        centre = {'statistics': [], 'periods': [], 'diagnostics': {'state': 'request_failed'}}
+                    centres[str(event['id'])] = centre
+                    if centre['diagnostics']['state'] == 'score_reconciled':
+                        break
         else:
             diagnostics['detail_errors'] += 1
 
@@ -207,6 +235,9 @@ async def enrich_payload(client, host, payload):
         if fmt:
             formats[str(event['id'])] = fmt
     diagnostics['format_events'] = len(formats)
+    payload['pari_match_centres'] = centres
+    diagnostics['match_centre_events'] = len(centres)
+    diagnostics['match_centre_statistics'] = sum(bool(c.get('statistics')) for c in centres.values())
     # Keep bounded state as finished events disappear from the current feed.
     live_ids = {str(e.get('id')) for e in payload.get('events', [])}
     for key in list(_DETAILS):

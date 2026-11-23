@@ -54,7 +54,9 @@ def _timestamp(value: Any):
 
 def _gender(*values: Any) -> str:
     text = " ".join(str(value or "") for value in values).casefold()
-    if any(x in text for x in ("women", "woman", "female", "ladies", "girls", "wbb", "wnba", "женск", "девуш")):
+    if any(x in text for x in ("women", "woman", "female", "ladies", "girls", "wbb", "wnba", "wcba", "wkbl", "женщ", "женск", "девуш")):
+        return "women"
+    if re.search(r"\((?:w|ж)\)", text):
         return "women"
     if any(x in text for x in ("men", "mens", "male", "мужск", "мужчин")):
         return "men"
