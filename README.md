@@ -2,11 +2,11 @@
 
 ## Серверный детектор и Telegram «Сигнал»
 
-Сборщик рассчитывает верхний детектор примерно каждые 30 секунд без браузера: `server_detector.py` выполняет те же функции `static/app.js` и `static/forecast-core.js` во встроенном V8. Интерфейс получает серверный список через LIVE API. Правила отбора и модельные вероятности не меняются.
+Сборщик рассчитывает верхний детектор примерно каждые 10 секунд без браузера: `server_detector.py` выполняет те же функции `static/app.js` и `static/forecast-core.js` во встроенном V8. Интерфейс получает серверный список через LIVE API. Правила отбора и модельные вероятности не меняются.
 
 В закрытых переменных существующего Render-сервиса задаются `SIGNAL_SERVER_ENABLED=1`, `SIGNAL_BOT_TOKEN`, `SIGNAL_CHAT_ID`. Токен не входит в исходники, ответы API или журналы. `/api/signals/status` показывает время расчёта, свежесть и состояние обработки команд. Сообщения доступны только заданному владельцу; `/status`, `/pause`, `/resume` обрабатываются на сервере. GitHub-проверка при включённом серверном режиме лишь обращается к его API и не запускает второго Telegram-поллера.
 
-Render Free может засыпать и перезапускаться; GitHub-проверки примерно раз в пять минут не гарантируют постоянную доступность. История отправок и пауза находятся на временном диске, поэтому могут сброситься. После сброса первая проверка принимает текущие карточки за исходное состояние без повторной отправки. Непрерывная работа 24/7 на бесплатном тарифе не гарантируется.
+Render Free может засыпать и перезапускаться; GitHub-проверки примерно раз в пять минут не гарантируют постоянную доступность. История отправок и пауза находятся на временном диске, поэтому могут сброситься. После сброса свежие карточки отправляются; прежняя история повторов может потеряться. Непрерывная работа 24/7 на бесплатном тарифе не гарантируется.
 
 Обработчик SofaScore принимает объект статистики и массив периодов с `statisticsItems`, сохраняет границы четвертей и отличает недоступный источник от пустого LIVE-списка. Это не создаёт статистику для лиг, которые провайдер не покрывает.
 
@@ -62,7 +62,7 @@ Render запускает `uvicorn server:app --host 0.0.0.0 --port $PORT`.
 
 - История карточки в браузере — локальная копия последних 500 снимков; она не является постоянным серверным хранилищем. В каждой записи исход остаётся «не подтверждён» до независимой сверки финального счёта.
 - Render Free не имеет постоянного диска. Локальная SQLite на `/tmp` теряется при перезапуске/переразмещении; её нельзя называть долговременной базой.
-- Дополнительный Render-сборщик опрашивает PARI примерно раз в 30 секунд, пока процесс сервиса работает и не спит.
+- Дополнительный Render-сборщик опрашивает PARI примерно раз в 10 секунд, пока процесс сервиса работает и не спит.
 - GitHub Actions отдельно собирает снимки LIVE и расчёты каждые 5 минут. Успешные артефакты сворачиваются в ежедневные ZIP-релизы GitHub Releases. Это постоянная архивная копия, не транзакционная БД и не гарантия сбора во время недоступности источника/Actions.
 - Архив содержит снимки и версии прогнозов. Подтверждённая автоматическая сверка финального результата по всем лигам пока не реализована; исход без независимого финального подтверждения должен оставаться unresolved.
 - Никакие существующие архивы и данные не удаляются при обычном обновлении кода. Очистка локальной SQLite — отдельная операция пользователя.
@@ -197,6 +197,13 @@ JSON финала использует контракт `result_validation.py`: 
 - Quarter sensitivity now includes mathematically specified scoring events worth 2 and 3 points (Gamma-Poisson count of marked events; mean preserved, variance = mark*mean + rate uncertainty), and a return to the highest already observed completed-period rate with three-point events. No loss-fitted variance multiplier or future score is used. Duplicate baseline scenarios are removed. These are stress scenarios, not independent trained models or calibrated win probabilities.
 - Navigation displays the envelope of per-scenario 95% model ranges as an uncalibrated scenario corridor, with no claimed joint coverage. Telegram experimental messages omit the misleading percentage. Original distributions and model numbers remain available for evaluation.
 - The fourteen exact archived inputs from the audit are regression fixtures, not a held-out performance test. Neither accuracy improvement nor profitability is established; full-match overtime compatibility and independent validation gates remain in force.
+
+### PARI match-centre statistics and women's games (2026-11-23)
+- Women's basketball is included in discovery and optional provider lists. Gender markers (including WCBA/WKBL and short team tags) remain part of identity checks; women's rows are visibly marked and carry an unvalidated league-scope note. Esports/virtual/3x3 exclusions remain.
+- `/sportscast/events` is now requested for exact PARI event/team/broadcast identities with a confirmed regular basketball format. The bounded collector tries at most two broadcasts per event and does not let a failed centre break scores or markets.
+- `pari_matchcentre.py` removes canceled events, deduplicates IDs, handles explicit team reversal and scoring corrections, and reconciles reconstructed points against both the root and each period. Only a reconciled source contributes named made-shot, foul and explicitly observed event counters. Possession changes are not possessions; assigned free throws are not completed attempts. FGA/FTA and ORB/DRB are not fabricated from incomplete event coverage.
+- The UI and API expose each centre's state and source URL, period-specific metric coverage and missing possession-model inputs. Statistics now inherit the synchronized PARI snapshot time, with a distinct observation basis rather than a false independent provider timestamp. Duplicate FGM derivation is removed.
+- These changes restore source coverage, not calibrated win probabilities. No automatic confidence promotion or cross-gender transfer of learned weights is introduced.
 
 ### Notification delivery repair (2026-11-23)
 - Refresh the collector every 10 seconds while Render is awake. A separate sender retries failed cards every 3 seconds without blocking collection or bot commands. One failed card does not suppress its peers; disappeared or expired candidates are not retried.
