@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 import sqlite3
 import time
@@ -23,6 +24,51 @@ def enabled():
     return (os.environ.get('SIGNAL_SERVER_ENABLED') == '1' and
             bool(os.environ.get('SIGNAL_BOT_TOKEN')) and
             os.environ.get('SIGNAL_CHAT_ID', '').lstrip('-').isdigit())
+
+
+def experimental_enabled():
+    return os.environ.get('SIGNAL_EXPERIMENTAL_ENABLED') == '1'
+
+
+def notification_mode():
+    return 'experimental' if experimental_enabled() else 'confirmed_only'
+
+
+def experimental_cards(result):
+    """Opted-in research watchlist, without promoting it to validated priority."""
+    if not experimental_enabled():
+        return []
+    selected = []
+    blocked = {'data', 'window', 'preliminary', 'probabilities', 'suspended',
+               'rules', 'overtime', 'prices', 'quote'}
+    for card in result.get('researchCandidates', []):
+        signal = card.get('signal', {})
+        robust = signal.get('robustness') or {}
+        probability = robust.get('probabilityMin')
+        if (signal.get('marketReady') is not True or
+                signal.get('watchlist') is not True or
+                robust.get('available') is not True or robust.get('directionStable') is not True or
+                isinstance(probability, bool) or not isinstance(probability, (int, float)) or
+                not math.isfinite(probability) or not .65 <= probability <= 1 or
+                blocked.intersection(signal.get('reasonCodes', []))):
+            continue
+        selected.append({**card, 'experimental': True})
+    return sorted(selected, key=lambda card: (-card['signal']['robustness']['probabilityMin'], str(card['event'])))[:3]
+
+
+def message_for(card):
+    if not card.get('experimental'):
+        return ('🔔 Сигнал\n' + card['teams'] + '\n' + card['label'] + '\n' + card['context'] +
+                '\n\nДетектор сервера · оценка модели не калибрована.\nhttps://pari-basketball-ai.onrender.com/')
+    signal = card['signal']
+    target = 'Матч · основное время' if signal['target'] == 'match' else 'Четверть Q' + str(signal['period'])
+    label = target + ' · ' + signal['direction'] + ' ' + format(signal['line'], 'g')
+    probability = signal['robustness']['probabilityMin'] * 100
+    return ('🔔 Сигнал · экспериментальный прогноз\n' + card['teams'] + '\n' + label +
+            '\nМинимальная оценка вариантов модели: ' + format(probability, '.1f') + '%.' +
+            '\n' + card.get('context', '') +
+            '\n\nПредварительное направление. Вероятность и преимущество не подтверждены независимой проверкой.' +
+            '\nhttps://pari-basketball-ai.onrender.com/')
 
 
 def connection():
@@ -69,7 +115,7 @@ async def say(text):
 def public_status():
     checked = STATUS['checked_at_utc']
     age = (datetime.now(timezone.utc)-datetime.fromisoformat(checked)).total_seconds() if checked else None
-    return {**STATUS, 'enabled': enabled(), 'state_persistent': False,
+    return {**STATUS, 'enabled': enabled(), 'notification_mode': notification_mode(), 'state_persistent': False,
             'age_seconds': round(age, 1) if age is not None else None,
             'detector_fresh': age is not None and 0 <= age <= 90,
             'limitation': 'Runs while the free Render service is awake; state is lost after ephemeral disk resets.'}
@@ -92,8 +138,7 @@ async def deliver(cards):
                 key = key_for(card)
                 if card['expires'] <= time.time()*1000 or db.execute('SELECT 1 FROM sent WHERE key=?', (key,)).fetchone():
                     continue
-                await say('🔔 Сигнал\n' + card['teams'] + '\n' + card['label'] + '\n' + card['context'] +
-                          '\n\nДетектор сервера · оценка модели не калибрована.\nhttps://pari-basketball-ai.onrender.com/')
+                await say(message_for(card))
                 db.execute('INSERT OR IGNORE INTO sent VALUES (?,?)', (key, time.time()))
                 db.commit()
                 STATUS['sent'] += 1
@@ -119,7 +164,9 @@ async def process(data, history):
                   calculation_errors=result['errors'],
                   research_candidates=result.get('researchCandidates', []),
                   diagnostics=result.get('diagnostics', {}))
-    await deliver(cards)
+    notifications = cards + [card for card in experimental_cards(result) if key_for(card) not in {key_for(x) for x in cards}]
+    STATUS['notification_candidates'] = len(notifications)
+    await deliver(notifications)
 
 
 async def commands_once():
@@ -139,6 +186,10 @@ async def commands_once():
                     elif command == '/pause':
                         put(db, 'paused', '1')
                         await say('Уведомления приостановлены. /resume — включить. При сбросе временного диска Render настройка может сброситься.')
+                    elif command == '/test':
+                        await say('Проверка доставки: Telegram работает. Режим: ' +
+                                  ('экспериментальный прогноз.' if experimental_enabled() else 'только подтверждённые сигналы.') +
+                                  '\nЭто техническая проверка, а не прогноз матча.')
                     elif command == '/status':
                         checked = STATUS['checked_at_utc']
                         checked = (datetime.fromisoformat(checked).astimezone(timezone(timedelta(hours=3))).strftime('%d.%m %H:%M:%S МСК')
@@ -146,7 +197,9 @@ async def commands_once():
                         await say(('Пауза. ' if get(db, 'paused') == '1' else 'Включён. ') +
                                   'Работаю на сервере сайта. Интервал около 30 секунд.\nПоследний расчёт: ' + checked +
                                   '\nКарточек: ' + str(len(STATUS['cards'])) +
-                                  ('\nАвтоматические сигналы отключены: модель ещё не прошла независимую проверку.'
+                                  ('\nУведомления: экспериментальный прогноз. Предварительных направлений: ' +
+                                   str(STATUS.get('notification_candidates', 0)) if experimental_enabled() else '') +
+                                  ('\nПодтверждённые сигналы отключены: модель ещё не прошла независимую проверку.'
                                    if STATUS.get('diagnostics', {}).get('automaticPriorityEnabled') is False else '') +
                                   ('\nОшибка: ' + STATUS['error'] if STATUS['error'] else ''))
                 put(db, 'offset', update['update_id'] + 1)
