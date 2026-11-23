@@ -158,22 +158,43 @@ def commands(tg, config, store, status):
         store.put('offset', update['update_id'] + 1)
 
 
-def run(config, once=False):
-    if once:
-        # The server owns delivery when enabled. This scheduled request keeps the
-        # site reachable without a browser and never starts a second Telegram poller.
+def check_server(opener=None, sleep=time.sleep, monotonic=time.monotonic, max_wait=240):
+    """Wait for a free Render cold start and a fresh completed calculation.
+
+    Only 404 permits the legacy browser fallback. Never launch a second
+    Telegram poller on a timeout or a temporarily stale server response.
+    """
+    opener = opener or urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    deadline = monotonic() + max_wait
+    while True:
         try:
-            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-            with opener.open(SITE + 'api/signals/status', timeout=15) as response:
+            with opener.open(SITE + 'api/signals/status', timeout=min(45, max(1, deadline-monotonic()))) as response:
                 status = json.load(response)
-            if status.get('mode') == 'server' and status.get('enabled') is True:
-                if status.get('error'):
-                    raise RuntimeError('Server detector reports an error')
+            if status.get('mode') != 'server':
+                raise ValueError('Unexpected detector status')
+            if not status.get('enabled'):
+                raise ValueError('Server Telegram delivery is disabled')
+            if status.get('detector_fresh') and not status.get('error'):
                 print('Server detector enabled. Last check:', status.get('checked_at_utc'))
-                return
+                diagnostics = status.get('diagnostics', {})
+                if diagnostics.get('automaticPriorityEnabled') is False:
+                    print('Confirmed priority signals are disabled by model validation; see site diagnostics.')
+                return True
         except urllib.error.HTTPError as exc:
-            if exc.code != 404:
+            if exc.code == 404:
+                return False
+            if exc.code not in (408, 429, 500, 502, 503, 504):
                 raise RuntimeError('Cannot check server detector') from None
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError):
+            pass  # Render can return a loading page before the JSON API is ready.
+        if monotonic() >= deadline:
+            raise RuntimeError('Server detector did not become healthy within cold-start grace period')
+        sleep(min(10, max(0, deadline-monotonic())))
+
+
+def run(config, once=False):
+    if once and check_server():
+        return
     from playwright.sync_api import sync_playwright
     tg = Telegram(config['token'])
     DATA.mkdir(parents=True, exist_ok=True)
