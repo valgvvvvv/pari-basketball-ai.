@@ -32,7 +32,8 @@ function serverPriorityCards(data){
    evaluations.push({event_id:String(ev.id),snapshot_id:ev.snapshot_id||data.checked_at_utc+':'+String(ev.id),
     captured_at_utc:data.checked_at_utc,decision,source_event_snapshot:ev,
     prediction:{center:forecast?.projection,interval80:[forecast?.poisson?.low80??forecast?.low80,forecast?.poisson?.high80??forecast?.high80],
-     current:forecast?.current,score:findLiveScore(ev),clock:findLiveClock(ev),period:findLivePeriod(ev),
+     current:forecast?.current,scenarioRange:forecast?.scenarioRange,
+     score:findLiveScore(ev),clock:findLiveClock(ev),period:findLivePeriod(ev),
      periodLengthSeconds:inferPeriodLengthForForecast(ev)?.seconds,
      periodCount:inferPeriodLengthForForecast(ev)?.periods}});
   }

@@ -63,10 +63,10 @@ def message_for(card):
     signal = card['signal']
     target = 'Матч · основное время' if signal['target'] == 'match' else 'Четверть Q' + str(signal['period'])
     label = target + ' · ' + signal['direction'] + ' ' + format(signal['line'], 'g')
-    probability = signal['robustness']['probabilityMin'] * 100
     return ('🔔 Сигнал · экспериментальный прогноз\n' + card['teams'] + '\n' + label +
-            '\nМинимальная оценка вариантов модели: ' + format(probability, '.1f') + '%.' +
+            '\nНаправление сохраняется в сценариях риска. Это не проверенная вероятность выигрыша.' +
             '\n' + card.get('context', '') +
+            '\nОдна рекомендация на этот матч и период; изменение линии не является новым входом.' +
             '\n\nПредварительное направление. Вероятность и преимущество не подтверждены независимой проверкой.' +
             '\nhttps://pari-basketball-ai.onrender.com/')
 
@@ -90,8 +90,14 @@ def put(db, key, value):
 
 def key_for(card):
     s = card['signal']
-    identity = [card['event'], s['target'], s['period'] if s['target'] == 'quarter' else 0, s['line'], s['direction']]
+    # A different price/line or a direction flip is still the same risk exposure.
+    identity = ['one-decision-v2', card['event'], s['target'], s['period'] if s['target'] == 'quarter' else 0]
     return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+
+
+def audit_delivery(card, state, message_id=None):
+    import forecast_journal
+    forecast_journal.record_notification(card['forecast_id'], state, message_id)
 
 
 async def telegram(method, **payload):
@@ -138,10 +144,19 @@ async def deliver(cards):
                 key = key_for(card)
                 if card['expires'] <= time.time()*1000 or db.execute('SELECT 1 FROM sent WHERE key=?', (key,)).fetchone():
                     continue
-                await say(message_for(card))
+                if not card.get('forecast_id'):
+                    STATUS['error'] = 'notification_missing_saved_forecast'
+                    continue
+                audit_delivery(card, 'attempt')
+                try:
+                    result = await say(message_for(card))
+                except Exception:
+                    audit_delivery(card, 'failed')
+                    raise
                 db.execute('INSERT OR IGNORE INTO sent VALUES (?,?)', (key, time.time()))
                 db.commit()
                 STATUS['sent'] += 1
+                audit_delivery(card, 'sent', result.get('message_id') if isinstance(result, dict) else None)
         finally:
             db.close()
 
@@ -154,8 +169,15 @@ async def process(data, history):
         event['recent_snapshots'] = history.get(str(event.get('id')), [])
     result = await asyncio.to_thread(server_detector.calculate, snapshot)
     import forecast_journal
-    await asyncio.to_thread(forecast_journal.record, result['evaluations'], result['model_source_sha256'])
+    identities = await asyncio.to_thread(forecast_journal.record, result['evaluations'], result['model_source_sha256'])
     cards = result['cards']
+    saved = {}
+    for row, identity in zip(result['evaluations'], identities):
+        decision = row['decision']
+        saved[(str(row['event_id']), decision['target'], decision['period'], decision['line'])] = identity
+    for card in cards + result.get('researchCandidates', []):
+        s = card['signal']
+        card['forecast_id'] = saved.get((str(card['event']), s['target'], s['period'], s['line']))
     data['priority_signals'] = cards
     data['research_candidates'] = result.get('researchCandidates', [])
     data['signal_diagnostics'] = result.get('diagnostics', {})

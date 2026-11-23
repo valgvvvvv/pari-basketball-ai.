@@ -26,7 +26,8 @@ def connect():
     db.execute('CREATE UNIQUE INDEX IF NOT EXISTS one_outcome_per_forecast ON outcomes(forecast_id)')
     db.execute('CREATE TABLE IF NOT EXISTS snapshots (id TEXT PRIMARY KEY, payload_z BLOB NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS labels (forecast_id TEXT PRIMARY KEY, actual INTEGER NOT NULL, payload TEXT NOT NULL)')
-    for table in ('forecasts', 'outcomes', 'snapshots', 'labels'):
+    db.execute('CREATE TABLE IF NOT EXISTS notifications (id TEXT PRIMARY KEY, forecast_id TEXT NOT NULL, state TEXT NOT NULL, payload TEXT NOT NULL)')
+    for table in ('forecasts', 'outcomes', 'snapshots', 'labels', 'notifications'):
         for operation in ('UPDATE', 'DELETE'):
             db.execute(f"CREATE TRIGGER IF NOT EXISTS no_{operation.lower()}_{table} BEFORE {operation} ON {table} BEGIN SELECT RAISE(ABORT, 'immutable research record'); END")
     db.commit()
@@ -44,6 +45,7 @@ def digest(value):
 def record(evaluations, source_hash):
     """Keep every evaluated line, including shadow; never only the displayed top three."""
     db = connect()
+    identities = []
     try:
         for row in evaluations:
             payload = {**row, 'model_source_sha256': source_hash, 'journal_schema': 1}
@@ -52,25 +54,48 @@ def record(evaluations, source_hash):
             db.execute('INSERT OR IGNORE INTO snapshots VALUES (?,?)', (raw_hash, zlib.compress(packed(raw).encode(), 6)))
             payload['source_snapshot_sha256'] = raw_hash
             identity = digest(payload)
+            identities.append(identity)
             db.execute('INSERT OR IGNORE INTO forecasts VALUES (?,?,?,?)',
                        (identity, str(row['event_id']), row['captured_at_utc'], packed(payload)))
         db.commit()
+        return identities
     finally:
         db.close()
 
 
-def export_rows():
+def export_rows(deliveries_only=False):
     db = connect()
     try:
         rows = []
-        for identity, payload, outcome, label in db.execute(
-            'SELECT f.id,f.payload,o.payload,l.payload FROM forecasts f LEFT JOIN outcomes o ON o.forecast_id=f.id LEFT JOIN labels l ON l.forecast_id=f.id ORDER BY f.captured_at,f.id'):
+        query = 'SELECT f.id,f.payload,o.payload,l.payload FROM forecasts f LEFT JOIN outcomes o ON o.forecast_id=f.id LEFT JOIN labels l ON l.forecast_id=f.id'
+        if deliveries_only:
+            query += ' WHERE EXISTS (SELECT 1 FROM notifications n WHERE n.forecast_id=f.id)'
+        for identity, payload, outcome, label in db.execute(query+' ORDER BY f.captured_at,f.id'):
             row = dict(id=identity, **json.loads(payload), outcome=json.loads(outcome) if outcome else None)
             row['confirmed_regulation_final'] = json.loads(label) if label else None
             raw = db.execute('SELECT payload_z FROM snapshots WHERE id=?', (row['source_snapshot_sha256'],)).fetchone()
             row['source_event_snapshot'] = json.loads(zlib.decompress(raw[0])) if raw else None
+            row['notifications'] = [json.loads(r[0]) for r in db.execute('SELECT payload FROM notifications WHERE forecast_id=? ORDER BY rowid', (identity,))]
             rows.append(row)
         return rows
+    finally:
+        db.close()
+
+
+def record_notification(forecast_id, state, delivery_reference=None):
+    """Append delivery evidence to an exact immutable decision, never a current line."""
+    if state not in ('attempt', 'sent', 'failed'):
+        raise ValueError('Unknown delivery state')
+    db = connect()
+    try:
+        if not db.execute('SELECT 1 FROM forecasts WHERE id=?', (forecast_id,)).fetchone():
+            raise ValueError('Notification requires a saved forecast')
+        payload = {'forecast_id': forecast_id, 'state': state,
+                   'at_utc': datetime.now(timezone.utc).isoformat(),
+                   'telegram_message_id': delivery_reference}
+        db.execute('INSERT INTO notifications VALUES (?,?,?,?)',
+                   (digest(payload), forecast_id, state, packed(payload)))
+        db.commit()
     finally:
         db.close()
 

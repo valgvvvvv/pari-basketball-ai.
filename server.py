@@ -5098,8 +5098,8 @@ def research_status():
     return forecast_journal.status()
 
 @app.get('/api/research/export')
-def research_export():
-    rows = forecast_journal.export_rows()
+def research_export(deliveries_only: bool = False):
+    rows = forecast_journal.export_rows(deliveries_only=deliveries_only)
     return Response('\n'.join(json.dumps(row, ensure_ascii=False) for row in rows),
                     media_type='application/x-ndjson',
                     headers={'Content-Disposition': 'attachment; filename="forecast-research.jsonl"'})
