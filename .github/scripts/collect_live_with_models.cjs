@@ -228,6 +228,16 @@ const { chromium } = require("playwright");
       }
     }
     result.prediction_contract_count = result.forecasts.reduce((sum, row) => sum + (row.prediction_contracts || []).length, 0);
+    // Preserve actual notification decisions between Render restarts, not just
+    // model recalculations at the collector's five-minute checkpoints.
+    result.delivery_journal = await page.evaluate(async () => {
+      try {
+        const response = await fetch('/api/research/export?deliveries_only=true', {cache:'no-store'});
+        if(!response.ok)throw new Error('HTTP '+response.status);
+        const text=await response.text();
+        return {status:'available',records:text.trim()?text.trim().split('\n').map(JSON.parse):[]};
+      } catch(error){return {status:'unavailable',reason:'Delivery journal capture failed',records:[]};}
+    });
     for (const row of result.forecasts) {
       if ((row.prediction_contracts || []).some(contract => contract.snapshot_id !== row.snapshot_id)) {
         throw new Error("Forecast contracts from one event update do not share the source snapshot_id");
