@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -51,6 +51,23 @@ class SharedRefreshTests(unittest.IsolatedAsyncioTestCase):
         await server.pari_live_events()
         self.fetch.assert_awaited_once()
         self.assertIn('cycle_seconds', server.server_signals.STATUS['refresh_timing'])
+
+    async def test_slow_cycle_does_not_make_completed_cache_immediately_expired(self):
+        start=datetime.now(timezone.utc)
+        clock={'now':start}
+        original_process=self.process.side_effect
+        source_timestamp=self.fetch.return_value['checked_at_utc']
+        async def slow_process(data,history):
+            await original_process(data,history)
+            clock['now']=start+timedelta(seconds=35)
+        self.process.side_effect=slow_process
+        with patch.object(server,'datetime',wraps=datetime) as dates:
+            dates.now.side_effect=lambda *args:clock['now']
+            first=await server.pari_live_events()
+            second=await server.pari_live_events()
+        self.assertIs(first,second)
+        self.fetch.assert_awaited_once()
+        self.assertEqual(second['checked_at_utc'],source_timestamp)
 
     async def test_failed_feed_is_never_treated_as_an_evaluated_snapshot(self):
         self.fetch.return_value = {'ok': False, 'connected': False, 'events': []}
