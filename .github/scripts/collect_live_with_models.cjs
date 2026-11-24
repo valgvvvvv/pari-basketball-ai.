@@ -85,11 +85,15 @@ const { chromium } = require("playwright");
         const parts = /^(\d{1,2}):([0-5]\d)$/.exec(String(timer || ""));
         const remaining = parts ? Number(parts[1]) * 60 + Number(parts[2]) : null;
         const elapsed = remaining !== null && length > 0 ? length - remaining : null;
+        const isHalf = isTwentyMinuteHalves(ev);
         row.search_windows = {
           quarter_elapsed_seconds: elapsed,
-          quarter_4_to_8_minutes: elapsed !== null && elapsed >= 240 && elapsed <= 480 &&
+          quarter_4_to_8_minutes: !isHalf && elapsed !== null && elapsed >= 240 && elapsed <= 480 &&
             ev.timer_semantics_verified === true && ev.clock_integrity?.valid !== false,
-          match_q3_q4: [3, 4].includes(Number(ev.period)),
+          half_8_to_16_minutes: isHalf && elapsed !== null && elapsed >= 480 && elapsed <= 960 &&
+            ev.timer_semantics_verified === true && ev.clock_integrity?.valid !== false,
+          match_q3_q4: !isHalf && [3, 4].includes(Number(ev.period)),
+          match_second_half_last_8_minutes: isHalf && Number(ev.period) === 2 && elapsed >= 720,
           note: "Time-window filters only; not a quality gate, recommendation or verified edge"
         };
         try {
@@ -98,6 +102,7 @@ const { chromium } = require("playwright");
           row.lines = getMatchTotalLines(ev) || [];
           row.match = match;
           row.quarter = quarter;
+          if (isHalf) { row.half = quarter; row.quarter = null; }
           row.signal_evaluations = signalEvaluations(ev, match, quarter);
           row.model_versions.quality_gate = window.PARIForecastCore.MODEL_VERSION;
           row.ai = aiModelAnalysis(ev, match, quarter);
@@ -183,7 +188,7 @@ const { chromium } = require("playwright");
           row.prediction_contracts = [];
           const matchContract = makeContract({ type: "match", includes_overtime: null }, match, matchEstimate, row.lines);
           if (matchContract) row.prediction_contracts.push(matchContract);
-          const quarterContract = makeContract({ type: "period", number: quarter.period || findLivePeriod(ev) }, quarter, quarter, quarter.lines);
+          const quarterContract = makeContract({ type: "period", period_kind: isHalf ? "half" : "quarter", number: quarter.period || findLivePeriod(ev) }, quarter, quarter, quarter.lines);
           if (quarterContract) row.prediction_contracts.push(quarterContract);
         } catch (error) {
           row.errors.push(String(error && (error.stack || error.message) || error).slice(0, 1200));
