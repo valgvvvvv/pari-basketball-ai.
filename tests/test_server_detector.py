@@ -84,6 +84,7 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.path.start()
         self.lock = patch.object(server_signals, 'LOCK', asyncio.Lock())
         self.lock.start()
+        server_signals.RETRY_AT.clear()
         self.send = patch.object(server_signals, 'say', new_callable=AsyncMock)
         self.say = self.send.start()
         self.audit = patch.object(server_signals, 'audit_delivery'); self.audit.start()
@@ -94,23 +95,23 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         self.audit.stop(); self.send.stop(); self.lock.stop(); self.path.stop(); self.env.stop(); self.folder.cleanup()
 
-    async def test_baseline_new_line_is_ignored_and_new_event_is_sent_once(self):
+    async def test_first_snapshot_and_new_lines_are_sent_once(self):
         await server_signals.deliver([self.card])
-        self.say.assert_not_awaited()
+        self.assertEqual(self.say.await_count, 1)
         new = dict(self.card, signal=dict(self.card['signal'], line=191.5))
         await server_signals.deliver([new])
         await server_signals.deliver([new])
-        self.say.assert_not_awaited()
+        self.assertEqual(self.say.await_count, 2)
         new = dict(new, event='another-game')
         await server_signals.deliver([new])
         await server_signals.deliver([new])
-        self.assertEqual(self.say.await_count, 1)
+        self.assertEqual(self.say.await_count, 3)
 
     async def test_failed_send_retries_and_expired_card_is_skipped(self):
         await server_signals.deliver([])
         self.say.side_effect = RuntimeError('offline')
-        with self.assertRaises(RuntimeError):
-            await server_signals.deliver([self.card])
+        await server_signals.deliver([self.card])
+        server_signals.RETRY_AT.clear()
         self.say.side_effect = None
         await server_signals.deliver([self.card])
         stale = dict(self.card, signal=dict(self.card['signal'], line=192.5), expires=1)

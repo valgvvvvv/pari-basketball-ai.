@@ -4865,18 +4865,47 @@ async def pari_live_events(catalog_only: bool = False):
     if catalog_only:
         return await _fetch_pari_live_events(catalog_only=True)
 
-    now = datetime.now(timezone.utc).timestamp()
-    cached = globals().get("_PARI_LIVE_CACHE")
-    if cached and now - cached.get("saved_at", 0) <= 35:
-        return cached["data"]
+    return await _refresh_live_snapshot()
 
-    data = await _fetch_pari_live_events(catalog_only=False)
-    if data.get("ok") and data.get("connected"):
-        globals()["_PARI_LIVE_CACHE"] = {
-            "saved_at": datetime.now(timezone.utc).timestamp(),
-            "data": data,
-        }
-    return data
+
+_LIVE_REFRESH_LOCK = asyncio.Lock()
+
+
+async def _refresh_live_snapshot():
+    """The homepage and collector share one fetch, archive and signal calculation."""
+    async with _LIVE_REFRESH_LOCK:
+        cached = globals().get("_PARI_LIVE_CACHE")
+        now = datetime.now(timezone.utc).timestamp()
+        if (cached and now-cached.get("saved_at", 0) < server_signals.INTERVAL_SECONDS
+                and "signal_diagnostics" in cached["data"]):
+            return cached["data"]
+        started = asyncio.get_running_loop().time()
+        data = await _fetch_pari_live_events(catalog_only=False)
+        fetched = asyncio.get_running_loop().time()
+        if data.get("ok") and data.get("connected"):
+            async with _ARCHIVE_LOCK:
+                count, saved = await asyncio.to_thread(_archive_save_events, data)
+            try:
+                ids = ','.join(str(e.get('id')) for e in data.get('events', []))
+                history = await asyncio.to_thread(archive_recent, 10, ids)
+                await server_signals.process(data, history['events'])
+            except Exception as exc:
+                server_signals.STATUS['error'] = type(exc).__name__
+                emit_diagnostic('SIGNAL_DETECTOR_ERROR', {'error': type(exc).__name__}, level='error')
+            finished = asyncio.get_running_loop().time()
+            timing = {'source_seconds': round(fetched-started, 3),
+                      'processing_seconds': round(finished-fetched, 3),
+                      'cycle_seconds': round(finished-started, 3)}
+            server_signals.STATUS['refresh_timing'] = timing
+            _ARCHIVE_LAST.update({'checked_at': datetime.now(timezone.utc).isoformat(),
+                                  'events': count, 'saved': saved, 'error': None, **timing})
+            emit_diagnostic('MATCH_ARCHIVE_COLLECTOR', _ARCHIVE_LAST)
+            # Publish only after the same snapshot has been evaluated for delivery.
+            globals()["_PARI_LIVE_CACHE"] = {"saved_at": now, "data": data}
+        else:
+            _ARCHIVE_LAST.update({'checked_at': datetime.now(timezone.utc).isoformat(),
+                                  'events': 0, 'saved': 0, 'error': 'PARI feed unavailable'})
+        return data
 
 
 async def _pari_startup_stats_discovery():
@@ -5100,29 +5129,12 @@ async def _archive_collector_loop():
     while True:
         cycle_started = asyncio.get_running_loop().time()
         try:
-            data = await _fetch_pari_live_events(catalog_only=False)
-            if data.get("ok") and data.get("connected"):
-                async with _ARCHIVE_LOCK:
-                    count, saved = await asyncio.to_thread(_archive_save_events, data)
-                _ARCHIVE_LAST.update({"checked_at":datetime.now(timezone.utc).isoformat(),
-                                      "events":count,"saved":saved,"error":None})
-                emit_diagnostic('MATCH_ARCHIVE_COLLECTOR', _ARCHIVE_LAST)
-                globals()["_PARI_LIVE_CACHE"] = {"saved_at": datetime.now(timezone.utc).timestamp(), "data": data}
-                try:
-                    ids = ','.join(str(e.get('id')) for e in data.get('events', []))
-                    history = await asyncio.to_thread(archive_recent, 10, ids)
-                    await server_signals.process(data, history['events'])
-                except Exception as signal_error:
-                    server_signals.STATUS['error'] = type(signal_error).__name__
-                    emit_diagnostic('SIGNAL_DETECTOR_ERROR', {'error': type(signal_error).__name__}, level='error')
-            else:
-                _ARCHIVE_LAST.update({"checked_at":datetime.now(timezone.utc).isoformat(),
-                                      "events":0,"saved":0,"error":"PARI feed unavailable"})
+            await _refresh_live_snapshot()
         except Exception as exc:
             _ARCHIVE_LAST.update({"checked_at":datetime.now(timezone.utc).isoformat(),
                                   "error":type(exc).__name__ + ": " + str(exc)[:180]})
             emit_diagnostic("MATCH_ARCHIVE_ERROR", {"error": str(exc)[:240]}, level="error")
-        await asyncio.sleep(max(1, 30 - (asyncio.get_running_loop().time() - cycle_started)))
+        await asyncio.sleep(max(1, server_signals.INTERVAL_SECONDS - (asyncio.get_running_loop().time() - cycle_started)))
 
 @app.get('/api/signals/status')
 def signal_status():
@@ -5142,6 +5154,7 @@ def research_export(deliveries_only: bool = False):
 @app.on_event('startup')
 async def _start_signal_commands():
     asyncio.create_task(server_signals.commands_loop())
+    asyncio.create_task(server_signals.delivery_loop())
 
 @app.get("/api/archive/status")
 def archive_status():
@@ -5154,7 +5167,7 @@ def archive_status():
         conn.close()
     return {"ok":True,"matches":matches,"snapshots":snapshots,"database_bytes":size,
             "storage_path":str(_ARCHIVE_DB),"persistent":str(_ARCHIVE_DB).startswith("/var/data/"),
-            "collector":dict(_ARCHIVE_LAST),"interval_seconds":30,
+            "collector":dict(_ARCHIVE_LAST),"interval_seconds":server_signals.INTERVAL_SECONDS,
             "scope":"Render-local SQLite is a temporary cache while the web process is awake. GitHub Actions is the durable archive path: immutable source/forecast snapshots every five minutes, consolidated into timestamped daily ZIP assets in GitHub Releases.",
             "render_local_storage_note":"Render Free has no persistent disk attached; /tmp SQLite may be lost on restart or redeploy and is not a durable database.",
             "github_archive":{"interval_seconds":300,"format":"timestamped daily ZIP release assets","append_only":True,"contains_prediction_contracts":True,"final_outcomes":"unresolved unless an independent final result is confirmed"},

@@ -34,6 +34,8 @@ class ExperimentalNotifications(unittest.IsolatedAsyncioTestCase):
         self.state=patch.object(signals,"STATE_PATH",self.path); self.state.start()
         self.audit=patch.object(signals,"audit_delivery"); self.audit_mock=self.audit.start()
         signals.LOCK=asyncio.Lock()
+        signals.COMMAND_LOCK=asyncio.Lock()
+        signals.PENDING.clear(); signals.RETRY_AT.clear(); signals.WAKE=asyncio.Event()
         signals.STATUS.update(cards=[],error=None,sent=0)
 
     async def asyncTearDown(self):
@@ -51,12 +53,17 @@ class ExperimentalNotifications(unittest.IsolatedAsyncioTestCase):
         self.assertIn("не проверенная вероятность",text)
         self.assertIn("не подтверждены",text)
 
-    def test_invalid_or_mismatched_market_is_not_sent(self):
-        for reason in ["data","quote","rules","overtime","suspended","preliminary","window"]:
+    def test_stale_or_invalid_data_is_blocked_but_site_watchlist_is_mirrored(self):
+        for reason in ["data","suspended","preliminary","window"]:
             row=card(); row["signal"]["reasonCodes"].append(reason)
             self.assertEqual(signals.experimental_cards({"researchCandidates":[row]}),[],reason)
-        row=card(); row["signal"]["marketReady"]=False
-        self.assertEqual(signals.experimental_cards({"researchCandidates":[row]}),[])
+        for reason in ["rules","prices","quote","overtime"]:
+            row=card(); row["signal"]["marketReady"]=False
+            row["signal"]["reasonCodes"].append(reason)
+            selected=signals.experimental_cards({"researchCandidates":[row]})
+            self.assertEqual(len(selected),1)
+            self.assertIn("Только ориентир", signals.message_for(selected[0]))
+        self.assertEqual(len(signals.experimental_cards({"researchCandidates":[card(str(i)) for i in range(5)]})),5)
 
     def test_unstable_or_low_probability_is_not_selected(self):
         for value in [.64,float("nan"),True,None]:
@@ -70,7 +77,8 @@ class ExperimentalNotifications(unittest.IsolatedAsyncioTestCase):
         row=signals.experimental_cards({"researchCandidates":[card()]})[0]
         send=AsyncMock(side_effect=[RuntimeError("temporary"),None])
         with patch.object(signals,"say",send):
-            with self.assertRaises(RuntimeError): await signals.deliver([row])
+            await signals.deliver([row])
+            signals.RETRY_AT.clear()
             await signals.deliver([row]); await signals.deliver([row])
         self.assertEqual(send.await_count,2)
         self.assertEqual(signals.STATUS["sent"],1)
@@ -94,11 +102,13 @@ class ExperimentalNotifications(unittest.IsolatedAsyncioTestCase):
             await signals.process(data,{})
         self.assertEqual(data["priority_signals"],[])
         self.assertEqual(len(data["research_candidates"]),1)
-        self.assertTrue(deliver.await_args.args[0][0]["experimental"])
-        self.assertEqual(deliver.await_args.args[0][0]["forecast_id"],"immutable-id")
+        deliver.assert_not_awaited()
+        queued=list(signals.PENDING.values())
+        self.assertTrue(queued[0]["experimental"])
+        self.assertEqual(queued[0]["forecast_id"],"immutable-id")
         self.assertEqual(signals.public_status()["notification_mode"],"experimental")
 
-    async def test_new_lines_and_direction_flips_are_not_new_entries(self):
+    async def test_new_lines_are_labeled_updates_and_exact_duplicates_are_suppressed(self):
         await signals.deliver([])
         row=signals.experimental_cards({"researchCandidates":[card()]})[0]
         with patch.object(signals,"say",AsyncMock(return_value={"message_id":42})) as send:
@@ -107,8 +117,59 @@ class ExperimentalNotifications(unittest.IsolatedAsyncioTestCase):
             await signals.deliver([changed])
             next_period=deepcopy(row);next_period['signal']['period']=4
             await signals.deliver([next_period])
-        self.assertEqual(send.await_count,2)
+        self.assertEqual(send.await_count,3)
+        self.assertIn("Обновление",send.await_args_list[1].args[0])
+        self.assertIn("не новый вход",send.await_args_list[1].args[0])
         self.assertEqual(self.audit_mock.call_args.args[1:],("sent",42))
+
+    async def test_first_snapshot_delivers_both_cards_and_records_only_successes(self):
+        rows=signals.experimental_cards({"researchCandidates":[card("one"),card("two")]})
+        send=AsyncMock(side_effect=[RuntimeError("offline"),{"message_id":7}])
+        with patch.object(signals,"say",send):
+            await signals.deliver(rows)
+        self.assertEqual(send.await_count,2)
+        self.assertEqual(signals.STATUS["sent"],1)
+        db=signals.connection()
+        try:
+            self.assertIsNone(db.execute('SELECT 1 FROM sent WHERE key=?',(signals.key_for(rows[0]),)).fetchone())
+            self.assertIsNotNone(db.execute('SELECT 1 FROM sent WHERE key=?',(signals.key_for(rows[1]),)).fetchone())
+        finally: db.close()
+        signals.RETRY_AT.clear()
+        with patch.object(signals,"say",AsyncMock(return_value={"message_id":8})) as retry:
+            await signals.deliver(rows)
+        self.assertEqual(retry.await_count,1)
+        self.assertEqual(signals.STATUS["sent"],2)
+
+    async def test_commands_do_not_wait_for_slow_signal_delivery(self):
+        entered=asyncio.Event(); release=asyncio.Event()
+        async def slow_send(_):
+            entered.set(); await release.wait(); return {"message_id":1}
+        with patch.object(signals,"say",slow_send), patch.object(signals,"telegram",AsyncMock(return_value=[])):
+            task=asyncio.create_task(signals.deliver(signals.experimental_cards({"researchCandidates":[card()]})))
+            await asyncio.wait_for(entered.wait(),1)
+            await asyncio.wait_for(signals.commands_once(),1)
+            release.set(); await task
+
+    async def test_delivery_worker_retries_without_waiting_for_another_feed_cycle(self):
+        row=signals.experimental_cards({"researchCandidates":[card()]})[0]
+        signals.PENDING[signals.key_for(row)]=row
+        signals.WAKE.set()
+        recovered=asyncio.Event()
+        calls=0
+        async def send(_):
+            nonlocal calls
+            calls+=1
+            if calls==1: raise RuntimeError("temporary")
+            recovered.set(); return {"message_id":9}
+        with patch.object(signals,"say",send):
+            task=asyncio.create_task(signals.delivery_loop())
+            try: await asyncio.wait_for(recovered.wait(),5)
+            finally:
+                task.cancel()
+                try: await task
+                except asyncio.CancelledError: pass
+        self.assertEqual(calls,2)
+        self.assertEqual(signals.STATUS["sent"],1)
 
     async def test_missing_immutable_forecast_blocks_delivery(self):
         await signals.deliver([])
