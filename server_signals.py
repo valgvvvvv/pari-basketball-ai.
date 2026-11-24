@@ -67,7 +67,8 @@ def message_for(card):
         return ('🔔 Сигнал\n' + card['teams'] + '\n' + card['label'] + '\n' + card['context'] +
                 '\n\nДетектор сервера · оценка модели не калибрована.\nhttps://pari-basketball-ai.onrender.com/')
     signal = card['signal']
-    target = 'Матч · основное время' if signal['target'] == 'match' else 'Четверть Q' + str(signal['period'])
+    target = ('Матч · основное время' if signal['target'] == 'match' else
+              'Тайм ' + str(signal['period']) if signal['target'] == 'half' else 'Четверть Q' + str(signal['period']))
     label = target + ' · ' + signal['direction'] + ' ' + format(signal['line'], 'g')
     market_note = ('\nРынок совместим; преимущество не проверено.' if signal.get('marketReady') else
                    '\nТолько ориентир для наблюдения: правила или цены рынка не подтверждены.')
@@ -103,13 +104,13 @@ def put(db, key, value):
 def key_for(card):
     s = card['signal']
     identity = ['notification-v3', str(card['event']), s['target'],
-                s['period'] if s['target'] == 'quarter' else 0, float(s['line']), s['direction']]
+                s['period'] if s['target'] in ('quarter', 'half') else 0, float(s['line']), s['direction']]
     return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
 
 
 def exposure_key(card):
     s = card['signal']
-    return json.dumps([str(card['event']), s['target'], s['period'] if s['target'] == 'quarter' else 0])
+    return json.dumps([str(card['event']), s['target'], s['period'] if s['target'] in ('quarter', 'half') else 0])
 
 
 def audit_delivery(card, state, message_id=None):

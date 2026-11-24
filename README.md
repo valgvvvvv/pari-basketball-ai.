@@ -209,3 +209,23 @@ JSON финала использует контракт `result_validation.py`: 
 - Refresh the collector every 10 seconds while Render is awake. A separate sender retries failed cards every 3 seconds without blocking collection or bot commands. One failed card does not suppress its peers; disappeared or expired candidates are not retried.
 - With the explicit experimental opt-in, mirror all eligible research candidates from the website. Market compatibility is stated in each message; regulation forecasts for overtime markets are observation-only and must not be applied to that market. Confirmed-priority and model-validation gates remain unchanged.
 - The status API exposes delivery decisions per event/target/period/line and the last send time, so already-sent, failed/retrying, and expired notifications can be distinguished. Ephemeral free hosting still cannot guarantee durable exactly-once delivery or continuous uptime.
+# Расчёты таймов 2×20 минут
+
+Подтверждённый формат двух таймов по 20 минут обрабатывается отдельно от четырёх четвертей.
+Карточка показывает текущий тайм, его собственный счёт, оставшееся время, прогноз итогового
+тотала тайма и диапазоны. Во втором тайме модель Gamma–Poisson использует очки первого
+тайма за 20 минут и текущего тайма за фактически сыгранное время; очки первого тайма
+не прибавляются к цели второго. При отсутствии линии числовой прогноз сохраняется.
+
+Рынки половин проверены по публичному каталогу PARI: `100301` / `100302`, таблица `2673`.
+Они имеют отдельный `target=half`, обе цены и привязку к конкретному тайму. Каталог не
+подтверждает учёт ОТ во втором тайме: такие цены отображаются, но `rulesConfirmed=false`,
+`includesOvertime=null`, сравнение доходности и допуск ставки блокируются до подтверждения правил.
+Прогноз самого тайма относится к 20 минутам основного времени.
+
+Исследовательское окно тайма — 8–16 сыгранных минут; полного матча 2×20 — второй тайм
+после 12 сыгранных минут (последние 8 минут основного времени). Это правила отбора,
+не подтверждение точности. Калибровка и независимая проверка остаются обязательными.
+Архив, ключи уведомлений и независимый отчёт различают первый/второй тайм и четверти.
+Регрессионный пример NCAA: Аризона — Колорадо Стэйт, общий счёт 64:49, второй тайм
+14:15, прошло 28:09 матча, осталось 11:51 тайма; расчёт тайма ≈76,8 очка.

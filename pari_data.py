@@ -255,8 +255,10 @@ def markets_for(event, checked_at, blocks):
     groups = [(str(event['id']), 'match', None, event.get('factors', []))]
     for child in event.get('related_factor_groups', []):
         kind = str(child.get('kind'))
-        if kind in ['100401', '100402', '100403', '100404']:
+        if kind in ['100401', '100402', '100403', '100404'] and event.get('period_count') != 2:
             groups.append((str(child['event_id']), 'quarter', int(kind[-1]), child.get('factors', [])))
+        elif kind in ['100301', '100302'] and event.get('period_count') == 2:
+            groups.append((str(child['event_id']), 'half', int(kind[-1]), child.get('factors', [])))
     for source_id, target, period, factors in groups:
         sides = factor_sides('18319' if target == 'match' else '2673')
         by_line = {}
@@ -283,9 +285,9 @@ def markets_for(event, checked_at, blocks):
                            'overOdds': over[0], 'underOdds': under[0],
                            'overFactorId': over[1], 'underFactorId': under[1],
                            'quotedAtUtc': checked_at, 'quoteTimestampKind': 'response_received_not_provider_update',
-                           'suspended': blocked, 'rulesConfirmed': True,
+                           'suspended': blocked, 'rulesConfirmed': target != 'half' or period == 1,
                            'ruleSource': 'https://pari.ru/rules section 8.1' if target == 'match' else
-                               CATALOG['source_url']+'; '+CATALOG['quarter_titles'][str(period)],
-                           'includesOvertime': target == 'match',
+                               CATALOG['source_url']+'; '+CATALOG['half_titles' if target == 'half' else 'quarter_titles'][str(period)],
+                           'includesOvertime': None if target == 'half' and period == 2 else target == 'match',
                            'factorMappingSource': CATALOG['source_url'], 'factorMappingVersion': CATALOG['version']})
     return result

@@ -19,13 +19,13 @@ function serverPriorityCards(data){
   try {
   const match=automaticForecast(ev),quarter=automaticQuarterForecast(ev,match);
   const decisions=signalEvaluations(ev,match,quarter);
-  for(const [target,f] of [['match',match],['quarter',quarter]]){
+  for(const [target,f] of [['match',match],[isTwentyMinuteHalves(ev)?'half':'quarter',quarter]]){
    if(!f.ready||f.kind==='market_reference')modelBlockers.push({event:String(ev.id),target,reason:f.reason||'No game forecast'});
   }
   for(const decision of PARIForecastCore.selectResearchCandidates(decisions)){
    researchCandidates.push({event:String(ev.id),teams:ev.team1+' — '+ev.team2,
     signal:decision,expires:Date.parse(data.checked_at_utc)+90000,
-    context:[ev.league||'',(findLiveScore(ev)||[]).join(':'),'Q'+findLivePeriod(ev),findLiveClock(ev)].join(' · ')});
+    context:[ev.league||'',(findLiveScore(ev)||[]).join(':'),livePeriodLabel(ev),findLiveClock(ev)].join(' · ')});
   }
   for(const decision of decisions){
    const forecast=decision.target==='match'?match.estimate:quarter;
@@ -40,7 +40,7 @@ function serverPriorityCards(data){
   for(const signal of decisions.filter(x=>x.priority===true)){
    cards.push({event:String(ev.id),teams:ev.team1+' — '+ev.team2,
     label:priorityLabel(signal),signal,expires:Date.parse(data.checked_at_utc)+90000,
-    context:[ev.league||'',(findLiveScore(ev)||[]).join(':'),'Q'+findLivePeriod(ev),findLiveClock(ev)].join(' · ')});
+    context:[ev.league||'',(findLiveScore(ev)||[]).join(':'),livePeriodLabel(ev),findLiveClock(ev)].join(' · ')});
   }
   } catch(error){errors.push({event:String(ev.id),error:String(error.message||error).slice(0,160)});}
  }

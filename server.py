@@ -2456,7 +2456,7 @@ def _pari_score_pair_from_row(row):
     except (TypeError, ValueError, OverflowError):
         return None
 
-def _pari_period_score_records(source_row):
+def _pari_period_score_records(source_row, period_count=4):
     """Return period score candidates with provenance; never accept shot-stat rows."""
     if not isinstance(source_row, dict):
         return []
@@ -2478,6 +2478,8 @@ def _pari_period_score_records(source_row):
             }:
                 continue
             period = PARI_PERIOD_SCORE_KIND_IDS.get(kind_id)
+            if period_count == 2:
+                period = {"100301": 1, "100302": 2}.get(kind_id, period)
             if period is not None:
                 records.append({"period": period, "score": pair, "kind_id": kind_id,
                                 "label": label, "source": "PARI.subscores", "source_index": index})
@@ -4261,7 +4263,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                     period_score_records = []
                     period_score_unmapped = []
                     for score_source_row, source_name in ((live_info, "live_info"), (event_misc, "event_misc"), (event, "event")):
-                        candidate_records = _pari_period_score_records(score_source_row)
+                        candidate_records = _pari_period_score_records(score_source_row, period_count)
                         period_score_records.extend({**record, "source_object": source_name} for record in candidate_records)
                         period_score_unmapped.extend({**record, "source_object": source_name}
                                                       for record in _pari_period_score_unmapped_records(score_source_row))

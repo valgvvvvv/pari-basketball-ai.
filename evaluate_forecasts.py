@@ -77,7 +77,7 @@ def evaluate(rows):
         d = row['decision']
         if set(d.get('reasonCodes', [])) & {'data', 'window', 'preliminary'}:
             continue
-        key = (row['event_id'], d['target'], d['period'] if d['target'] == 'quarter' else 0)
+        key = (row['event_id'], d['target'], d['period'] if d['target'] in ('quarter', 'half') else 0)
         if key not in first or (row['captured_at_utc'] == first[key]['captured_at_utc'] and
                 abs(d['line'] - row['prediction']['center']) < abs(first[key]['decision']['line'] - first[key]['prediction']['center'])):
             first[key] = row
@@ -94,7 +94,7 @@ def evaluate(rows):
         'selected_games': len(ordered), 'selected_checkpoints': len(selected),
         'unresolved_checkpoints': len(selected) - len(labeled), 'development_game_ids': ordered[:cutoff], 'test_game_ids': ordered[cutoff:],
         'partitions': {name: {target: summarize([x for x in labeled if x['decision']['target'] == target and
-            ((x['event_id'] in development) == is_dev)]) for target in ('match', 'quarter')}
+            ((x['event_id'] in development) == is_dev)]) for target in ('match', 'quarter', 'half')}
             for name, is_dev in [('development', True), ('test', False)]},
         'promotion_allowed': False,
         'limitations': ['No calibrator trained by this report', 'Multiple targets from one game remain correlated',
