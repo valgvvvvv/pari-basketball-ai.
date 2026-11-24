@@ -23,7 +23,7 @@
   <main>
     <header class="topbar"><div><span class="eyebrow">PARI BASKETBALL AI</span><h1>Центр анализа</h1></div><div class="top-actions"><span class="avatar">AI</span></div></header>
     <section class="metrics" id="dashboard">
-      <div class="metric"><small>LIVE-ИСТОЧНИК</small><b id="liveSourceStatus" class="amber">Проверка…</b><span id="liveSourceDetail">Автоматическое обновление каждые 30 секунд</span></div>
+      <div class="metric"><small>LIVE-ИСТОЧНИК</small><b id="liveSourceStatus" class="amber">Проверка…</b><span id="liveSourceDetail">Автоматическое обновление каждые 10 секунд</span></div>
       <div class="metric"><small>РАСЧЁТНЫЕ ИНСТРУМЕНТЫ</small><b>—</b><span>Применимость и фактические результаты — в реестре матча</span></div>
       <div class="metric"><small>СИМУЛЯЦИИ</small><b>100 000</b><span>Размер вычислительной выборки, не показатель точности</span></div>
       <div class="metric"><small>ИСТОРИЯ</small><b id="historyCount">0</b><span>Локально сохранённых анализов</span></div>
@@ -79,6 +79,6 @@ window.addEventListener("unhandledrejection", function(event) {
   if (message) message.textContent = "Ошибка выполнения страницы: " + String(event.reason || "неизвестная ошибка");
 });
 </script>
-<script src="/static/forecast-core.js?v=20261124-halves-v8"></script>
-<script src="/static/app.js?v=20261124-halves-v8" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
+<script src="/static/forecast-core.js?v=20261124-refresh-10s-v9"></script>
+<script src="/static/app.js?v=20261124-refresh-10s-v9" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
 </body></html>

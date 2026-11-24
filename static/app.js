@@ -1597,7 +1597,9 @@ window.addEventListener("keydown",event=>{
   if(["ArrowUp","ArrowDown","PageUp","PageDown","Home","End"," "].includes(event.key))userScrollIntentVersion++;
 });
 let liveRefreshInFlight = false;
-let nextLiveRefreshDelay = 30000;
+const LIVE_REFRESH_INTERVAL_MS = 10000;
+let nextLiveRefreshDelay = LIVE_REFRESH_INTERVAL_MS;
+let liveRefreshTimer = null;
 function quarterForecastMarkup(quarterForecast, ev) {
   if (!quarterForecast?.ready) {
     return '<span class="live-match-meta forecast-pending">Прогноз '+(isTwentyMinuteHalves(ev)?'тайма':'четверти')+': '+escapeHtml(quarterForecast?.reason||"расчёт недоступен")+'</span>';
@@ -1636,8 +1638,11 @@ function liveMatchRenderFallback(ev) {
   return '<button type="button" class="live-match" data-event-id="' + safe(ev?.id) + '"><span class="live-match-title">' + title + '</span><span class="live-match-meta">' + details + '</span><span class="live-match-meta forecast-pending">Прогноз недоступен: ошибка одного из расчётных блоков. Подробности — в диагностике.</span></button>';
 }
 async function refreshLiveMatches() {
-  nextLiveRefreshDelay = 30000;
   if (liveRefreshInFlight) return;
+  clearTimeout(liveRefreshTimer);
+  liveRefreshTimer = null;
+  nextLiveRefreshDelay = LIVE_REFRESH_INTERVAL_MS;
+  const refreshStartedAt = Date.now();
   liveRefreshInFlight = true;
   const refreshScrollY = window.scrollY;
   const scrollIntentAtStart = userScrollIntentVersion;
@@ -1663,7 +1668,7 @@ async function refreshLiveMatches() {
       throw new Error(data.error || "Источник PARI недоступен");
     }
     if (data.loading) {
-      nextLiveRefreshDelay = 4000;
+      nextLiveRefreshDelay = 5000;
       if (liveBadge) { liveBadge.textContent = "Загружаем матчи PARI…"; liveBadge.className = "pill warn"; }
       if (liveMessage) liveMessage.textContent = "Сервер получает свежий список матчей PARI и проверяет дополнительный LIVE-счёт.";
       if ($("liveSourceStatus")) { $("liveSourceStatus").textContent = "Загрузка…"; $("liveSourceStatus").className = "amber"; }
@@ -1698,7 +1703,7 @@ async function refreshLiveMatches() {
     const sourceStatus = $("liveSourceStatus");
     const sourceDetail = $("liveSourceDetail");
     if (sourceStatus) { sourceStatus.textContent = "Подключён"; sourceStatus.className = "success"; }
-    if (sourceDetail) sourceDetail.textContent = "PARI API отвечает · автообновление каждые 30 секунд";
+    if (sourceDetail) sourceDetail.textContent = "PARI API отвечает · автообновление каждые 10 секунд";
     if (liveBadge) {
       liveBadge.textContent = count ? "LIVE-источник отвечает" : "API отвечает, матчей не найдено";
       liveBadge.className = "pill " + (count ? "success" : "warn");
@@ -1889,8 +1894,10 @@ async function refreshLiveMatches() {
   } finally {
     liveRefreshInFlight = false;
     if (button) button.disabled = false;
-    // Schedule the next poll only after this request has finished; never stack requests.
-    setTimeout(refreshLiveMatches, nextLiveRefreshDelay);
+    // Keep a ten-second start-to-start cadence when the request fits. Slow
+    // requests never overlap; a manual refresh replaces the pending timer.
+    const elapsed = Math.max(0, Date.now() - refreshStartedAt);
+    liveRefreshTimer = setTimeout(refreshLiveMatches, Math.max(1000, nextLiveRefreshDelay - elapsed));
   }
 }
 if ($("refreshLiveMatches")) $("refreshLiveMatches").addEventListener("click", refreshLiveMatches);
