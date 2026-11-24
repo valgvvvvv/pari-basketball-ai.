@@ -24,6 +24,18 @@ for(const patch of [{elapsedSeconds:null},{elapsedSeconds:600},{ageSeconds:91},{
 assert.equal(core.selectPrioritySignals({...input,match:{...input.match,calibrated:true,validation:{verified:true}}}).length,0,'untrusted feed flags cannot enable formal signals');
 assert.equal(core.evaluateSignals({...input,match:{ready:true,probabilities:[{...row,pOver:.8,pUnder:.8}]}}).length,0);
 console.log('signal quality regressions: OK');
+// 2x20 is a different target. Match selection keeps the final eight minutes
+// rather than treating the start of half 2 as the start of Q4.
+const halves={...input,periodCount:2,periodLengthSeconds:1200,period:2};
+for(const elapsedSeconds of [0,120,719])
+  assert.ok(core.evaluateSignals({...halves,elapsedSeconds})[0].reasonCodes.includes('window'));
+for(const elapsedSeconds of [720,1199])
+  assert.ok(!core.evaluateSignals({...halves,elapsedSeconds})[0].reasonCodes.includes('window'));
+const halfInput={...halves,elapsedSeconds:480,match:null,half:{ready:true,current:30,probabilities:[{...row,line:76.5}]}};
+assert.equal(core.evaluateSignals(halfInput)[0].target,'half');
+assert.ok(!core.evaluateSignals(halfInput)[0].reasonCodes.includes('window'));
+assert.ok(core.evaluateSignals({...halfInput,period:3})[0].reasonCodes.includes('data'));
+assert.equal(core.evaluateSignals({...halfInput,periodCount:4}).length,0,'half forecasts must not enter a four-quarter evaluation');
 const stableRobustness={available:true,variantCount:3,directionStable:true,probabilityMin:.68,probabilityMax:.77};
 const evaluated=decision();
 const watched={...evaluated,robustness:stableRobustness};
