@@ -143,7 +143,7 @@
         variants:checks.map((v,i)=>({name:v.name,probability:probabilities[i]}))}};
     });
   }
-  const MODEL_VERSION="regulation-research-v5-marked-scoring-stress";
+  const MODEL_VERSION="regulation-research-v6-twenty-minute-halves";
   const REASONS={data:"Не подтверждены свежесть, счёт или таймер",window:"Вне окна отбора",preliminary:"Предварительный расчёт",
     probabilities:"Некорректное распределение",rules:"Правила рынка не подтверждены",overtime:"Прогноз основного времени несовместим с рынком с ОТ",
     prices:"Не подтверждены обе цены ТБ/ТМ",suspended:"Рынок приостановлен PARI",quote:"Линия устарела или время котировки неизвестно",
@@ -160,18 +160,24 @@
   }
   function evaluateSignals(input){
     const age=Number(input.ageSeconds),period=Number(input.period);
+    const periodCount=Number(input.periodCount??4),isHalves=periodCount===2&&input.periodLengthSeconds===1200;
     const badData=input.ageSeconds==null||!Number.isFinite(age)||age<0||age>90||
        input.timerVerified!==true||input.scoreValid!==true||input.clockValid!==true||
-       ![1,2,3,4].includes(period)||!Number.isFinite(input.periodLengthSeconds)||
+       ![2,4].includes(periodCount)||period<1||period>periodCount||!Number.isInteger(period)||
+       (periodCount===2&&!isHalves)||!Number.isFinite(input.periodLengthSeconds)||
        !Number.isFinite(input.elapsedSeconds)||input.elapsedSeconds<0||input.elapsedSeconds>=input.periodLengthSeconds;
     const result=[];
-    for(const target of ["quarter","match"]){
+    for(const target of [isHalves?"half":"quarter","match"]){
       const f=input[target];
       if(!f?.ready)continue;
       for(const x of f.probabilities||[]){
         const reasons=[];
         if(badData)reasons.push("data");
-        if(target==="match"?(period!==4||input.elapsedSeconds<120):(input.elapsedSeconds<240||input.elapsedSeconds>480))reasons.push("window");
+        // Preserve the final-eight-minutes match horizon in a 2x20 game.
+        // Half watchlists use 8-16 minutes; this is a research policy, not a
+        // transfer of validated quarter performance to halves.
+        if(target==="match"?(period!==periodCount||input.elapsedSeconds<(isHalves?720:120)):
+           (input.elapsedSeconds<(isHalves?480:240)||input.elapsedSeconds>(isHalves?960:480)))reasons.push("window");
         if(f.preliminary)reasons.push("preliminary");
         const values=[x.pOver,x.pUnder,x.pPush??0];
         const valid=x.line!=null&&Number.isFinite(Number(x.line))&&!x.stale&&
@@ -207,7 +213,7 @@
   function selectResearchCandidates(evaluations){
     const eligible=(evaluations||[]).filter(x=>!x.reasonCodes.some(r=>["data","window","preliminary","probabilities","suspended"].includes(r)));
     const selected=[];
-    for(const target of ["match","quarter"]){
+    for(const target of ["match","quarter","half"]){
       const rows=eligible.filter(x=>x.target===target).sort((a,b)=>a.line-b.line);
       if(!rows.length)continue;
       // Pick the central quoted line BEFORE inspecting probabilities. Alternative

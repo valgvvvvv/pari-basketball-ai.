@@ -41,7 +41,7 @@
       <div id="selectedMatchInfo" class="live-match-meta"></div>
       <div class="two-panels">
         <div class="panel"><span class="eyebrow">FULL GAME</span><h2>Прогноз на матч</h2><div id="matchForecast" class="forecast-content">Ожидаем данные счёта, времени и линии из PARI.</div></div>
-        <div class="panel"><span class="eyebrow">CURRENT QUARTER</span><h2>Прогноз на четверть</h2><div id="quarterForecast" class="forecast-content">Ожидаем данные текущей четверти и её линии из PARI.</div></div>
+        <div class="panel"><span class="eyebrow">CURRENT PERIOD</span><h2>Прогноз периода: четверть / тайм</h2><div id="quarterForecast" class="forecast-content">Ожидаем счёт, таймер и линию текущего периода из PARI. Поддерживаются четверти и таймы 2×20 минут.</div></div>
       </div>
       <div id="toolsRegistry"></div>
     </section>
@@ -79,6 +79,6 @@ window.addEventListener("unhandledrejection", function(event) {
   if (message) message.textContent = "Ошибка выполнения страницы: " + String(event.reason || "неизвестная ошибка");
 });
 </script>
-<script src="/static/forecast-core.js?v=20261123-pari-matchcentre-v7"></script>
-<script src="/static/app.js?v=20261123-pari-matchcentre-v7" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
+<script src="/static/forecast-core.js?v=20261124-halves-v8"></script>
+<script src="/static/app.js?v=20261124-halves-v8" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
 </body></html>
