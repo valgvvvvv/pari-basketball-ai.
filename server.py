@@ -4903,7 +4903,11 @@ async def _refresh_live_snapshot():
                                   'events': count, 'saved': saved, 'error': None, **timing})
             emit_diagnostic('MATCH_ARCHIVE_COLLECTOR', _ARCHIVE_LAST)
             # Publish only after the same snapshot has been evaluated for delivery.
-            globals()["_PARI_LIVE_CACHE"] = {"saved_at": now, "data": data}
+            # Cache residence starts when processing finishes. Starting it before
+            # a slow fetch made every queued client immediately refetch. Source
+            # timestamps stay unchanged so consumers still reject stale inputs.
+            globals()["_PARI_LIVE_CACHE"] = {
+                "saved_at": datetime.now(timezone.utc).timestamp(), "data": data}
         else:
             _ARCHIVE_LAST.update({'checked_at': datetime.now(timezone.utc).isoformat(),
                                   'events': 0, 'saved': 0, 'error': 'PARI feed unavailable'})
