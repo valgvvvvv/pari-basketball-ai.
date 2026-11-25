@@ -259,6 +259,113 @@ async def delivery_loop():
             STATUS.pop('delivery_error', None)
 
 
+
+def _daily_report_text(day_key):
+    """Summarize only Telegram deliveries captured on this Helsinki-local day."""
+    from zoneinfo import ZoneInfo
+    import forecast_journal
+    tz = ZoneInfo(os.environ.get('SIGNAL_TIMEZONE', 'Europe/Helsinki'))
+    rows = forecast_journal.export_rows(deliveries_only=True)
+    selected = []
+    for row in rows:
+        try:
+            captured = datetime.fromisoformat(row['captured_at_utc'].replace('Z', '+00:00'))
+            if captured.astimezone(tz).date().isoformat() != day_key:
+                continue
+        except Exception:
+            continue
+        if any(n.get('state') == 'sent' for n in row.get('notifications', [])):
+            selected.append(row)
+
+    wins = losses = pushes = pending = 0
+    lines = []
+    for row in selected:
+        decision = row.get('decision') or {}
+        outcome = row.get('outcome') or {}
+        if outcome.get('push'):
+            pushes += 1
+            mark = '↔️ Возврат'
+        elif outcome.get('win') is True:
+            wins += 1
+            mark = '✅ Зашёл'
+        elif outcome.get('win') is False:
+            losses += 1
+            mark = '❌ Не зашёл'
+        else:
+            pending += 1
+            mark = '⏳ Не подтверждён'
+        snap = row.get('source_event_snapshot') or {}
+        teams = str(snap.get('team1') or row.get('event_id') or 'Матч') + ' — ' + str(snap.get('team2') or '')
+        target = 'Матч' if decision.get('target') == 'match' else (('Тайм ' if decision.get('target') == 'half' else 'Q') + str(decision.get('period') or '?'))
+        lines.append(f"{mark} · {teams}\n{target} {decision.get('direction') or '?'} {decision.get('line') or '?'}")
+
+    total = len(selected)
+    base = wins + losses
+    accuracy = f"{wins / base * 100:.1f}%" if base else 'н/д'
+    header = [
+        f"📊 Отчёт PARI Basketball AI за {day_key}",
+        f"Всего отправлено прогнозов: {total}",
+        f"✅ Зашли: {wins}",
+        f"❌ Не зашли: {losses}",
+        f"↔️ Возвраты: {pushes}",
+        f"⏳ Не подтверждены: {pending}",
+        f"Точность среди рассчитанных (без возвратов): {accuracy}",
+        "",
+        "Список прогнозов:"
+    ]
+    if not lines:
+        header.append("Сегодня отправленных прогнозов не было.")
+    return "\n".join(header + lines)
+
+
+async def daily_report_once(now=None):
+    """Send one daily Telegram report at 23:00 in configured local timezone."""
+    if not enabled():
+        return False
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(os.environ.get('SIGNAL_TIMEZONE', 'Europe/Helsinki'))
+    local_now = (now or datetime.now(tz)).astimezone(tz)
+    if local_now.hour != 23:
+        return False
+    day_key = local_now.date().isoformat()
+    db = connection()
+    try:
+        if get(db, 'daily_report_sent:' + day_key) == '1':
+            return False
+        report = await asyncio.to_thread(_daily_report_text, day_key)
+        chunks = []
+        current = ''
+        for line in report.splitlines():
+            candidate = (current + '\n' + line).strip()
+            if len(candidate) > 3800 and current:
+                chunks.append(current)
+                current = line
+            else:
+                current = candidate
+        if current:
+            chunks.append(current)
+        for index, chunk in enumerate(chunks):
+            suffix = f"\n(часть {index + 1}/{len(chunks)})" if len(chunks) > 1 else ''
+            await say(chunk + suffix)
+        put(db, 'daily_report_sent:' + day_key, '1')
+        STATUS['last_daily_report_local_date'] = day_key
+        STATUS['last_daily_report_at_utc'] = datetime.now(timezone.utc).isoformat()
+        return True
+    finally:
+        db.close()
+
+
+async def daily_report_loop():
+    """Check local time frequently; a database key prevents duplicate reports."""
+    while True:
+        try:
+            await daily_report_once()
+            STATUS.pop('daily_report_error', None)
+        except Exception as exc:
+            STATUS['daily_report_error'] = type(exc).__name__
+        await asyncio.sleep(20)
+
+
 async def commands_once():
     if not enabled():
         return
