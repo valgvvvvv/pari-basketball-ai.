@@ -5161,6 +5161,7 @@ def research_export(deliveries_only: bool = False):
 async def _start_signal_commands():
     asyncio.create_task(server_signals.commands_loop())
     asyncio.create_task(server_signals.delivery_loop())
+    asyncio.create_task(server_signals.daily_report_loop())
 
 @app.get("/api/archive/status")
 def archive_status():
