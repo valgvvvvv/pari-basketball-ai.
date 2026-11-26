@@ -196,35 +196,34 @@ async def enrich_payload(client, host, payload, known_formats=None):
                     _DETAILS[identity] = stored
                 except Exception:
                     diagnostics['detail_errors'] += 1
-                    return
+                    stored = {'data': {}, 'received': None}
         if merge_detail(payload, stored['data'], event['id']):
             received[str(event['id'])] = stored['received']
             diagnostics['detail_events'] += 1
-            info = infos[str(event['id'])]
-            known = (known_formats or {}).get(str(event.get('sportId')), {})
-            known_regular = (known.get('period_count'), known.get('period_length_seconds')) in ((4,600),(4,720),(2,1200))
-            if (explicit_format(event, info, source) or
-                    (known_regular and not (info.get('extra') or {}).get('quarters') and not info.get('format_conflict'))):
-                broadcasts = info.get('broadcasts', [info])
-                for broadcast in sorted(broadcasts, key=lambda row: not bool((row.get('extra') or {}).get('quarters')))[:2]:
-                    if not broadcast.get('code') or not same_event(event, broadcast):
-                        continue
-                    params = {'foncode': event['id'], 'code': broadcast['code'], 'needextra': 1}
-                    try:
-                        async with sem:
-                            response = await request_json(client, host, '/sportscast/events', params, 2)
-                        live = next((row for row in stored['data'].get('liveEventInfos', [])
-                                     if str(row.get('eventId')) == str(event['id'])), {})
-                        centre = pari_matchcentre.parse(event, live, broadcast, response,
-                                                       host+'/sportscast/events?'+urlencode(params))
-                    except Exception:
-                        centre = {'statistics': [], 'periods': [], 'diagnostics': {'state': 'request_failed'}}
-                    centres[str(event['id'])] = centre
-                    if centre['diagnostics']['state'] == 'score_reconciled':
-                        break
         else:
             diagnostics['detail_errors'] += 1
-
+        info = infos[str(event['id'])]
+        known = (known_formats or {}).get(str(event.get('sportId')), {})
+        known_regular = (known.get('period_count'), known.get('period_length_seconds')) in ((4,600),(4,720),(2,1200))
+        if (explicit_format(event, info, source) or
+                (known_regular and not (info.get('extra') or {}).get('quarters') and not info.get('format_conflict'))):
+            broadcasts = info.get('broadcasts', [info])
+            for broadcast in sorted(broadcasts, key=lambda row: not bool((row.get('extra') or {}).get('quarters')))[:2]:
+                if not broadcast.get('code') or not same_event(event, broadcast):
+                    continue
+                params = {'foncode': event['id'], 'code': broadcast['code'], 'needextra': 1}
+                try:
+                    async with sem:
+                        response = await request_json(client, host, '/sportscast/events', params, 2)
+                    live = next((row for row in (stored['data'].get('liveEventInfos') or payload.get('liveEventInfos') or [])
+                                 if str(row.get('eventId')) == str(event['id'])), {})
+                    centre = pari_matchcentre.parse(event, live, broadcast, response,
+                                                   host+'/sportscast/events?'+urlencode(params))
+                except Exception:
+                    centre = {'statistics': [], 'periods': [], 'diagnostics': {'state': 'request_failed'}}
+                centres[str(event['id'])] = centre
+                if centre['diagnostics']['state'] == 'score_reconciled':
+                    break
     try:
         await asyncio.wait_for(asyncio.gather(*(card(e) for e in roots[:24])), timeout=7)
     except asyncio.TimeoutError:
