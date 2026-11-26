@@ -217,7 +217,60 @@
         interval95:[result.low95,result.high95],probabilities:result.probabilities};
     });
   }
-  const MODEL_VERSION="regulation-research-v7-regime-integrity";
+  // Separate future shot volume from conversion. Completed periods are a disjoint
+  // historical sample; cumulative totals are never counted twice.
+  function possessionRemainder(input){
+    const no=reason=>({ready:false,reason,calibrated:false});
+    const keys=["twoMade","twoAtt","threeMade","threeAtt","ftm","fta","oreb","tov"];
+    const valid=b=>b&&keys.every(k=>typeof b[k]==="number"&&Number.isInteger(b[k])&&b[k]>=0)&&
+      b.twoMade<=b.twoAtt&&b.threeMade<=b.threeAtt&&b.ftm<=b.fta;
+    const points=b=>2*b.twoMade+3*b.threeMade+b.ftm;
+    const poss=b=>b.twoAtt+b.threeAtt+.44*b.fta-b.oreb+b.tov;
+    if(!Array.isArray(input.score)||input.score.length!==2||!input.score.every(x=>Number.isInteger(x)&&x>=0)||
+       !Number.isFinite(input.elapsedSeconds)||!Number.isFinite(input.totalSeconds)||
+       input.elapsedSeconds<=0||input.elapsedSeconds>=input.totalSeconds)return no("неверный счёт или горизонт");
+    if(!valid(input.home)||!valid(input.away)||points(input.home)!==input.score[0]||points(input.away)!==input.score[1])
+      return no("бросковая статистика не согласована со счётом");
+    const periods=input.completedPeriods;
+    if(!Array.isArray(periods)||!periods.length)return no("нет полных бросковых данных завершённых периодов");
+    const prior={home:Object.fromEntries(keys.map(k=>[k,0])),away:Object.fromEntries(keys.map(k=>[k,0]))};
+    let priorSeconds=0;
+    for(let i=0;i<periods.length;i++){
+      const r=periods[i];
+      if(r.period!==i+1||!Number.isFinite(r.durationSeconds)||r.durationSeconds<=0||
+         !valid(r.home)||!valid(r.away)||!Array.isArray(r.score)||points(r.home)!==r.score[0]||points(r.away)!==r.score[1])
+        return no("пробел или конфликт статистики завершённых периодов");
+      priorSeconds+=r.durationSeconds;
+      for(const side of ["home","away"])for(const k of keys)prior[side][k]+=r[side][k];
+    }
+    const segmentSeconds=input.elapsedSeconds-priorSeconds;
+    if(segmentSeconds<180)return no("нужно не менее 3 минут текущего периода для отдельной оценки владений");
+    const remainingMinutes=(input.totalSeconds-input.elapsedSeconds)/60,teams={};
+    for(const side of ["home","away"]){
+      const b=input[side],a=prior[side],segment=Object.fromEntries(keys.map(k=>[k,b[k]-a[k]]));
+      if(!valid(segment))return no("накопительная статистика меньше завершённых периодов");
+      const n=poss(segment),rate=n/(segmentSeconds/60);
+      if(!(n>0)||rate<.15||rate>2.25)return no("некорректный темп отдельного периода");
+      // Jeffreys beta posterior; prior + current disjoint sample equals cumulative
+      // attempts once. Recent shot mix can change without assuming hot shooting persists.
+      const probability=(made,attempts)=>(made+.5)/(attempts+1);
+      const rates={two:probability(b.twoMade,b.twoAtt),three:probability(b.threeMade,b.threeAtt),free:probability(b.ftm,b.fta)};
+      const ppp=(2*segment.twoAtt*rates.two+3*segment.threeAtt*rates.three+segment.fta*rates.free)/n;
+      if(!Number.isFinite(ppp)||ppp<.2||ppp>2.5)return no("эффективность команды вне проверяемой области");
+      teams[side]={rate,ppp,conversion:rates,segmentPossessions:n,segmentPoints:points(segment),
+        priorPossessions:poss(a),priorPoints:points(a)};
+    }
+    const rate=(teams.home.rate+teams.away.rate)/2;
+    if(Math.abs(teams.home.rate-teams.away.rate)/Math.max(teams.home.rate,teams.away.rate)>.3)
+      return no("несогласованные владения команд в текущем периоде");
+    const expectedRemainingPossessions=rate*remainingMinutes;
+    const expectedRemaining=expectedRemainingPossessions*(teams.home.ppp+teams.away.ppp);
+    return {ready:true,current:input.score[0]+input.score[1],projection:input.score[0]+input.score[1]+expectedRemaining,
+      expectedRemaining,expectedRemainingPossessions,pointsPerPossession:teams.home.ppp+teams.away.ppp,
+      possPerMinute:rate,teams,segmentSeconds,priorSeconds,calibrated:false,predictionIncludesOvertime:false,
+      method:"recent-period shot volume × pooled beta shooting conversion",policy:"possession-shotmix-beta-v1"};
+  }
+  const MODEL_VERSION="regulation-research-v8-possession-shotmix";
   const REASONS={context:"Недостаточно статистики для проверки владений и концовки",regime:"Обнаружено изменение результативности; прежний темп нестабилен",data:"Не подтверждены свежесть, счёт или таймер",window:"Вне окна отбора",preliminary:"Предварительный расчёт",
     probabilities:"Некорректное распределение",rules:"Правила рынка не подтверждены",overtime:"Прогноз основного времени несовместим с рынком с ОТ",
     prices:"Не подтверждены обе цены ТБ/ТМ",suspended:"Рынок приостановлен PARI",quote:"Линия устарела или время котировки неизвестно",
@@ -318,6 +371,6 @@
       automaticPriorityEnabled:false,calibrated:false,
       reasons:Object.entries(reasons).map(([code,lines])=>({code,lines,label:REASONS[code]||code})).sort((a,b)=>b.lines-a.lines||(a.code<b.code?-1:a.code>b.code?1:0))};
   }
-  return {detectScoringRegime,regimeSensitivity,quarterPosterior,simulateQuarter,quarterSensitivity,assessSensitivity,selectResearchCandidates,
+  return {possessionRemainder,detectScoringRegime,regimeSensitivity,quarterPosterior,simulateQuarter,quarterSensitivity,assessSensitivity,selectResearchCandidates,
     summarizeSignals,selectPrioritySignals,evaluateSignals,marketComparison,MODEL_VERSION};
 });

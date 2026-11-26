@@ -386,8 +386,8 @@ function applyGameContext(estimate,ev,period,clock){
     else if(remaining<=180&&margin>=16)delta=0.94;
     else if(remaining<=360&&margin>=16)delta=0.96;
     if(delta!==1){
-      multiplier*=delta;
-      factors.push((margin<=8?"вероятность тактических фолов в близкой концовке":"риск замедления при крупном преимуществе")+" ("+Math.round((delta-1)*100)+"%)");
+      multiplier*=delta; // Existing research heuristic retained pending a separately evaluated replacement.
+      factors.push((margin<=8?"вероятность тактических фолов в близкой концовке":"риск замедления при крупном преимуществе")+" ("+Math.round((delta-1)*100)+"%; эвристика, не обученный коэффициент)");
     }
   }
   multiplier=clampForecast(multiplier,0.82,1.20);
@@ -449,12 +449,11 @@ function liveShootingContext(ev,estimate){
   if(!score||boxError>Math.max(6,(Number(score[0])+Number(score[1]))*0.08))
     return {adjustment:1,factors:["бросковая статистика не прошла сверку со счётом — не использована"],quality:"расхождение со счётом"};
   const efg=weightedEfg/totalAttempts;
-  // Small regression-to-neutral correction: current hot/cold shooting is not
-  // projected unchanged for the whole remaining game.
-  const adjustment=clampForecast(1+(efg-0.50)*0.20,0.96,1.04);
+  // Descriptive shooting context only. A league-neutral percentage is not a learned prior.
+  const adjustment=1; // No universal 50% shooting baseline or untrained mean multiplier.
   return {
     adjustment,
-    factors:["эффективность бросков eFG "+(efg*100).toFixed(1)+"% · поправка оставшегося ожидания "+((adjustment-1)*100).toFixed(1)+"%"],
+    factors:["эффективность бросков eFG "+(efg*100).toFixed(1)+"% · диагностика; будущая реализация оценивается отдельно при полных данных"],
     quality:"сверено со счётом (ошибка "+boxError+" оч.)",
     efg:Math.round(efg*1000)/1000,
     boxScorePoints:pointsFromBox
@@ -548,6 +547,7 @@ function advancedMatchCalculations(ev,estimate,period,clock,possession,quarterFo
 }
 
 function possessionModelContext(ev,estimate,period,clock){
+  if((ev.statistics_quality?.conflicts||[]).length)return {applied:false,reason:"конфликт исходной статистики"};
   const rows=Array.isArray(ev?.external_statistics)?ev.external_statistics:[];
   const aliases={
     fga:["field_goals_attempted","field_goal_attempts","field_goals_attempts","field_goal_attempted","fga","fg_attempted","fg_attempts","field_goals"],
@@ -595,6 +595,11 @@ function possessionModelContext(ev,estimate,period,clock){
     }
     if(sides[side].fga==null&&sides[side].twoAtt!=null&&sides[side].threeAtt!=null)sides[side].fga=sides[side].twoAtt+sides[side].threeAtt;
     if(sides[side].fgm==null&&sides[side].twoMade!=null&&sides[side].threeMade!=null)sides[side].fgm=sides[side].twoMade+sides[side].threeMade;
+    if(sides[side].twoAtt==null&&sides[side].fga!=null&&sides[side].threeAtt!=null)sides[side].twoAtt=sides[side].fga-sides[side].threeAtt;
+    if(sides[side].twoMade==null&&sides[side].fgm!=null&&sides[side].threeMade!=null)sides[side].twoMade=sides[side].fgm-sides[side].threeMade;
+    if((sides[side].fga!=null&&sides[side].twoAtt!=null&&sides[side].threeAtt!=null&&sides[side].fga!==sides[side].twoAtt+sides[side].threeAtt)||
+       (sides[side].fgm!=null&&sides[side].twoMade!=null&&sides[side].threeMade!=null&&sides[side].fgm!==sides[side].twoMade+sides[side].threeMade))
+      return {applied:false,reason:"противоречивые суммы бросков: 2P + 3P не равны FG"};
   }
   const derivedAvailable=["home","away"].every(side=>["fga","oreb","tov","fta"].every(k=>Number.isFinite(sides[side][k])));
   const derived=derivedAvailable?{home:sides.home.fga-sides.home.oreb+sides.home.tov+0.44*sides.home.fta,away:sides.away.fga-sides.away.oreb+sides.away.tov+0.44*sides.away.fta}:null;
@@ -624,8 +629,8 @@ function possessionModelContext(ev,estimate,period,clock){
   if(!length||!elapsed||elapsed>=totalSeconds)return {applied:false,reason:"не хватает подтверждённого времени матча"};
   const elapsedMinutes=elapsed/60,remaining=totalSeconds-elapsed,possPerMinute=possessions/elapsedMinutes,pointsPerPossession=current/possessions;
   if(possPerMinute<0.15||possPerMinute>2.25)return {applied:false,reason:"темп владений неправдоподобен для прошедшего времени"};
-  if(pointsPerPossession<0.45||pointsPerPossession>2.25)return {applied:false,reason:"эффективность очков на владение не прошла проверку"};
-  const projected=current+possPerMinute*(remaining/60)*pointsPerPossession;
+  if([homePoints/home,awayPoints/away].some(x=>x<0||x>2.5))return {applied:false,reason:"эффективность очков на владение не прошла проверку"};
+  const linearBaseline=current+possPerMinute*(remaining/60)*pointsPerPossession;
   const teamPppHome=homePoints/home,teamPppAway=awayPoints/away;
   const efg=side=>{const x=sides[side],fga=x.fga,fgm=x.fgm??((x.twoMade??0)+(x.threeMade??0)),tpm=x.threeMade;return fga>0&&Number.isFinite(fgm)&&Number.isFinite(tpm)?(fgm+0.5*tpm)/fga:null;};
   const homeEfg=efg("home"),awayEfg=efg("away");
@@ -643,12 +648,37 @@ function possessionModelContext(ev,estimate,period,clock){
     assists_home:sides.home.assists,assists_away:sides.away.assists,fouls_home:sides.home.fouls,fouls_away:sides.away.fouls,
     steals_home:sides.home.steals,steals_away:sides.away.steals,blocks_home:sides.home.blocks,blocks_away:sides.away.blocks
   };
+  const priorKeys={twoMade:"two_pointers_made",twoAtt:"two_pointers_attempted",threeMade:"three_pointers_made",
+    threeAtt:"three_pointers_attempted",ftm:"free_throws_made",fta:"free_throws_attempted",oreb:"offensive_rebounds",tov:"turnovers"};
+  const completedPeriods=[];
+  for(let q=1;q<Number(period);q++){
+    const periodRows=(ev.period_statistics||[]).filter(r=>Number(r.period)===q);
+    const box={home:{},away:{}};
+    for(const [k,metric] of Object.entries(priorKeys))for(const side of ["home","away"]){
+      const candidates=periodRows.filter(r=>r.metric_key===metric);
+      const values=candidates.map(r=>{
+        const value=r[side],attempt=["twoAtt","threeAtt","fta"].includes(k);
+        if(attempt&&value&&typeof value==="object"){
+          const n=value.attempts??value.attempted;
+          if(n!=null)return Number(n);
+        }
+        const parsed=parseStatCount(value);return attempt?(parsed?.attempts??parsed?.value):parsed?.value;
+      });
+      box[side][k]=values.length&&values.every(v=>v===values[0])?values[0]:null;
+    }
+    completedPeriods.push({period:q,durationSeconds:length,score:readPeriodScorePair(ev,q-1),...box});
+  }
+  const future=window.PARIForecastCore.possessionRemainder({score:[homePoints,awayPoints],home:sides.home,away:sides.away,
+    elapsedSeconds:elapsed,totalSeconds,completedPeriods});
+  const projected=future.ready?future.projection:linearBaseline;
   const baseline=Math.max(1,Number(estimate?.projection)-current),confidence=qualityNotes.length?"средняя":(direct.home>0&&direct.away>0&&metricCoverage>=8?"высокая":metricCoverage>=5?"средняя":"ограниченная");
-  return {applied:true,model:"Possession Engine v2",method,confidence,qualityNotes,metrics,metric_coverage:metricCoverage,
+  return {applied:future.ready,available:true,reason:future.ready?null:future.reason,
+    model:"Possession Engine v3 · экспериментальный",method:future.ready?method+" · "+future.method:method,confidence:"экспериментальная; не калибрована",qualityNotes,metrics,metric_coverage:metricCoverage,
+    independentFutureEstimate:future.ready,future,linearBaseline,calibrated:false,
     home:Math.round(home*10)/10,away:Math.round(away*10)/10,average:Math.round(possessions*10)/10,imbalance_percent:Math.round(imbalance*100),
-     projectionExact:projected,expectedRemainingPossessionsExact:possPerMinute*(remaining/60),pointsPerPossessionExact:pointsPerPossession,
-    pointsPerPossession:Math.round(pointsPerPossession*1000)/1000,homePointsPerPossession:Math.round(teamPppHome*1000)/1000,awayPointsPerPossession:Math.round(teamPppAway*1000)/1000,
-    possPerMinute:Math.round(possPerMinute*100)/100,expectedRemainingPossessions:Math.round(possPerMinute*(remaining/60)*10)/10,
+     projectionExact:projected,expectedRemainingPossessionsExact:future.expectedRemainingPossessions??null,pointsPerPossessionExact:future.pointsPerPossession??null,
+    observedCombinedPPP:pointsPerPossession,pointsPerPossession:Math.round((future.pointsPerPossession??pointsPerPossession)*1000)/1000,homePointsPerPossession:Math.round(teamPppHome*1000)/1000,awayPointsPerPossession:Math.round(teamPppAway*1000)/1000,
+    possPerMinute:Math.round((future.possPerMinute??possPerMinute)*100)/100,expectedRemainingPossessions:future.ready?Math.round(future.expectedRemainingPossessions*10)/10:null,
     expectedRemainingPoints:Math.round((projected-current)*10)/10,projection:Math.round(projected*10)/10,remaining_minutes:Math.round(remaining/60*100)/100,
     adjustment:clampForecast((projected-current)/baseline,0.90,1.10)};
 }
@@ -704,7 +734,7 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   // Other signals are secondary and damped to avoid double-counting.
   const baseMu=Math.max(0,adjusted.projection-adjusted.current);
   const possMu=possession.applied?Math.max(0,(possession.projectionExact??possession.projection)-adjusted.current):baseMu;
-  const secondaryAdjustment=possession.applied?clampForecast(1+(statsContext.adjustment-1)*0.35,0.985,1.015):statsContext.adjustment;
+  const secondaryAdjustment=1; // Shooting conversion is estimated once inside the possession model.
   const tempoDynamics=liveTempoDynamics(ev||{},adjusted,period,clock,"match");
   const tempoFactor=tempoDynamics.applied?tempoDynamics.factor:1;
   // The dynamic Monte Carlo already uses quarter momentum to weight its scenarios. Do not multiply the mean by the same signal again.
@@ -1392,7 +1422,7 @@ function unifiedToolsPanelHtml(ev,matchData,quarterData,matchForecast,quarterFor
     {id:"monte-carlo",name:"Монте‑Карло",role:"способ симуляции распределения",mv:md?{distribution:true}:null,qv:qd?.simulations>0?{distribution:true}:null,status:"симулятор, не отдельная модель"},
     {id:"scenario-ensemble",name:"Ансамбль сценариев",role:"взвешенная смесь сценариев; не независимый голос",mv:md?.scenarios?.length?{distribution:true}:null,qv:null,status:"экспериментальный · не калиброван"},
     {id:"dynamic-tempo",name:"Динамика темпа / концовки",role:"зависимая эвристическая оценка",mv:find(matchData,"Динамический темп")||find(matchData,"Модель концовки"),qv:find(quarterData,"Динамика четверти"),status:"эвристика"},
-    {id:"possessions",name:"Модель владений",role:"ожидаемые владения × PPP",mv:find(matchData,"Модель владений"),qv:null,status:m?.possession_model?.reason||"нет владений"},
+    {id:"possessions",name:"Модель владений",role:"будущий объём бросков × сглаженная реализация; эксперимент",mv:find(matchData,"Модель владений"),qv:null,status:m?.possession_model?.reason||"нет владений"},
     {id:"gamma-poisson",name:"Gamma‑Poisson",role:"апостериорное распределение темпа четверти",mv:null,qv:q?.posterior?.ready?{distribution:true}:null,status:q?.posterior?.ready?"активна для Qn":"нет данных для распределения Qn"},
     {id:"kalman",name:"Фильтр Калмана",role:"сглаживание скрытого темпа",mv:null,qv:null,status:"отключён · нет проверенной реализации"},
     {id:"smooth-game",name:"Smooth Game",role:"диагностика траектории, не прогноз",mv:matchData?.anomaly||null,qv:null,status:matchData?.anomaly?"диагностика":"нет истории завершённых четвертей"},
