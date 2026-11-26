@@ -34,7 +34,16 @@ def connect():
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path, timeout=10)
     db.execute('PRAGMA journal_mode=WAL')
-    db.execute('CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, message_id INTEGER UNIQUE NOT NULL, sent_at REAL NOT NULL, payload TEXT NOT NULL, result TEXT, edited_hash TEXT)')
+    db.execute('CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, message_id INTEGER NOT NULL, sent_at REAL NOT NULL, payload TEXT NOT NULL, result TEXT, edited_hash TEXT)')
+    # One Telegram message may now contain several immutable forecast receipts.
+    db.execute('BEGIN IMMEDIATE')
+    schema = db.execute("SELECT sql FROM sqlite_master WHERE name='messages'").fetchone()[0]
+    if 'UNIQUE' in schema.upper():
+        db.execute('ALTER TABLE messages RENAME TO messages_legacy')
+        db.execute('CREATE TABLE messages (id TEXT PRIMARY KEY, message_id INTEGER NOT NULL, sent_at REAL NOT NULL, payload TEXT NOT NULL, result TEXT, edited_hash TEXT)')
+        db.execute('INSERT INTO messages SELECT * FROM messages_legacy')
+        db.execute('DROP TABLE messages_legacy')
+    db.commit()
     db.execute('CREATE TABLE IF NOT EXISTS reports (cutoff REAL PRIMARY KEY, payload TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS evidence (event_id TEXT PRIMARY KEY, payload TEXT NOT NULL)')
@@ -182,7 +191,7 @@ def edited_text(row):
     state = result['state']
     marks = {'won': '✅ ЗАШЁЛ', 'lost': '❌ НЕ ЗАШЁЛ', 'push': '↔️ ВОЗВРАТ',
              'disputed': '⚠️ РЕЗУЛЬТАТ ТРЕБУЕТ ПЕРЕПРОВЕРКИ'}
-    text = row['payload']['original_text'].removesuffix('\n⏳ Ожидает подтверждения результата.')
+    text = clean_text(row['payload']['original_text']).removesuffix('\n⏳ Ожидает подтверждения результата.')
     suffix = '\n\n' + marks[state]
     if state != 'disputed':
         suffix += '\nИтог цели: ' + ':'.join(map(str, result['score'])) + f" · тотал {result['total']}"
@@ -190,6 +199,49 @@ def edited_text(row):
             suffix += '\nПроверено основное время, без ОТ; это исход прогноза, не расчёт ставки с ОТ.'
         suffix += '\nИсточник: ' + result['evidence']['source']
     return text + suffix
+
+
+def clean_text(text):
+    removed = {'Рынок совместим; преимущество не проверено.',
+               'Изменение линии — обновление наблюдения, а не новый вход.',
+               'Предварительное направление. Вероятность и преимущество не подтверждены независимой проверкой.',
+               'https://pari-basketball-ai.onrender.com/'}
+    lines = [line for line in text.splitlines() if line.strip() not in removed]
+    while '\n\n\n' in '\n'.join(lines):
+        lines = '\n'.join(lines).replace('\n\n\n', '\n\n').splitlines()
+    return '\n'.join(lines).strip()
+
+
+def group_text(records):
+    """Render a message from immutable forecast rows, never erase old lines."""
+    records = sorted(records, key=lambda row: (row['sent_at'], row['id']))
+    if len(records) == 1:
+        return edited_text(records[0]) or clean_text(records[0]['payload']['original_text'])
+    first = records[0]['payload']
+    header = '🔔 Сигнал · экспериментальный прогноз\n' + first['teams']
+    marks = {'won': '✅ ЗАШЁЛ', 'lost': '❌ НЕ ЗАШЁЛ', 'push': '↔️ ВОЗВРАТ',
+             'disputed': '⚠️ Перепроверка', 'pending': '⏳'}
+    lines = []
+    for row in records:
+        s, result = row['payload']['signal'], row.get('result') or {}
+        target = 'Матч · основное время' if s['target'] == 'match' else ('Тайм ' if s['target'] == 'half' else 'Четверть Q')+str(s['period'])
+        at = datetime.fromtimestamp(row['sent_at'], MSK).strftime('%H:%M')
+        line = f"{at} · {target} · {s['direction']} {s['line']:g} · {marks[result.get('state', 'pending')]}"
+        if 'total' in result:
+            line += f" · итог {result['total']}"
+        lines.append(line)
+    tail = ''
+    if any('overtime' in r['payload']['signal'].get('reasonCodes', []) for r in records):
+        tail = '\n\nМатч рассчитан без ОТ; для рынка с ОТ не применять.'
+    # Telegram limits text to 4096 characters. Full history remains in the
+    # lifecycle checkpoint and daily report even when a long match is condensed.
+    shown = list(lines)
+    omitted = 0
+    while len(header+'\n\n'+'\n'.join(shown)+tail) > 3700 and len(shown) > 2:
+        shown.pop(1)
+        omitted += 1
+    note = f'\nЕщё {omitted} изменений сохранено в отчёте.' if omitted else ''
+    return header+'\n\n'+'\n'.join(shown)+note+tail
 
 
 def edit_hash(text):
@@ -221,7 +273,7 @@ def report_text(end, records=None):
     denominator = counts['won']+counts['lost']
     rate = f"{100*counts['won']/denominator:.1f}%" if denominator else 'нет рассчитанных исходов'
     lines = [f"📊 Прогнозы за 24 часа: {start:%d.%m %H:%M} — {end:%d.%m %H:%M} МСК",
-        f"Сообщений: {len(selected)} · матчей: {len({r['payload']['event'] for r in selected})}",
+        f"Сообщений: {len({r['message_id'] for r in selected})} · прогнозов: {len(selected)} · матчей: {len({r['payload']['event'] for r in selected})}",
         f"Из них обновлений: {sum(bool(r['payload'].get('update')) for r in selected)}",
         f"✅ Зашли: {counts['won']} · ❌ Не зашли: {counts['lost']} · ↔️ Возвраты: {counts['push']}",
         f"⏳ Ожидают подтверждения: {counts['pending']} · ⚠️ Спорные: {counts['disputed']}",

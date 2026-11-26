@@ -237,3 +237,12 @@ JSON финала использует контракт `result_validation.py`: 
 - At 23:00 Europe/Moscow the report selects successful deliveries in [previous day 23:00, today 23:00), using delivery time. It separates wins, losses, returns, pending/disputed outcomes, updates and unique matches. Multi-message reports resume from the last acknowledged part. `/report` requests an immediate rolling-24-hour preview without consuming the daily report.
 - The existing GitHub detector workflow checkpoints the latest seven days of receipts/results/report acknowledgements in `.signal-state/lifecycle.json` every scheduled run, and has an additional 20:00 UTC wake-up. A gzip checkpoint is synchronized through an HMAC-signed, timestamped owner-only endpoint; neither bot tokens nor chat IDs are stored in the checkpoint or repository. The first daily report waits for checkpoint restoration.
 - The free Render filesystem and GitHub cache/scheduler cannot guarantee exact 23:00 execution or lossless exactly-once delivery: a reset between a Telegram acknowledgement and the next checkpoint can cause a gap or repeat. Missed due reports are caught up after restoration. No paid resource is created.
+# Telegram message grouping
+
+New forecasts and line changes for an already notified event edit its original
+Telegram message. Each observed line retains an immutable receipt and its own
+result in the 24-hour report; the report distinguishes forecasts from Telegram
+messages. A failed edit is retried without creating a replacement notification.
+Long message histories are condensed below Telegram's text limit while the full
+history remains in the checkpoint and report. The owner's requested repeated
+footer and website link are removed from signals and result edits.
