@@ -48,6 +48,20 @@ class FeedIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(event["clock"], "01:23")
         self.assertTrue(event["timer_semantics_verified"])
 
+    async def test_womens_ncaa_format_and_timer_are_registered(self):
+        result=await self.fetch_fixture({'sports':[{'id':1,'name':'Basketball'},
+                {'id':15100,'parentId':1,'name':'США. Женщины. NCAA'}],
+            'events':[{'id':80000003,'sportId':15100,'level':1,'place':'live','team1':'A (ж)','team2':'B (ж)'}],
+            'eventMiscs':[{'id':80000003,'score1':30,'score2':39,'timerSeconds':1250,'timerDirection':0}],
+            'liveEventInfos':[{'eventId':80000003,'scoreFunction':'Basketball','timerSeconds':1250,
+                'scores':[[{'c1':'30','c2':'39'}],[{'c1':'15','c2':'20','title':'четверть'},
+                    {'c1':'15','c2':'19','title':'четверть'},{'c1':'0','c2':'0','title':'четверть'}]]}]})
+        event=result['events'][0]
+        self.assertEqual((event['period_count'],event['period_length_seconds']),(4,600))
+        self.assertEqual(event['period'],3)
+        self.assertEqual(event['clock'],'09:10')
+        self.assertTrue(event['timer_semantics_verified'])
+
     async def fetch_fixture(self, payload):
         original_client = httpx.AsyncClient
         def client_factory(**kwargs):
