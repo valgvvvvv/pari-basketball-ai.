@@ -744,7 +744,12 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
     factors.push("ожидаемые владения до конца: "+possession.expectedRemainingPossessions+" · очки до конца по модели владений: "+possession.expectedRemainingPoints);
     if(possession.qualityNotes?.length)factors.push(...possession.qualityNotes);
   }
-  return {...adjusted,context_factors:factors,context_adjustment:context.adjustment,statistics_adjustment:secondaryAdjustment,
+  const regime=scoringRegime(ev||{});
+  const regimeVariants=window.PARIForecastCore.regimeSensitivity({ready:true,current:adjusted.current,
+    remainingMinutes:adjusted.remaining_seconds/60,method:"Наблюдаемые окна результативности"},[],regime);
+  const scenarioRange=[Math.min(mc.low95,...regimeVariants.map(x=>x.interval95[0])),
+    Math.max(mc.high95,...regimeVariants.map(x=>x.interval95[1]))];
+  return {...adjusted,regime,scenarioRange,context_factors:factors,context_adjustment:context.adjustment,statistics_adjustment:secondaryAdjustment,
     calculation:{kind:possession.applied?"possession":"scenario_mixture",baseRemaining:baseMu,possessionRemaining:possMu,
       secondaryAdjustment,expectedRemaining:mu,expectedRemainingPossessions:possession.expectedRemainingPossessionsExact??possession.expectedRemainingPossessions??null,
       pointsPerPossession:possession.pointsPerPossessionExact??possession.pointsPerPossession??null,scenarios:mc.scenarios||[]},
@@ -927,7 +932,7 @@ function showSelectedMatch(ev,options={}){
       '<details class="technical-details"><summary>Технические подробности</summary><p>σ остатка: '+(quarter.poisson?.variance!=null?Math.sqrt(quarter.poisson.variance).toFixed(2):'—')+' · диапазон 95%: '+quarter.low95+'–'+quarter.high95+' · метод: точное распределение без симуляций'+'</p><p>Исходный код таймера: '+escapeHtml(ev.clock_source||ev.external_live?.clock_source||"не указан")+'</p><p>'+escapeHtml((quarter.context_factors||[]).join(' · '))+'</p></details>'
     : '<p class="muted">'+escapeHtml(quarter.reason||"Недостаточно данных")+'</p>';
   if($("toolsRegistry"))$("toolsRegistry").innerHTML=unifiedToolsPanelHtml(ev,classicMatchModels,classicQuarterModels,matchForecast,quarter,lines);
-  $("matchForecast").insertAdjacentHTML("beforeend",signalQualityMarkup(signalEvaluations(ev,matchForecast,quarter)));
+  $("matchForecast").insertAdjacentHTML("beforeend",regimeMarkup(ev)+signalQualityMarkup(signalEvaluations(ev,matchForecast,quarter)));
   $("matchForecast").insertAdjacentHTML("beforeend",q4ModelComparisonMarkup(ev,matchForecast,quarter,matchLineValue));
   const statsMeta=statsQuality?'<p>Покрытие: <b>'+Number(statsQuality.coverage_percent||0)+'%</b> · источники: '+escapeHtml(ev.statistics_source||"нет")+'</p>':'';
   const missingStats=statsQuality?.missing_metrics?.length?'<p class="muted">Нет данных: '+escapeHtml(statsQuality.missing_metrics.join(", "))+'</p>':'';
@@ -1143,9 +1148,23 @@ function periodHighlightInfo(ev){
   return elapsed>=480&&elapsed<=960?{period,elapsed,minute:Math.floor(elapsed/60),second:elapsed%60,half:true}:null;
 }
 
+function scoringRegime(ev){
+  const period=findLivePeriod(ev),info=inferPeriodLengthForForecast(ev);
+  return window.PARIForecastCore.detectScoringRegime({nowMs:Date.now(),period,periodLengthSeconds:info?.seconds,
+    timerVerified:ev?.timer_semantics_verified===true,
+    snapshots:[...(ev.recent_snapshots||[]),{period,clock:findLiveClock(ev),score:findLiveScore(ev),captured_at:ev.feed_checked_at_utc}]});
+}
+function regimeMarkup(ev){
+  const r=scoringRegime(ev);
+  const labels={rising:"Резкий рост результативности",falling:"Резкое снижение результативности",burst:"Короткий всплеск / провал",stable:"Резкого изменения не обнаружено"};
+  return '<p class="muted"><b>Динамика:</b> '+escapeHtml(r.available?labels[r.status]:r.reason)+
+    (r.available?' · '+r.previousRate.toFixed(1)+' → '+r.recentRate.toFixed(1)+' очка/мин · два окна по 90 с':'')+
+    '. Владения по этим снимкам не подтверждены; это изменение набора очков, а не доказанное изменение темпа атак.</p>';
+}
 function forecastSensitivity(ev,forecast,quarter){
   const core=window.PARIForecastCore,quarterRows=quarter?.lines||[];
-  const quarterVariants=core.quarterSensitivity(quarter?.posterior,quarterRows)
+  const regime=scoringRegime(ev);
+  const quarterVariants=[...core.quarterSensitivity(quarter?.posterior,quarterRows),...core.regimeSensitivity(quarter?.posterior,quarterRows,regime)]
     .filter(v=>v.name!=="Вся история матча");
   const qRows=core.assessSensitivity(quarterRows,quarterVariants);
   let mRows=forecast?.estimate?.poisson?.probabilities||[];
@@ -1155,7 +1174,7 @@ function forecastSensitivity(ev,forecast,quarter){
     const offset=forecast.estimate?.current-quarter.current;
     if(Number.isFinite(offset)){
       const shifted=mRows.map(x=>({...x,line:x.line-offset}));
-      const variants=core.quarterSensitivity(quarter.posterior,shifted).map(v=>({...v,
+      const variants=[...core.quarterSensitivity(quarter.posterior,shifted),...core.regimeSensitivity(quarter.posterior,shifted,regime)].map(v=>({...v,
         probabilities:v.probabilities.map(x=>({...x,line:x.line+offset}))}));
       mRows=core.assessSensitivity(mRows,variants);
     }
@@ -1173,7 +1192,9 @@ function signalEvaluations(ev,forecast,quarterForecast){
   const sensitivity=forecastSensitivity(ev,forecast,quarterForecast);
   const periodTarget=isTwentyMinuteHalves(ev)?"half":"quarter";
   return window.PARIForecastCore.evaluateSignals({
-    nowMs:Date.now(),
+    nowMs:Date.now(),regime:scoringRegime(ev),
+    statisticsReady:["field_goals_attempted","free_throws_attempted","offensive_rebounds","turnovers","team_fouls"]
+      .every(k=>(ev.statistics_quality?.available_metrics||[]).includes(k))&&!(ev.statistics_quality?.conflicts||[]).length,
     ageSeconds:Number.isFinite(at)?(Date.now()-at)/1000:null,
     period:findLivePeriod(ev),periodCount:inferPeriodLengthForForecast(ev)?.periods,elapsedSeconds:elapsed,periodLengthSeconds:length,
     timerVerified:ev?.timer_semantics_verified===true,
@@ -1228,7 +1249,7 @@ function signalQualityMarkup(evaluations){
 function priorityLabel(signal){
   const probability=signal.probability>=0.999?"≥99.9":(signal.probability*100).toFixed(1);
   return (signal.target==="quarter"?"Четверть Q"+signal.period:signal.target==="half"?"Тайм "+signal.period:"Матч · основное время")+
-    " · "+signal.direction+" "+signal.line+" · "+probability+"% по модели";
+    " · "+signal.direction+" "+signal.line+(signal.calibrated?" · "+probability+"%":" · экспериментальная оценка");
 }
 let prioritySignalsExpiresAt=0;
 function expirePrioritySignals(){
@@ -1579,7 +1600,8 @@ function automaticQuarterForecast(ev,matchForecast=null) {
     apiResponseAgeSeconds:Number.isFinite(quarterFeedAt)?Math.max(0,Math.round((Date.now()-quarterFeedAt)/1000)):null,
     providerEventTimestampAvailable:!!(ev?.updated_at||ev?.raw?.updated_at||ev?.raw?.updatedAt),
     label:quarterModeLabel+" · дополнительные показатели для просмотра "+qAvailable+"/"+qExpected};
-  const riskVariants=window.PARIForecastCore.quarterSensitivity(posterior,[]);
+  const riskVariants=[...window.PARIForecastCore.quarterSensitivity(posterior,[]),
+    ...window.PARIForecastCore.regimeSensitivity(posterior,[],scoringRegime(ev))];
   const scenarioRange=[Math.min(poisson.low95,...riskVariants.map(v=>v.interval95[0])),Math.max(poisson.high95,...riskVariants.map(v=>v.interval95[1]))];
   return {ready:true,target,period,periodCount:periods,periodLengthSeconds:length,current:observed??null,projection:Math.round(projection*10)/10,data_quality:quarterQuality,scenarioRange,market_lines:quarterLines,
     home:currentQuarter?.pair?.[0]??null,away:currentQuarter?.pair?.[1]??null,
@@ -1784,8 +1806,9 @@ async function refreshLiveMatches() {
             const e=forecast.estimate,probabilities=e.poisson?.probabilities||[];
             const near=probabilities.slice().sort((a,b)=>Math.abs(a.line-e.projection)-Math.abs(b.line-e.projection))[0];
             forecastHtml='<span class="live-match-meta forecast-live">Матч без ОТ: '+Number(e.projection).toFixed(1)+
-              ' · диапазон модели 80% '+(e.poisson?.low80??e.low)+'–'+(e.poisson?.high80??e.high)+
-              (near?' · линия '+near.line:' · нет линии')+' · оценка не калибрована</span>';
+              ' · условный диапазон модели '+(e.poisson?.low80??e.low)+'–'+(e.poisson?.high80??e.high)+
+              (near?' · линия '+near.line:' · нет линии')+
+              (e.regime?.candidate?' · изменение результативности · сценарии '+e.scenarioRange.join('–'):'')+' · оценка не калибрована</span>';
           }
           forecastHtml += quarterForecast.ready
             ?'<span class="live-match-meta forecast-live">'+escapeHtml(livePeriodLabel(ev,quarterForecast.period))+': '+Number(quarterForecast.projection).toFixed(1)+
