@@ -7,7 +7,7 @@ function pariHistoryMarkup(ev){
   const names={'30':'Очки','14':'Фолы','76':'3 очка: попадания','81':'2 очка: попадания','62':'Штрафные: попадания','63':'Штрафные: попытки','70':'Подборы в нападении','80':'Потери','1':'Код результата'};
   const name=n=>typeof n==='object'?(n?.rus||n?.eng||'—'):(n||'—');
   const statText=stats=>(stats||[]).map(s=>(names[s.kind]||'Код '+s.kind)+(s.stage?' · период '+s.stage:'')+': '+s.value).join(' · ');
-  const state={score_reconciled:'счёт подтверждён; полученные показатели переданы в расчёты',score_not_current:'счёт статистики отстаёт от LIVE; значения показаны ниже, но исключены из расчёта',review_unavailable:'PARI не вернул обзор этого события',statistics_unavailable:'PARI не вернул текущую статистику',identity_not_confirmed:'идентификаторы события не совпали',source_unavailable:'сервис временно недоступен'};
+  const state={statistics_refreshing:'текущая статистика обновляется; история сохранена',score_reconciled:'счёт подтверждён; пригодность отдельных показателей проверяется перед расчётом',score_not_current:'текущий счёт статистики расходится с LIVE; совпадающие завершённые периоды сохраняются',score_unavailable:'сервис не передал текущий счёт; доступная история сохранена',review_unavailable:'PARI не вернул обзор этого события',statistics_unavailable:'PARI не вернул текущую статистику',identity_not_confirmed:'идентификаторы события не совпали',source_unavailable:'сервис временно недоступен'};
   const teams=h?.teams||[];
   let html='<details class="technical-details"><summary>Статистика PARI и прошлые игры · '+teams.reduce((n,t)=>n+(t.games||[]).length,0)+'</summary><p>'+escapeHtml(state[d?.state]||'История получена')+'</p>';
   if(d?.received?.length)html+='<h4>Все поля текущей статистики PARI</h4>'+d.received.map(r=>'<p>'+escapeHtml(labels[r.metric_key]||r.metric_key||'Код '+r.kind)+(r.stage?' · этап '+escapeHtml(r.stage):'')+': <b>'+escapeHtml(r.home)+' : '+escapeHtml(r.away)+'</b></p>').join('');
@@ -454,8 +454,21 @@ function parseStatCount(value){
   const single=text.match(/^\d+(?:\.\d+)?$/);
   return single?{value:Number(text),attempts:null}:null;
 }
+function calculationStatRows(ev,period=null){
+  const rows=period==null?(ev?.external_statistics||[]):(ev?.period_statistics||[]).filter(r=>Number(r.period)===Number(period));
+  const sourceRank=r=>({'PARI':4,'PARI-PBP':4,'PARI-SSIS':4,'SofaScore':3,'SportScore':2,'derived':1}[r.source]||0);
+  return rows.filter(r=>{
+    if(!r||r.calculation_eligible===false)return false;
+    if(period==null&&(r.target==='period'||r.target_period!=null))return false;
+    if(r.completed_period_verified!==true&&['stale','timestamp_unparseable','source_timestamp_unavailable','future_timestamp'].includes(r.freshness_status))return false;
+    if(r.match_status==='not_confirmed')return false;
+    const observed=Date.parse(r.observed_at_utc||'');
+    if(Number.isFinite(observed)&&r.completed_period_verified!==true&&(Date.now()-observed>60000||observed-Date.now()>5000))return false;
+    return true;
+  }).sort((a,b)=>sourceRank(b)-sourceRank(a)||(Date.parse(b.observed_at_utc)||0)-(Date.parse(a.observed_at_utc)||0));
+}
 function liveShootingContext(ev,estimate){
-  const stats=Array.isArray(ev?.external_statistics)?ev.external_statistics:[];
+  const stats=calculationStatRows(ev).slice().reverse();
   if(!stats.length||!estimate?.elapsed_seconds)return {adjustment:1,factors:[],quality:"нет пригодных показателей бросков"};
   const sides={home:{},away:{}};
   const set=(side,key,value)=>{const parsed=parseStatCount(value);if(parsed)sides[side][key]=parsed;};
@@ -593,7 +606,8 @@ function advancedMatchCalculations(ev,estimate,period,clock,possession,quarterFo
 
 function possessionModelContext(ev,estimate,period,clock){
   if((ev.statistics_quality?.conflicts||[]).length)return {applied:false,reason:"конфликт исходной статистики"};
-  const rows=Array.isArray(ev?.external_statistics)?ev.external_statistics:[];
+  const rows=calculationStatRows(ev);
+  const usedRows=new Set();
   const aliases={
     fga:["field_goals_attempted","field_goal_attempts","field_goals_attempts","field_goal_attempted","fga","fg_attempted","fg_attempts","field_goals"],
     fgm:["field_goals_made","fgm","field_goals"],
@@ -610,8 +624,7 @@ function possessionModelContext(ev,estimate,period,clock){
   const normalizeKey=value=>String(value||"").toLowerCase().replace(/ё/g,"е").replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"").replace(/_+/g,"_");
   const rowFor=keys=>{
     const matches=rows.filter(x=>keys.includes(normalizeKey(x?.metric_key||x?.name)));
-    matches.sort((a,b)=>(String(a?.source||"").toUpperCase()==="PARI"?0:1)-(String(b?.source||"").toUpperCase()==="PARI"?0:1));
-    return matches[0]||null;
+    const row=matches[0]||null;if(row)usedRows.add(row);return row;
   };
   const read=(side,keys,part="value")=>{
     const row=rowFor(keys);if(!row)return null;
@@ -697,7 +710,7 @@ function possessionModelContext(ev,estimate,period,clock){
     threeAtt:"three_pointers_attempted",ftm:"free_throws_made",fta:"free_throws_attempted",oreb:"offensive_rebounds",tov:"turnovers"};
   const completedPeriods=[];
   for(let q=1;q<Number(period);q++){
-    const periodRows=(ev.period_statistics||[]).filter(r=>Number(r.period)===q);
+    const periodRows=calculationStatRows(ev,q);
     const box={home:{},away:{}};
     for(const [k,metric] of Object.entries(priorKeys))for(const side of ["home","away"]){
       const candidates=periodRows.filter(r=>r.metric_key===metric);
@@ -711,6 +724,12 @@ function possessionModelContext(ev,estimate,period,clock){
       });
       box[side][k]=values.length&&values.every(v=>v===values[0])?values[0]:null;
     }
+    for(const side of ['home','away']){
+      const value=key=>{const r=periodRows.find(r=>r.metric_key===key);return r?parseStatCount(r[side])?.value:null;};
+      if(box[side].twoMade==null&&value('field_goals_made')!=null&&box[side].threeMade!=null)box[side].twoMade=value('field_goals_made')-box[side].threeMade;
+      if(box[side].twoAtt==null&&value('field_goals_attempted')!=null&&box[side].threeAtt!=null)box[side].twoAtt=value('field_goals_attempted')-box[side].threeAtt;
+    }
+    for(const r of periodRows)if(Object.values(priorKeys).includes(r.metric_key)||['field_goals_made','field_goals_attempted'].includes(r.metric_key))usedRows.add(r);
     completedPeriods.push({period:q,durationSeconds:length,score:readPeriodScorePair(ev,q-1),...box});
   }
   const future=window.PARIForecastCore.possessionRemainder({score:[homePoints,awayPoints],home:sides.home,away:sides.away,
@@ -720,6 +739,7 @@ function possessionModelContext(ev,estimate,period,clock){
   return {applied:future.ready,available:true,reason:future.ready?null:future.reason,
     model:"Possession Engine v3 · экспериментальный",method:future.ready?method+" · "+future.method:method,confidence:"экспериментальная; не калибрована",qualityNotes,metrics,metric_coverage:metricCoverage,
     independentFutureEstimate:future.ready,future,linearBaseline,calibrated:false,
+    input_lineage:future.ready?[...usedRows].filter(r=>/^(field_goals|two_pointers|three_pointers|free_throws)(_(made|attempted))?$|^(offensive_rebounds|turnovers)$/.test(r.metric_key)).map(r=>({metric:r.metric_key,period:r.period??null,source:r.source,observed_at_utc:r.observed_at_utc})):[],
     home:Math.round(home*10)/10,away:Math.round(away*10)/10,average:Math.round(possessions*10)/10,imbalance_percent:Math.round(imbalance*100),
      projectionExact:projected,expectedRemainingPossessionsExact:future.expectedRemainingPossessions??null,pointsPerPossessionExact:future.pointsPerPossession??null,
     observedCombinedPPP:pointsPerPossession,pointsPerPossession:Math.round((future.pointsPerPossession??pointsPerPossession)*1000)/1000,homePointsPerPossession:Math.round(teamPppHome*1000)/1000,awayPointsPerPossession:Math.round(teamPppAway*1000)/1000,
@@ -785,7 +805,7 @@ function applyPoissonModel(estimate,lines,seedText,ev=null,period=null,clock=nul
   // The dynamic Monte Carlo already uses quarter momentum to weight its scenarios. Do not multiply the mean by the same signal again.
   const mu=possMu*secondaryAdjustment,mc=dynamicScenarioMonteCarlo(adjusted.current,mu,lines,seedText,ev,period,clock,"match");
   const factors=[...(context.factors||[]),...(statsContext.factors||[])];
-  const available=Number(ev?.statistics_quality?.available_count||0);
+  const available=Number(ev?.statistics_quality?.calculation_available_count??ev?.statistics_quality?.available_count??0);
   const expected=Number(ev?.statistics_quality?.expected_count||19);
   const apiAgeMs=Date.parse(ev?.feed_checked_at_utc||"");
   const playByPlay=ev?.play_by_play||ev?.external_live?.play_by_play;
@@ -1010,6 +1030,11 @@ function showSelectedMatch(ev,options={}){
   $("matchForecast").insertAdjacentHTML("beforeend",regimeMarkup(ev)+signalQualityMarkup(signalEvaluations(ev,matchForecast,quarter)));
   $("matchForecast").insertAdjacentHTML("beforeend",q4ModelComparisonMarkup(ev,matchForecast,quarter,matchLineValue));
   $("matchForecast").insertAdjacentHTML("beforeend",pariHistoryMarkup(ev));
+  const usage=estimate?.possession_model;
+  const usageMetrics=[...new Set((usage?.input_lineage||[]).map(r=>r.metric))];
+  $("matchForecast").insertAdjacentHTML("beforeend",'<details class="technical-details"><summary>Как используются данные</summary><p>'+escapeHtml(usage?.applied?'Основной расчёт использует объём бросков, реализацию, подборы в нападении и потери текущего матча и завершённых периодов.':'Основной расчёт использует счёт, время и результаты периодов. Модель владений: '+(usage?.reason||'не хватает согласованных показателей'))+'</p>'+
+    (usageMetrics.length?'<p>Входы модели: '+escapeHtml(usageMetrics.join(', '))+'</p>':'')+
+    '<p>Для расчёта пригодно показателей: '+Number(ev.statistics_quality?.calculation_available_count??0)+'/'+Number(ev.statistics_quality?.expected_count??19)+'. История игр — справочный ориентир. Передачи, перехваты, блоки и фолы — диагностика; отдельных проверенных весов в прогнозе для них пока нет.</p></details>');
   const statsMeta=statsQuality?'<p>Покрытие: <b>'+Number(statsQuality.coverage_percent||0)+'%</b> · источники: '+escapeHtml(ev.statistics_source||"нет")+'</p>':'';
   const missingStats=statsQuality?.missing_metrics?.length?'<p class="muted">Нет данных: '+escapeHtml(statsQuality.missing_metrics.join(", "))+'</p>':'';
   const statsConflicts=statsQuality?.conflicts?.length?'<p class="warn">Расхождения источников: '+statsQuality.conflicts.length+' · значения не скрыты</p>':'';
@@ -1270,7 +1295,7 @@ function signalEvaluations(ev,forecast,quarterForecast){
   return window.PARIForecastCore.evaluateSignals({
     nowMs:Date.now(),regime:scoringRegime(ev),
     statisticsReady:["field_goals_attempted","free_throws_attempted","offensive_rebounds","turnovers","team_fouls"]
-      .every(k=>(ev.statistics_quality?.available_metrics||[]).includes(k))&&!(ev.statistics_quality?.conflicts||[]).length,
+      .every(k=>(ev.statistics_quality?.calculation_metrics??ev.statistics_quality?.available_metrics??[]).includes(k))&&!(ev.statistics_quality?.conflicts||[]).length,
     ageSeconds:Number.isFinite(at)?(Date.now()-at)/1000:null,
     period:findLivePeriod(ev),periodCount:inferPeriodLengthForForecast(ev)?.periods,elapsedSeconds:elapsed,periodLengthSeconds:length,
     timerVerified:ev?.timer_semantics_verified===true,
