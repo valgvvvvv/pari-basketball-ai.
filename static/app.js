@@ -1,5 +1,36 @@
 const $ = id => document.getElementById(id);
 
+function pariHistoryMarkup(ev){
+  const h=ev.team_history,d=ev.pari_ssis_diagnostics;
+  if(!h&&!d)return '';
+  const labels={points:'Очки',fouls:'Фолы',blocks:'Блоки',assists:'Передачи',biggest_lead:'Максимальный отрыв',defensive_rebounds:'Защитные подборы',offensive_rebounds:'Подборы в нападении',rebounds:'Подборы',free_throws_made:'Штрафные: попадания',free_throws_attempted:'Штрафные: попытки',three_pointers_made:'3 очка: попадания',three_pointers_attempted:'3 очка: попытки',two_pointers_made:'2 очка: попадания',two_pointers_attempted:'2 очка: попытки',turnovers:'Потери',steals:'Перехваты',result_code:'Код результата'};
+  const names={'30':'Очки','14':'Фолы','76':'3 очка: попадания','81':'2 очка: попадания','62':'Штрафные: попадания','63':'Штрафные: попытки','70':'Подборы в нападении','80':'Потери','1':'Код результата'};
+  const name=n=>typeof n==='object'?(n?.rus||n?.eng||'—'):(n||'—');
+  const statText=stats=>(stats||[]).map(s=>(names[s.kind]||'Код '+s.kind)+(s.stage?' · период '+s.stage:'')+': '+s.value).join(' · ');
+  const state={score_reconciled:'счёт подтверждён; полученные показатели переданы в расчёты',score_not_current:'счёт статистики отстаёт от LIVE; значения показаны ниже, но исключены из расчёта',review_unavailable:'PARI не вернул обзор этого события',statistics_unavailable:'PARI не вернул текущую статистику',identity_not_confirmed:'идентификаторы события не совпали',source_unavailable:'сервис временно недоступен'};
+  const teams=h?.teams||[];
+  let html='<details class="technical-details"><summary>Статистика PARI и прошлые игры · '+teams.reduce((n,t)=>n+(t.games||[]).length,0)+'</summary><p>'+escapeHtml(state[d?.state]||'История получена')+'</p>';
+  if(d?.received?.length)html+='<h4>Все поля текущей статистики PARI</h4>'+d.received.map(r=>'<p>'+escapeHtml(labels[r.metric_key]||r.metric_key||'Код '+r.kind)+(r.stage?' · этап '+escapeHtml(r.stage):'')+': <b>'+escapeHtml(r.home)+' : '+escapeHtml(r.away)+'</b></p>').join('');
+  const summaries=teams.map(t=>t.summary||{});
+  if(summaries.length===2&&summaries.every(s=>s.sample_size>0)){
+    const reference=summaries.reduce((v,s)=>v+s.points_for+s.points_against,0)/2;
+    html+='<p><b>Исторический ориентир тотала: '+reference.toFixed(1)+'</b> · среднее набранных и пропущенных очков обеих команд. Справочный расчёт; сила соперников, составы и формат не скорректированы. Уверенность прогноза не повышает.</p>';
+  }
+  for(const t of teams){
+    html+='<h4>'+escapeHtml(name(t.name))+'</h4>';
+    for(const g of t.games||[]){
+      const ps=g.participants||[];
+      const score=ps.map(p=>(p.stats||[]).find(s=>s.kind==='30'&&!s.stage)?.value??'—').join(':');
+      html+='<details><summary>'+escapeHtml(new Date(g.start_time*1000).toLocaleDateString('ru-RU')+' · '+ps.map(p=>name(p.name)).join(' — ')+' · '+score)+'</summary>';
+      for(const p of ps)html+='<p>'+escapeHtml(name(p.name)+': '+statText(p.stats))+'</p>';
+      if(g.participant_statistics?.length)html+='<p>'+escapeHtml('Дополнительно для '+name(t.name)+': '+statText(g.participant_statistics))+'</p>';
+      if(g.opponent_statistics?.length)html+='<p>'+escapeHtml('Дополнительно для соперника: '+statText(g.opponent_statistics))+'</p>';
+      html+='</details>';
+    }
+  }
+  return html+'<p>Источник: PARI SSIS · '+escapeHtml(h?.observed_at_utc||'время недоступно')+'. Исторические показатели отделены от текущих владений и бросков.</p></details>';
+}
+
 function collectEventObjects(root){
   const out=[],seen=new Set();
   function walk(value,depth){
@@ -978,6 +1009,7 @@ function showSelectedMatch(ev,options={}){
   if($("toolsRegistry"))$("toolsRegistry").innerHTML=unifiedToolsPanelHtml(ev,classicMatchModels,classicQuarterModels,matchForecast,quarter,lines);
   $("matchForecast").insertAdjacentHTML("beforeend",regimeMarkup(ev)+signalQualityMarkup(signalEvaluations(ev,matchForecast,quarter)));
   $("matchForecast").insertAdjacentHTML("beforeend",q4ModelComparisonMarkup(ev,matchForecast,quarter,matchLineValue));
+  $("matchForecast").insertAdjacentHTML("beforeend",pariHistoryMarkup(ev));
   const statsMeta=statsQuality?'<p>Покрытие: <b>'+Number(statsQuality.coverage_percent||0)+'%</b> · источники: '+escapeHtml(ev.statistics_source||"нет")+'</p>':'';
   const missingStats=statsQuality?.missing_metrics?.length?'<p class="muted">Нет данных: '+escapeHtml(statsQuality.missing_metrics.join(", "))+'</p>':'';
   const statsConflicts=statsQuality?.conflicts?.length?'<p class="warn">Расхождения источников: '+statsQuality.conflicts.length+' · значения не скрыты</p>':'';
