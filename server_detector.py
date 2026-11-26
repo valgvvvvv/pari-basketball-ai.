@@ -17,7 +17,18 @@ function serverPriorityCards(data){
  for(const original of data.events||[]){
   const ev={...original,feed_checked_at_utc:data.checked_at_utc};
   try {
-  const match=automaticForecast(ev),quarter=automaticQuarterForecast(ev,match);
+  const info=inferPeriodLengthForForecast(ev),period=findLivePeriod(ev);
+  const clock=/^(\\d{1,2}):([0-5]\\d)$/.exec(String(findLiveClock(ev)||""));
+  const elapsed=info&&clock?info.seconds-Number(clock[1])*60-Number(clock[2]):null;
+  const halves=info?.periods===2&&info.seconds===1200;
+  const valid=info&&[2,4].includes(info.periods)&&Number.isInteger(period)&&period>=1&&period<=info.periods&&
+    Number.isFinite(elapsed)&&elapsed>=0&&elapsed<info.seconds;
+  const matchWindow=valid&&period===info.periods&&elapsed>=(halves?720:120);
+  // Exact eligibility windows from evaluateSignals: avoid 100,000 match draws
+  // for an event that cannot be considered by the server detector anyway.
+  // Retain the period estimator at the final match horizon for sensitivity.
+  const match=matchWindow?automaticForecast(ev):{ready:false,reason:valid?'Вне окна отбора матча':'Не подтверждён формат или таймер'};
+  const quarter=automaticQuarterForecast(ev,match); // Cheap analytic calculation also retains rejected period checkpoints.
   const decisions=signalEvaluations(ev,match,quarter);
   for(const [target,f] of [['match',match],[isTwentyMinuteHalves(ev)?'half':'quarter',quarter]]){
    if(!f.ready||f.kind==='market_reference')modelBlockers.push({event:String(ev.id),target,reason:f.reason||'No game forecast'});
