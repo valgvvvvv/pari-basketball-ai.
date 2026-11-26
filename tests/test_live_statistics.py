@@ -263,7 +263,7 @@ class LiveStatisticsNormalizationTests(unittest.TestCase):
         self.assertEqual(len(cached["external_statistics"]), 1)
         self.assertEqual(cached["external_statistics"][0]["metric_key"], "steals")
         self.assertTrue(cached["statistics_source_diagnostics"]["timeout"])
-        self.assertEqual(cached["signature"], ("home", "away"))
+        self.assertEqual(cached["signature"], ("home", "away", "", "", "", ""))
 
 
 

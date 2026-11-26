@@ -16,6 +16,7 @@ from match_identity import match_context_compatible as external_match_context_co
 import server_signals
 import forecast_journal
 import pari_data
+import pari_ssis
 import hmac
 import time
 import gzip
@@ -3059,6 +3060,8 @@ def _finalize_live_statistics(events):
             continue
         period_rows = []
         for raw_period_row in event.get("period_statistics") or []:
+            if raw_period_row.get("source") == "PARI-SSIS" and raw_period_row.get("score_basis") != event.get("score"):
+                continue
             period_row = _normalize_live_stat_row(raw_period_row)
             if period_row:
                 try:
@@ -3069,6 +3072,8 @@ def _finalize_live_statistics(events):
         event["period_statistics"] = period_rows
         normalized, seen = [], set()
         for raw in event.get("external_statistics") or []:
+            if raw.get("source") == "PARI-SSIS" and raw.get("score_basis") != event.get("score"):
+                continue
             row = _normalize_live_stat_row(raw)
             if not row:
                 continue
@@ -3151,7 +3156,7 @@ def _finalize_live_statistics(events):
                 stat_row["freshness_status"] = "source_timestamp_unavailable"
         def source_rank(row):
             source = str(row.get("source") or "").casefold()
-            source_priority = {"pari": 4, "pari-pbp": 4, "sofascore": 3, "sportscore": 2, "derived": 1}.get(source, 0)
+            source_priority = {"pari": 4, "pari-pbp": 4, "pari-ssis": 4, "sofascore": 3, "sportscore": 2, "derived": 1}.get(source, 0)
             freshness = {"fresh": 3, "source_timestamp_unavailable": 1, "timestamp_unparseable": 0, "stale": 0}.get(row.get("freshness_status"), 1)
             match_quality = {"pari_event_id": 3, "exact_event_id_match": 3, "matched_external_event": 2, "not_confirmed": 0}.get(row.get("match_status"), 1)
             return (freshness, match_quality, source_priority)
@@ -3362,13 +3367,17 @@ _LIVE_ENRICHMENT_LAST_STATUS = {"status": "not_started", "checked_at_utc": None}
 
 def _live_event_signature(event):
     return (str(event.get("team1") or "").strip().casefold(),
-            str(event.get("team2") or "").strip().casefold())
+            str(event.get("team2") or "").strip().casefold(),
+            str(event.get("start_time") or ""), str(event.get("sport_id") or ""),
+            str(event.get("period_count") or ""), str(event.get("period_length_seconds") or ""))
 
 
 async def _refresh_live_enrichment_background(events_snapshot):
     global _LIVE_ENRICHMENT_TASK, _LIVE_ENRICHMENT_LAST_STATUS
     try:
+        pari_diagnostics = await pari_ssis.enrich(events_snapshot)
         diagnostics = await _enrich_with_sofascore_live(events_snapshot)
+        diagnostics["pari_ssis"] = pari_diagnostics
         _finalize_live_statistics(events_snapshot)
         now = datetime.now(timezone.utc)
         sportscore_diag = diagnostics.get("sportscore_diagnostics") or {}
@@ -3413,6 +3422,10 @@ async def _refresh_live_enrichment_background(events_snapshot):
                 "expires": now.timestamp() + 45,
                 "signature": _live_event_signature(event),
                 "external_live": copy.deepcopy(event.get("external_live")),
+                "period_statistics": copy.deepcopy([row for row in event.get("period_statistics") or []
+                    if str(row.get("source") or "") not in ("PARI", "PARI-PBP", "PARI-derived", "derived")]),
+                "team_history": copy.deepcopy(event.get("team_history")),
+                "pari_ssis_diagnostics": copy.deepcopy(event.get("pari_ssis_diagnostics")),
                 "external_statistics": copy.deepcopy([
                     row for row in (event.get("external_statistics") or [])
                     if str(row.get("source") or "") not in ("PARI", "PARI-PBP", "PARI-derived", "derived")
@@ -4325,7 +4338,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         "classification": "catalogue_resolved",
                         "sport_name": repair_team_encoding(sport_names.get(str(event.get("sportId")), "")),
                         "status": "live",
-                        "league": repair_team_encoding(event.get("name") or event.get("competitionName") or ""),
+                        "league": repair_team_encoding(event.get("name") or event.get("competitionName") or sport_names.get(str(event.get("sportId")), "")),
                         "start_time": event.get("startTime"),
                         "score": (_extract_pari_score(event)
                                   or _extract_pari_score(live_info)
@@ -4520,6 +4533,11 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             needs_enrichment = True
                             continue
                         cache_applied += 1
+                        for key in ("team_history", "pari_ssis_diagnostics"):
+                            if cached.get(key) is not None:
+                                event[key] = copy.deepcopy(cached[key])
+                        existing_periods = list(event.get("period_statistics") or [])
+                        event["period_statistics"] = existing_periods + [row for row in cached.get("period_statistics", []) if row not in existing_periods]
                         cached_stats = cached.get("external_statistics") or []
                         if cached_stats:
                             existing = list(event.get("external_statistics") or [])
