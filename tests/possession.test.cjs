@@ -28,3 +28,9 @@ const adapted=vm.runInContext('possessionModelContext(event,{elapsed_seconds:108
 assert.equal(adapted.applied,true,'combined PPP above 2.25 is valid when individual efficiencies are valid');assert.ok(Math.abs(adapted.projectionExact-f.projection)<1e-9);
 ctx.event={...event,period_statistics:[]};const missing=vm.runInContext('possessionModelContext(event,{elapsed_seconds:1080,projection:180},2,"02:00")',ctx);assert.equal(missing.applied,false);assert.equal(missing.available,true);assert.ok(missing.linearBaseline>80);
 console.log('possession remainder: arithmetic oracle, non-cancellation, per-team bounds, 2x20, invalid input, full adapter OK');
+
+ctx.historyEvent={team_history:{teams:[{name:{rus:'<script>test</script>'},summary:{sample_size:1,points_for:70,points_against:80},games:[]},
+ {name:{rus:'B'},summary:{sample_size:1,points_for:90,points_against:60},games:[]}]},pari_ssis_diagnostics:{state:'score_not_current',received:[{kind:'30',metric_key:'points',home:10,away:12}]}};
+const historyHtml=vm.runInContext('pariHistoryMarkup(historyEvent)',ctx);
+assert.ok(historyHtml.includes('150.0'));assert.ok(!historyHtml.includes('<script>test</script>'));assert.ok(historyHtml.includes('&lt;script&gt;'));
+console.log('historical reference arithmetic and escaped UI: OK');

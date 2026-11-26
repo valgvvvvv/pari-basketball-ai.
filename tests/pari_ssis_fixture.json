@@ -1,0 +1,1255 @@
+{
+  "event": {
+    "id": "70243767",
+    "start_time": 1795719600,
+    "score": [
+      54,
+      48
+    ],
+    "period_count": 4,
+    "raw": {
+      "team1Id": 464949,
+      "team2Id": 464554
+    }
+  },
+  "review": {
+    "result": "OK",
+    "kind": "eventReview",
+    "response": {
+      "eventId": "70243767",
+      "eventIid": "1919288",
+      "sport": "3",
+      "sportName": "Basketball",
+      "startTime": 1795719600,
+      "state": "7",
+      "eventGroup": {
+        "id": "104231",
+        "iid": "171790",
+        "name": {
+          "eng": "FIBA World Cup 2027, European Qualifiers, Group J",
+          "rus": "FIBA World Cup 2027, European Qualifiers, Группа J"
+        },
+        "kind": "5",
+        "parent": {
+          "iid": "86736",
+          "name": {
+            "eng": "league",
+            "rus": "Лига"
+          },
+          "kind": "4",
+          "parent": {
+            "iid": "12664",
+            "name": {
+              "eng": "World Cup Qualification, Europe 2025",
+              "rus": "Кубок Мира Квалификация, Европа 2025"
+            },
+            "kind": "3",
+            "parent": {
+              "iid": "11990",
+              "name": {
+                "eng": "World Cup Qualification, Europe",
+                "rus": "Кубок Мира Квалификация, Европа"
+              },
+              "kind": "2",
+              "parent": {
+                "iid": "11778",
+                "name": {
+                  "eng": "International",
+                  "rus": "Международный"
+                },
+                "kind": "1"
+              }
+            }
+          }
+        }
+      },
+      "participants": [
+        {
+          "id": "464949",
+          "iid": "13823",
+          "name": {
+            "eng": "Italy",
+            "rus": "Италия"
+          },
+          "order": 1,
+          "lastEvents": [
+            {
+              "iid": "1919283",
+              "startTime": 1788197400,
+              "eventGroup": {
+                "id": "104231",
+                "iid": "171790",
+                "name": {
+                  "eng": "FIBA World Cup 2027, European Qualifiers, Group J",
+                  "rus": "FIBA World Cup 2027, European Qualifiers, Группа J"
+                },
+                "kind": "5",
+                "parent": {
+                  "iid": "86736",
+                  "name": {
+                    "eng": "league",
+                    "rus": "Лига"
+                  },
+                  "kind": "4",
+                  "parent": {
+                    "iid": "12664",
+                    "name": {
+                      "eng": "World Cup Qualification, Europe 2025",
+                      "rus": "Кубок Мира Квалификация, Европа 2025"
+                    },
+                    "kind": "3",
+                    "parent": {
+                      "iid": "11990",
+                      "name": {
+                        "eng": "World Cup Qualification, Europe",
+                        "rus": "Кубок Мира Квалификация, Европа"
+                      },
+                      "kind": "2",
+                      "parent": {
+                        "iid": "11778",
+                        "name": {
+                          "eng": "International",
+                          "rus": "Международный"
+                        },
+                        "kind": "1"
+                      }
+                    }
+                  }
+                }
+              },
+              "hasTimeline": true,
+              "hasStatistic": false,
+              "hasCurrentLineups": false,
+              "participants": [
+                {
+                  "id": "464949",
+                  "iid": "13823",
+                  "name": {
+                    "eng": "Italy",
+                    "rus": "Италия"
+                  },
+                  "regionId": "380",
+                  "order": 1,
+                  "stats": [
+                    {
+                      "kind": "30",
+                      "stage": "22",
+                      "value": "19"
+                    },
+                    {
+                      "kind": "1",
+                      "value": "2"
+                    },
+                    {
+                      "kind": "30",
+                      "value": "64"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "25",
+                      "value": "10"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "24",
+                      "value": "23"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "23",
+                      "value": "12"
+                    }
+                  ]
+                },
+                {
+                  "id": "464888",
+                  "iid": "13800",
+                  "name": {
+                    "eng": "Serbia",
+                    "rus": "Сербия"
+                  },
+                  "regionId": "643692",
+                  "order": 2,
+                  "stats": [
+                    {
+                      "kind": "30",
+                      "stage": "22",
+                      "value": "20"
+                    },
+                    {
+                      "kind": "1",
+                      "value": "1"
+                    },
+                    {
+                      "kind": "30",
+                      "value": "76"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "25",
+                      "value": "19"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "24",
+                      "value": "17"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "23",
+                      "value": "20"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "iid": "1919271",
+              "startTime": 1787940000,
+              "eventGroup": {
+                "id": "104231",
+                "iid": "171790",
+                "name": {
+                  "eng": "FIBA World Cup 2027, European Qualifiers, Group J",
+                  "rus": "FIBA World Cup 2027, European Qualifiers, Группа J"
+                },
+                "kind": "5",
+                "parent": {
+                  "iid": "86736",
+                  "name": {
+                    "eng": "league",
+                    "rus": "Лига"
+                  },
+                  "kind": "4",
+                  "parent": {
+                    "iid": "12664",
+                    "name": {
+                      "eng": "World Cup Qualification, Europe 2025",
+                      "rus": "Кубок Мира Квалификация, Европа 2025"
+                    },
+                    "kind": "3",
+                    "parent": {
+                      "iid": "11990",
+                      "name": {
+                        "eng": "World Cup Qualification, Europe",
+                        "rus": "Кубок Мира Квалификация, Европа"
+                      },
+                      "kind": "2",
+                      "parent": {
+                        "iid": "11778",
+                        "name": {
+                          "eng": "International",
+                          "rus": "Международный"
+                        },
+                        "kind": "1"
+                      }
+                    }
+                  }
+                }
+              },
+              "hasTimeline": true,
+              "hasStatistic": false,
+              "hasCurrentLineups": false,
+              "participants": [
+                {
+                  "id": "521152",
+                  "iid": "13856",
+                  "name": {
+                    "eng": "Bosnia and Herzegovina",
+                    "rus": "Босния и Герцеговина"
+                  },
+                  "regionId": "70",
+                  "order": 1,
+                  "stats": [
+                    {
+                      "kind": "30",
+                      "stage": "23",
+                      "value": "16"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "22",
+                      "value": "18"
+                    },
+                    {
+                      "kind": "1",
+                      "value": "1"
+                    },
+                    {
+                      "kind": "30",
+                      "value": "78"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "24",
+                      "value": "24"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "25",
+                      "value": "20"
+                    }
+                  ]
+                },
+                {
+                  "id": "464949",
+                  "iid": "13823",
+                  "name": {
+                    "eng": "Italy",
+                    "rus": "Италия"
+                  },
+                  "regionId": "380",
+                  "order": 2,
+                  "stats": [
+                    {
+                      "kind": "30",
+                      "stage": "23",
+                      "value": "10"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "22",
+                      "value": "17"
+                    },
+                    {
+                      "kind": "1",
+                      "value": "2"
+                    },
+                    {
+                      "kind": "30",
+                      "value": "76"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "24",
+                      "value": "27"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "25",
+                      "value": "22"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "lastEventsParticipantStats": [
+            {
+              "eventIid": "1919283",
+              "eventStartTime": 1788197400,
+              "participantOrder": 1,
+              "competitionIid": "11990",
+              "stats": [
+                {
+                  "kind": "14",
+                  "value": "0"
+                },
+                {
+                  "kind": "30",
+                  "stage": "22",
+                  "value": "19"
+                },
+                {
+                  "kind": "1",
+                  "value": "2"
+                },
+                {
+                  "kind": "30",
+                  "value": "64"
+                },
+                {
+                  "kind": "30",
+                  "stage": "25",
+                  "value": "10"
+                },
+                {
+                  "kind": "30",
+                  "stage": "24",
+                  "value": "23"
+                },
+                {
+                  "kind": "30",
+                  "stage": "23",
+                  "value": "12"
+                },
+                {
+                  "kind": "14",
+                  "stage": "25",
+                  "value": "0"
+                },
+                {
+                  "kind": "14",
+                  "stage": "24",
+                  "value": "0"
+                },
+                {
+                  "kind": "14",
+                  "stage": "23",
+                  "value": "0"
+                },
+                {
+                  "kind": "14",
+                  "stage": "22",
+                  "value": "0"
+                },
+                {
+                  "kind": "76",
+                  "stage": "25",
+                  "value": "0"
+                },
+                {
+                  "kind": "76",
+                  "stage": "24",
+                  "value": "3"
+                },
+                {
+                  "kind": "76",
+                  "stage": "23",
+                  "value": "2"
+                },
+                {
+                  "kind": "76",
+                  "stage": "22",
+                  "value": "2"
+                },
+                {
+                  "kind": "76",
+                  "value": "7"
+                },
+                {
+                  "kind": "81",
+                  "stage": "25",
+                  "value": "2"
+                },
+                {
+                  "kind": "81",
+                  "stage": "24",
+                  "value": "2"
+                },
+                {
+                  "kind": "81",
+                  "stage": "23",
+                  "value": "3"
+                },
+                {
+                  "kind": "81",
+                  "stage": "22",
+                  "value": "3"
+                },
+                {
+                  "kind": "81",
+                  "value": "10"
+                }
+              ],
+              "rivalStats": [
+                {
+                  "kind": "30",
+                  "stage": "22",
+                  "value": "20"
+                },
+                {
+                  "kind": "1",
+                  "value": "1"
+                },
+                {
+                  "kind": "30",
+                  "value": "76"
+                },
+                {
+                  "kind": "30",
+                  "stage": "25",
+                  "value": "19"
+                },
+                {
+                  "kind": "30",
+                  "stage": "24",
+                  "value": "17"
+                },
+                {
+                  "kind": "30",
+                  "stage": "23",
+                  "value": "20"
+                }
+              ]
+            },
+            {
+              "eventIid": "1919271",
+              "eventStartTime": 1787940000,
+              "participantOrder": 2,
+              "competitionIid": "11990",
+              "stats": [
+                {
+                  "kind": "14",
+                  "value": "0"
+                },
+                {
+                  "kind": "30",
+                  "stage": "23",
+                  "value": "10"
+                },
+                {
+                  "kind": "30",
+                  "stage": "22",
+                  "value": "17"
+                },
+                {
+                  "kind": "1",
+                  "value": "2"
+                },
+                {
+                  "kind": "30",
+                  "value": "76"
+                },
+                {
+                  "kind": "30",
+                  "stage": "24",
+                  "value": "27"
+                },
+                {
+                  "kind": "30",
+                  "stage": "25",
+                  "value": "22"
+                },
+                {
+                  "kind": "76",
+                  "stage": "25",
+                  "value": "5"
+                },
+                {
+                  "kind": "76",
+                  "stage": "24",
+                  "value": "2"
+                },
+                {
+                  "kind": "76",
+                  "stage": "23",
+                  "value": "0"
+                },
+                {
+                  "kind": "76",
+                  "stage": "22",
+                  "value": "3"
+                },
+                {
+                  "kind": "76",
+                  "value": "10"
+                },
+                {
+                  "kind": "81",
+                  "stage": "25",
+                  "value": "3"
+                },
+                {
+                  "kind": "81",
+                  "stage": "24",
+                  "value": "4"
+                },
+                {
+                  "kind": "81",
+                  "stage": "23",
+                  "value": "2"
+                },
+                {
+                  "kind": "81",
+                  "stage": "22",
+                  "value": "4"
+                },
+                {
+                  "kind": "81",
+                  "value": "13"
+                },
+                {
+                  "kind": "14",
+                  "stage": "25",
+                  "value": "0"
+                },
+                {
+                  "kind": "14",
+                  "stage": "24",
+                  "value": "0"
+                },
+                {
+                  "kind": "14",
+                  "stage": "23",
+                  "value": "0"
+                },
+                {
+                  "kind": "14",
+                  "stage": "22",
+                  "value": "0"
+                }
+              ],
+              "rivalStats": [
+                {
+                  "kind": "30",
+                  "stage": "23",
+                  "value": "16"
+                },
+                {
+                  "kind": "30",
+                  "stage": "22",
+                  "value": "18"
+                },
+                {
+                  "kind": "1",
+                  "value": "1"
+                },
+                {
+                  "kind": "30",
+                  "value": "78"
+                },
+                {
+                  "kind": "30",
+                  "stage": "24",
+                  "value": "24"
+                },
+                {
+                  "kind": "30",
+                  "stage": "25",
+                  "value": "20"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "464554",
+          "iid": "13833",
+          "name": {
+            "eng": "Turkey",
+            "rus": "Турция"
+          },
+          "order": 2,
+          "lastEvents": [
+            {
+              "iid": "1919282",
+              "startTime": 1788204600,
+              "eventGroup": {
+                "id": "104231",
+                "iid": "171790",
+                "name": {
+                  "eng": "FIBA World Cup 2027, European Qualifiers, Group J",
+                  "rus": "FIBA World Cup 2027, European Qualifiers, Группа J"
+                },
+                "kind": "5",
+                "parent": {
+                  "iid": "86736",
+                  "name": {
+                    "eng": "league",
+                    "rus": "Лига"
+                  },
+                  "kind": "4",
+                  "parent": {
+                    "iid": "12664",
+                    "name": {
+                      "eng": "World Cup Qualification, Europe 2025",
+                      "rus": "Кубок Мира Квалификация, Европа 2025"
+                    },
+                    "kind": "3",
+                    "parent": {
+                      "iid": "11990",
+                      "name": {
+                        "eng": "World Cup Qualification, Europe",
+                        "rus": "Кубок Мира Квалификация, Европа"
+                      },
+                      "kind": "2",
+                      "parent": {
+                        "iid": "11778",
+                        "name": {
+                          "eng": "International",
+                          "rus": "Международный"
+                        },
+                        "kind": "1"
+                      }
+                    }
+                  }
+                }
+              },
+              "hasTimeline": true,
+              "hasStatistic": false,
+              "hasCurrentLineups": false,
+              "participants": [
+                {
+                  "id": "479528",
+                  "iid": "13830",
+                  "name": {
+                    "eng": "Iceland",
+                    "rus": "Исландия"
+                  },
+                  "regionId": "352",
+                  "order": 1,
+                  "stats": [
+                    {
+                      "kind": "30",
+                      "stage": "25",
+                      "value": "17"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "24",
+                      "value": "19"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "23",
+                      "value": "23"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "22",
+                      "value": "14"
+                    },
+                    {
+                      "kind": "1",
+                      "value": "2"
+                    },
+                    {
+                      "kind": "30",
+                      "value": "73"
+                    }
+                  ]
+                },
+                {
+                  "id": "464554",
+                  "iid": "13833",
+                  "name": {
+                    "eng": "Turkey",
+                    "rus": "Турция"
+                  },
+                  "regionId": "792",
+                  "order": 2,
+                  "stats": [
+                    {
+                      "kind": "30",
+                      "stage": "25",
+                      "value": "30"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "24",
+                      "value": "20"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "23",
+                      "value": "27"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "22",
+                      "value": "33"
+                    },
+                    {
+                      "kind": "1",
+                      "value": "1"
+                    },
+                    {
+                      "kind": "30",
+                      "value": "110"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "iid": "1919272",
+              "startTime": 1787940000,
+              "eventGroup": {
+                "id": "104231",
+                "iid": "171790",
+                "name": {
+                  "eng": "FIBA World Cup 2027, European Qualifiers, Group J",
+                  "rus": "FIBA World Cup 2027, European Qualifiers, Группа J"
+                },
+                "kind": "5",
+                "parent": {
+                  "iid": "86736",
+                  "name": {
+                    "eng": "league",
+                    "rus": "Лига"
+                  },
+                  "kind": "4",
+                  "parent": {
+                    "iid": "12664",
+                    "name": {
+                      "eng": "World Cup Qualification, Europe 2025",
+                      "rus": "Кубок Мира Квалификация, Европа 2025"
+                    },
+                    "kind": "3",
+                    "parent": {
+                      "iid": "11990",
+                      "name": {
+                        "eng": "World Cup Qualification, Europe",
+                        "rus": "Кубок Мира Квалификация, Европа"
+                      },
+                      "kind": "2",
+                      "parent": {
+                        "iid": "11778",
+                        "name": {
+                          "eng": "International",
+                          "rus": "Международный"
+                        },
+                        "kind": "1"
+                      }
+                    }
+                  }
+                }
+              },
+              "hasTimeline": true,
+              "hasStatistic": false,
+              "hasCurrentLineups": false,
+              "participants": [
+                {
+                  "id": "464554",
+                  "iid": "13833",
+                  "name": {
+                    "eng": "Turkey",
+                    "rus": "Турция"
+                  },
+                  "regionId": "792",
+                  "order": 1,
+                  "stats": [
+                    {
+                      "kind": "30",
+                      "stage": "23",
+                      "value": "28"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "22",
+                      "value": "27"
+                    },
+                    {
+                      "kind": "1",
+                      "value": "1"
+                    },
+                    {
+                      "kind": "30",
+                      "value": "94"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "25",
+                      "value": "19"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "24",
+                      "value": "20"
+                    }
+                  ]
+                },
+                {
+                  "id": "464890",
+                  "iid": "13832",
+                  "name": {
+                    "eng": "Lithuania",
+                    "rus": "Литва"
+                  },
+                  "regionId": "440",
+                  "order": 2,
+                  "stats": [
+                    {
+                      "kind": "30",
+                      "stage": "23",
+                      "value": "21"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "22",
+                      "value": "13"
+                    },
+                    {
+                      "kind": "1",
+                      "value": "2"
+                    },
+                    {
+                      "kind": "30",
+                      "value": "66"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "25",
+                      "value": "19"
+                    },
+                    {
+                      "kind": "30",
+                      "stage": "24",
+                      "value": "13"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "lastEventsParticipantStats": [
+            {
+              "eventIid": "1919282",
+              "eventStartTime": 1788204600,
+              "participantOrder": 2,
+              "competitionIid": "11990",
+              "stats": [
+                {
+                  "kind": "76",
+                  "stage": "25",
+                  "value": "3"
+                },
+                {
+                  "kind": "76",
+                  "stage": "24",
+                  "value": "3"
+                },
+                {
+                  "kind": "76",
+                  "stage": "23",
+                  "value": "5"
+                },
+                {
+                  "kind": "76",
+                  "stage": "22",
+                  "value": "3"
+                },
+                {
+                  "kind": "76",
+                  "value": "14"
+                },
+                {
+                  "kind": "81",
+                  "stage": "25",
+                  "value": "6"
+                },
+                {
+                  "kind": "81",
+                  "stage": "24",
+                  "value": "3"
+                },
+                {
+                  "kind": "81",
+                  "stage": "23",
+                  "value": "5"
+                },
+                {
+                  "kind": "81",
+                  "stage": "22",
+                  "value": "7"
+                },
+                {
+                  "kind": "81",
+                  "value": "21"
+                },
+                {
+                  "kind": "14",
+                  "stage": "25",
+                  "value": "0"
+                },
+                {
+                  "kind": "14",
+                  "stage": "24",
+                  "value": "0"
+                },
+                {
+                  "kind": "14",
+                  "stage": "23",
+                  "value": "0"
+                },
+                {
+                  "kind": "14",
+                  "stage": "22",
+                  "value": "0"
+                },
+                {
+                  "kind": "30",
+                  "stage": "25",
+                  "value": "30"
+                },
+                {
+                  "kind": "14",
+                  "value": "0"
+                },
+                {
+                  "kind": "30",
+                  "stage": "24",
+                  "value": "20"
+                },
+                {
+                  "kind": "30",
+                  "stage": "23",
+                  "value": "27"
+                },
+                {
+                  "kind": "30",
+                  "stage": "22",
+                  "value": "33"
+                },
+                {
+                  "kind": "1",
+                  "value": "1"
+                },
+                {
+                  "kind": "30",
+                  "value": "110"
+                }
+              ],
+              "rivalStats": [
+                {
+                  "kind": "30",
+                  "stage": "25",
+                  "value": "17"
+                },
+                {
+                  "kind": "30",
+                  "stage": "24",
+                  "value": "19"
+                },
+                {
+                  "kind": "30",
+                  "stage": "23",
+                  "value": "23"
+                },
+                {
+                  "kind": "30",
+                  "stage": "22",
+                  "value": "14"
+                },
+                {
+                  "kind": "1",
+                  "value": "2"
+                },
+                {
+                  "kind": "30",
+                  "value": "73"
+                }
+              ]
+            },
+            {
+              "eventIid": "1919272",
+              "eventStartTime": 1787940000,
+              "participantOrder": 1,
+              "competitionIid": "11990",
+              "stats": [
+                {
+                  "kind": "14",
+                  "value": "0"
+                },
+                {
+                  "kind": "30",
+                  "stage": "23",
+                  "value": "28"
+                },
+                {
+                  "kind": "30",
+                  "stage": "22",
+                  "value": "27"
+                },
+                {
+                  "kind": "1",
+                  "value": "1"
+                },
+                {
+                  "kind": "30",
+                  "value": "94"
+                },
+                {
+                  "kind": "30",
+                  "stage": "25",
+                  "value": "19"
+                },
+                {
+                  "kind": "30",
+                  "stage": "24",
+                  "value": "20"
+                },
+                {
+                  "kind": "81",
+                  "stage": "25",
+                  "value": "5"
+                },
+                {
+                  "kind": "81",
+                  "stage": "24",
+                  "value": "3"
+                },
+                {
+                  "kind": "81",
+                  "stage": "23",
+                  "value": "9"
+                },
+                {
+                  "kind": "81",
+                  "stage": "22",
+                  "value": "8"
+                },
+                {
+                  "kind": "81",
+                  "value": "25"
+                },
+                {
+                  "kind": "76",
+                  "stage": "25",
+                  "value": "2"
+                },
+                {
+                  "kind": "76",
+                  "stage": "24",
+                  "value": "4"
+                },
+                {
+                  "kind": "76",
+                  "stage": "23",
+                  "value": "2"
+                },
+                {
+                  "kind": "76",
+                  "stage": "22",
+                  "value": "3"
+                },
+                {
+                  "kind": "76",
+                  "value": "11"
+                },
+                {
+                  "kind": "14",
+                  "stage": "25",
+                  "value": "0"
+                },
+                {
+                  "kind": "14",
+                  "stage": "24",
+                  "value": "0"
+                },
+                {
+                  "kind": "14",
+                  "stage": "23",
+                  "value": "0"
+                },
+                {
+                  "kind": "14",
+                  "stage": "22",
+                  "value": "0"
+                }
+              ],
+              "rivalStats": [
+                {
+                  "kind": "30",
+                  "stage": "23",
+                  "value": "21"
+                },
+                {
+                  "kind": "30",
+                  "stage": "22",
+                  "value": "13"
+                },
+                {
+                  "kind": "1",
+                  "value": "2"
+                },
+                {
+                  "kind": "30",
+                  "value": "66"
+                },
+                {
+                  "kind": "30",
+                  "stage": "25",
+                  "value": "19"
+                },
+                {
+                  "kind": "30",
+                  "stage": "24",
+                  "value": "13"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "hasParticipantRivalry": true,
+      "hasLineups": false,
+      "hasUnits": false,
+      "hasSeasonInfo": true
+    }
+  },
+  "statistics": {
+    "result": "OK",
+    "kind": "eventStatistic",
+    "response": {
+      "eventId": "70243767",
+      "eventIid": "1919288",
+      "sport": "3",
+      "sportName": "Basketball",
+      "startTime": 1795719600,
+      "participants": [
+        {
+          "id": "464949",
+          "iid": "13823",
+          "name": {
+            "eng": "Italy",
+            "rus": "Италия"
+          },
+          "regionId": "380",
+          "order": 1,
+          "stats": [
+            {
+              "kind": "30",
+              "stage": "24",
+              "value": "10"
+            },
+            {
+              "kind": "30",
+              "stage": "23",
+              "value": "22"
+            },
+            {
+              "kind": "30",
+              "stage": "22",
+              "value": "22"
+            },
+            {
+              "kind": "1",
+              "value": "0"
+            },
+            {
+              "kind": "30",
+              "value": "54"
+            }
+          ]
+        },
+        {
+          "id": "464554",
+          "iid": "13833",
+          "name": {
+            "eng": "Turkey",
+            "rus": "Турция"
+          },
+          "regionId": "792",
+          "order": 2,
+          "stats": [
+            {
+              "kind": "30",
+              "stage": "24",
+              "value": "7"
+            },
+            {
+              "kind": "30",
+              "stage": "23",
+              "value": "21"
+            },
+            {
+              "kind": "30",
+              "stage": "22",
+              "value": "20"
+            },
+            {
+              "kind": "1",
+              "value": "0"
+            },
+            {
+              "kind": "30",
+              "value": "48"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
