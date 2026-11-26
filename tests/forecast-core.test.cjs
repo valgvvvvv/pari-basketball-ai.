@@ -459,3 +459,19 @@ console.log('input validation regressions: OK');
   assert.equal([...timers.values()][0].delay,1000,'slow responses must not cause a tight retry loop');
   console.log('ten-second refresh cadence regressions: OK');
 })().catch(error=>{console.error(error);process.exitCode=1;});
+const optimizedMC=mcSource;
+const legacyMC=optimizedMC.replace(/  \/\/ Preserve the identical seeded sample,[\s\S]*?  const quantile=/,
+ '  outcomes.sort((a,b)=>a-b);\n  const quantile=')
+ .replace('const line=Number(x.line),under=bound(line,false),upper=bound(line,true);\n    const over=n-upper,push=upper-under;',
+ 'const line=Number(x.line);let over=0,under=0,push=0; for(const total of outcomes){if(total>line)over++;else if(total<line)under++;else push++;}');
+assert.notEqual(legacyMC,optimizedMC);
+const makeMC=source=>{const ctx={...mcSandbox};vm.runInNewContext(source,ctx);return ctx.dynamicScenarioMonteCarlo;};
+const fastMC=makeMC(optimizedMC),referenceMC=makeMC(legacyMC);
+const testLines=Array.from({length:301},(_,i)=>({line:80+i/2}));
+let fastMs=0,referenceMs=0;
+for(const remaining of [0,12,80]){
+ let start=performance.now();const ref=referenceMC(100,remaining,testLines,'cdf-oracle',{},4,'04:00','match');referenceMs+=performance.now()-start;
+ start=performance.now();const actual=fastMC(100,remaining,testLines,'cdf-oracle',{},4,'04:00','match');fastMs+=performance.now()-start;
+ assert.equal(JSON.stringify(actual),JSON.stringify(ref),'optimization must preserve every probability, push, quantile, moment and scenario exactly');
+}
+console.log('Monte Carlo exact-output regression: OK; reference '+Math.round(referenceMs)+'ms, optimized '+Math.round(fastMs)+'ms');
