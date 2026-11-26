@@ -34,3 +34,18 @@ ctx.historyEvent={team_history:{teams:[{name:{rus:'<script>test</script>'},summa
 const historyHtml=vm.runInContext('pariHistoryMarkup(historyEvent)',ctx);
 assert.ok(historyHtml.includes('150.0'));assert.ok(!historyHtml.includes('<script>test</script>'));assert.ok(historyHtml.includes('&lt;script&gt;'));
 console.log('historical reference arithmetic and escaped UI: OK');
+
+// A stale native row must not hide the current matched provider value.
+ctx.auditEvent={...event,external_statistics:rows(live).map(r=>({...r,source:'SofaScore',calculation_eligible:true,freshness_status:'fresh'}))};
+ctx.auditEvent.external_statistics.unshift({metric_key:'two_pointers_attempted',home:200,away:200,source:'PARI',freshness_status:'stale',calculation_eligible:false});
+let audit=vm.runInContext('possessionModelContext(auditEvent,{elapsed_seconds:1080,projection:180},2,"02:00")',ctx);
+assert.equal(audit.applied,true);assert.ok(Math.abs(audit.projectionExact-f.projection)<1e-9);
+assert.ok(audit.input_lineage.every(r=>r.source!=='PARI'||r.period===1));
+ctx.auditEvent.period_statistics=event.period_statistics.filter(r=>!['two_pointers_made','two_pointers_attempted'].includes(r.metric_key));
+ctx.auditEvent.period_statistics.push({metric_key:'field_goals_made',home:8,away:8,period:1,source:'PARI'},
+ {metric_key:'field_goals_attempted',home:16,away:16,period:1,source:'PARI'});
+audit=vm.runInContext('possessionModelContext(auditEvent,{elapsed_seconds:1080,projection:180},2,"02:00")',ctx);
+assert.equal(audit.applied,true);assert.ok(Math.abs(audit.projectionExact-f.projection)<1e-9);
+ctx.auditEvent.external_statistics=ctx.auditEvent.external_statistics.map(r=>({...r,calculation_eligible:false}));
+assert.equal(vm.runInContext('possessionModelContext(auditEvent,{elapsed_seconds:1080,projection:180},2,"02:00")',ctx).applied,false);
+console.log('source eligibility, actual model inputs and period algebra: OK');

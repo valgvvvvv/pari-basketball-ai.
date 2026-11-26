@@ -3035,6 +3035,10 @@ def _normalize_live_stat_row(row):
     # Detailed provider labels (e.g. "3-pointers made") override broad buckets.
     metric = (_pari_stat_metric(name) or _pari_stat_metric(metric_key)
               or _pari_stat_metric(str(group) + " " + str(name or metric_key)))
+    # Team-only turnovers are a subset, technical fouls are a different measure.
+    # Broad provider-label regexes must not rename these canonical SSIS fields.
+    if metric_key in ("team_turnovers", "technical_fouls", "points"):
+        metric = metric_key
     home_raw = next((row.get(k) for k in ("home", "homeValue", "home_value", "team1") if row.get(k) is not None), None)
     away_raw = next((row.get(k) for k in ("away", "awayValue", "away_value", "team2") if row.get(k) is not None), None)
     home = _stat_value_for_ui(home_raw)
@@ -3045,6 +3049,40 @@ def _normalize_live_stat_row(row):
     result.update({"metric_key": metric, "home": home, "away": away})
     result.setdefault("source", "unknown")
     return result
+
+
+def _confirmed_completed_stat(row, event):
+    try:
+        period = int(row.get('period'))
+        if not 0 < period < int(event.get('period') or 0):
+            return False
+        expected = (event.get('period_scores') or [])[period-1]
+        basis = row.get('period_score_basis')
+        return (isinstance(basis, list) and len(basis) == len(expected) == 2
+                and [int(x) for x in basis] == [int(x) for x in expected])
+    except (TypeError, ValueError, IndexError):
+        return False
+
+
+def _expand_shooting_rows(rows):
+    expanded = []
+    for row in rows:
+        expanded.append(row)
+        metric = row.get('metric_key')
+        if metric not in ('field_goals','two_pointers','three_pointers','free_throws'):
+            continue
+        pairs = [re.fullmatch(r'\s*(\d+(?:[.,]\d+)?)\s*[-/:]\s*(\d+(?:[.,]\d+)?)\s*',str(row.get(side))) for side in ('home','away')]
+        if not all(pairs):
+            continue
+        for suffix,index in (('made',1),('attempted',2)):
+            expanded.append({**row,'name':metric+'_'+suffix,'metric_key':metric+'_'+suffix,
+                'home':float(pairs[0].group(index).replace(',','.')),
+                'away':float(pairs[1].group(index).replace(',','.'))})
+    unique = {}
+    for row in expanded:
+        marker = tuple(str(row.get(k)) for k in ('metric_key','period','target','target_period','home','away','source','observed_at_utc'))
+        unique.setdefault(marker,row)
+    return list(unique.values())
 
 
 def _finalize_live_statistics(events):
@@ -3060,7 +3098,9 @@ def _finalize_live_statistics(events):
             continue
         period_rows = []
         for raw_period_row in event.get("period_statistics") or []:
-            if raw_period_row.get("source") == "PARI-SSIS" and raw_period_row.get("score_basis") != event.get("score"):
+            if (raw_period_row.get("source") == "PARI-SSIS"
+                    and raw_period_row.get("score_basis") != event.get("score")
+                    and not _confirmed_completed_stat(raw_period_row, event)):
                 continue
             period_row = _normalize_live_stat_row(raw_period_row)
             if period_row:
@@ -3069,6 +3109,7 @@ def _finalize_live_statistics(events):
                 except (TypeError, ValueError, AttributeError):
                     period_row["period"] = None
                 period_rows.append(period_row)
+        period_rows = _expand_shooting_rows(period_rows)
         event["period_statistics"] = period_rows
         normalized, seen = [], set()
         for raw in event.get("external_statistics") or []:
@@ -3077,35 +3118,11 @@ def _finalize_live_statistics(events):
             row = _normalize_live_stat_row(raw)
             if not row:
                 continue
-            marker = (row.get("metric_key"), str(row.get("home")), str(row.get("away")), str(row.get("source")))
+            marker = tuple(str(row.get(k)) for k in ('metric_key','home','away','source','target','target_period','observed_at_utc'))
             if marker not in seen:
                 seen.add(marker)
                 normalized.append(row)
-        # Split provider values such as 8/17 into explicit makes and attempts.
-        # Keep the original aggregate row too for the compact match display.
-        expanded = []
-        for row in normalized:
-            expanded.append(row)
-            metric = row.get("metric_key")
-            suffix = {"field_goals":"field_goals", "two_pointers":"two_pointers",
-                      "three_pointers":"three_pointers", "free_throws":"free_throws"}.get(metric)
-            if not suffix:
-                continue
-            parsed_pair = []
-            for side in ("home", "away"):
-                match = re.fullmatch(r"\s*(\d+(?:[.,]\d+)?)\s*[-/:]\s*(\d+(?:[.,]\d+)?)\s*", str(row.get(side)))
-                if not match:
-                    parsed_pair = []
-                    break
-                parsed_pair.append((float(match.group(1).replace(",", ".")),
-                                    float(match.group(2).replace(",", "."))))
-            if parsed_pair:
-                for part, index in (("made", 0), ("attempted", 1)):
-                    expanded.append({**row,
-                                     "name":str(row.get("name") or metric)+" · "+part,
-                                     "metric_key":suffix+"_"+part,
-                                     "home":parsed_pair[0][index],"away":parsed_pair[1][index]})
-        normalized = expanded
+        normalized = _expand_shooting_rows(normalized)
         observed_at = event.get("feed_checked_at_utc") or event.get("checked_at_utc")
         received_at = datetime.now(timezone.utc).isoformat()
         external_match = event.get("external_live") if isinstance(event.get("external_live"), dict) else {}
@@ -3147,9 +3164,10 @@ def _finalize_live_statistics(events):
                                        else datetime.fromisoformat(observed_text.replace("Z", "+00:00")))
                     if observed_dt.tzinfo is None:
                         observed_dt = observed_dt.replace(tzinfo=timezone.utc)
-                    age = max(0, int((datetime.now(timezone.utc) - observed_dt).total_seconds()))
+                    signed_age = (datetime.now(timezone.utc) - observed_dt).total_seconds()
+                    age = max(0, int(signed_age))
                     stat_row["freshness_seconds"] = age
-                    stat_row["freshness_status"] = "fresh" if age <= 60 else "stale"
+                    stat_row["freshness_status"] = "future_timestamp" if signed_age < -5 else "fresh" if age <= 60 else "stale"
                 except (TypeError, ValueError, OverflowError):
                     stat_row["freshness_status"] = "timestamp_unparseable"
             else:
@@ -3160,6 +3178,14 @@ def _finalize_live_statistics(events):
             freshness = {"fresh": 3, "source_timestamp_unavailable": 1, "timestamp_unparseable": 0, "stale": 0}.get(row.get("freshness_status"), 1)
             match_quality = {"pari_event_id": 3, "exact_event_id_match": 3, "matched_external_event": 2, "not_confirmed": 0}.get(row.get("match_status"), 1)
             return (freshness, match_quality, source_priority)
+        for stat_row in normalized + period_rows:
+            completed = (stat_row.get('source') == 'PARI-SSIS' and _confirmed_completed_stat(stat_row,event))
+            confirmed = stat_row.get('match_status') in ('pari_event_id','exact_event_id_match','matched_external_event','derived_from_confirmed_events')
+            stat_row['calculation_eligible'] = bool(confirmed and stat_row.get('freshness_status') != 'future_timestamp' and (stat_row.get('freshness_status') == 'fresh' or completed))
+            stat_row['calculation_exclusion'] = None if stat_row['calculation_eligible'] else (
+                'identity_not_confirmed' if not confirmed else stat_row.get('freshness_status') or 'timestamp_unknown')
+            if completed:
+                stat_row['completed_period_verified'] = True
         # Keep all source rows for diagnostics, but order the best-supported value
         # first within each metric/target so consumers cannot silently pick an older row.
         normalized.sort(key=lambda row: (
@@ -3203,6 +3229,8 @@ def _finalize_live_statistics(events):
                     freshness_status=("fresh" if all(r.get("freshness_status")=="fresh" for r in components) else
                                       "stale" if any(r.get("freshness_status")=="stale" for r in components) else "source_timestamp_unavailable"),
                     match_status="derived_from_confirmed_events" if all(r.get("match_status") in ("pari_event_id","exact_event_id_match","matched_external_event") for r in components) else "not_confirmed")
+                item['calculation_eligible'] = all(r.get('calculation_eligible') for r in components)
+                item['calculation_exclusion'] = None if item['calculation_eligible'] else 'component_not_eligible'
                 normalized.append(item)
                 by_key[bucket] = item
             except (TypeError, ValueError, OverflowError):
@@ -3216,7 +3244,7 @@ def _finalize_live_statistics(events):
         conflicts, grouped = [], {}
         for row in normalized:
             metric = row.get("metric_key")
-            if metric and row.get("source") != "derived":
+            if metric and row.get("source") != "derived" and row.get('freshness_status') not in ('stale','timestamp_unparseable','future_timestamp'):
                 grouped.setdefault(metric, []).append(row)
         for metric, rows in grouped.items():
             by_target = {}
@@ -3253,6 +3281,10 @@ def _finalize_live_statistics(events):
             missing_status[metric] = reason
         event["statistics_quality"] = {
             "available_metrics":available,"missing_metrics":missing,
+            "calculation_metrics":sorted({r['metric_key'] for r in normalized if r.get('metric_key') and r.get('calculation_eligible')}),
+            "calculation_available_count":len({r['metric_key'] for r in normalized if r.get('calculation_eligible')}.intersection(expected)),
+            "excluded_rows":[{k:r.get(k) for k in ('metric_key','source','period','observed_at_utc','calculation_exclusion')}
+                for r in normalized + period_rows if not r.get('calculation_eligible')],
             "missing_status":missing_status,
             "source_diagnostics":source_diag,
             "available_count":len(set(available).intersection(expected)),
@@ -3265,7 +3297,8 @@ def _finalize_live_statistics(events):
                 str(period): sorted({r.get("metric_key") for r in period_rows if r.get("period") == period and r.get("metric_key")})
                 for period in sorted({r["period"] for r in period_rows if r.get("period") is not None})},
             "possession_model_missing": [metric for metric in
-                ("field_goals_attempted", "free_throws_attempted", "offensive_rebounds", "turnovers") if metric not in available],
+                ("field_goals_attempted", "free_throws_attempted", "offensive_rebounds", "turnovers")
+                if not any(r.get('metric_key') == metric and r.get('calculation_eligible') for r in normalized)],
         }
 
 
@@ -3375,8 +3408,15 @@ def _live_event_signature(event):
 async def _refresh_live_enrichment_background(events_snapshot):
     global _LIVE_ENRICHMENT_TASK, _LIVE_ENRICHMENT_LAST_STATUS
     try:
-        pari_diagnostics = await pari_ssis.enrich(events_snapshot)
-        diagnostics = await _enrich_with_sofascore_live(events_snapshot)
+        try:
+            pari_diagnostics = await pari_ssis.enrich(events_snapshot)
+        except Exception as exc:
+            pari_diagnostics = {'matched':0,'errors':[type(exc).__name__]}
+        try:
+            diagnostics = await _enrich_with_sofascore_live(events_snapshot)
+        except Exception as exc:
+            # Optional provider failure must not discard a successful native load.
+            diagnostics = {'status':'partial','statistics_errors':[type(exc).__name__]}
         diagnostics["pari_ssis"] = pari_diagnostics
         _finalize_live_statistics(events_snapshot)
         now = datetime.now(timezone.utc)
@@ -3384,6 +3424,7 @@ async def _refresh_live_enrichment_background(events_snapshot):
         source_errors = [
             str(x) for x in (
                 list(diagnostics.get("statistics_errors") or [])
+                + list(pari_diagnostics.get('errors') or [])
                 + list(diagnostics.get("sofascore_errors") or [])
                 + list(sportscore_diag.get("errors") or [])
                 + list(sportscore_diag.get("sportscore_errors") or [])
@@ -3439,6 +3480,7 @@ async def _refresh_live_enrichment_background(events_snapshot):
             "matched": diagnostics.get("matched", 0),
             "statistics_matches": diagnostics.get("statistics_matches", 0),
             "errors": diagnostics.get("statistics_errors", [])[:8],
+            "pari_ssis": pari_diagnostics,
         }
     except Exception as exc:
         _LIVE_ENRICHMENT_LAST_STATUS = {
@@ -4530,12 +4572,26 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                         cached = _LIVE_ENRICHMENT_CACHE.get(event_id, {})
                         if (cached.get("expires", 0) <= now_ts or
                                 cached.get("signature") != _live_event_signature(event)):
+                            # Historical context has a separate lifetime from LIVE
+                            # counters. Keep it during a slow statistics refresh.
+                            history = cached.get('team_history')
+                            if cached.get('signature') == _live_event_signature(event) and isinstance(history,dict):
+                                try:
+                                    at = datetime.fromisoformat(history['observed_at_utc'].replace('Z','+00:00')).timestamp()
+                                    if 0 <= now_ts-at <= 900:
+                                        event['team_history'] = copy.deepcopy(history)
+                                        event['pari_ssis_diagnostics'] = {'state':'statistics_refreshing'}
+                                except (KeyError, TypeError, ValueError):
+                                    pass
                             needs_enrichment = True
                             continue
                         cache_applied += 1
                         for key in ("team_history", "pari_ssis_diagnostics"):
                             if cached.get(key) is not None:
                                 event[key] = copy.deepcopy(cached[key])
+                        ssis_diag = event.get('pari_ssis_diagnostics') or {}
+                        if ssis_diag.get('state') == 'score_reconciled' and ssis_diag.get('source_score') != event.get('score'):
+                            ssis_diag['state'] = 'score_not_current' if ssis_diag.get('source_score') else 'score_unavailable'
                         existing_periods = list(event.get("period_statistics") or [])
                         event["period_statistics"] = existing_periods + [row for row in cached.get("period_statistics", []) if row not in existing_periods]
                         cached_stats = cached.get("external_statistics") or []
