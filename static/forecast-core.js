@@ -271,7 +271,7 @@
       method:"recent-period shot volume × pooled beta shooting conversion",policy:"possession-shotmix-beta-v1"};
   }
   const MODEL_VERSION="regulation-research-v8-possession-shotmix";
-  const REASONS={context:"Недостаточно статистики для проверки владений и концовки",regime:"Обнаружено изменение результативности; прежний темп нестабилен",data:"Не подтверждены свежесть, счёт или таймер",window:"Вне окна отбора",preliminary:"Предварительный расчёт",
+  const REASONS={context:"Не подтверждены дополнительные данные для уверенного допуска",regime:"Обнаружено изменение результативности; прежний темп нестабилен",data:"Не подтверждены свежесть, счёт или таймер",window:"Вне окна отбора",preliminary:"Предварительный расчёт",
     probabilities:"Некорректное распределение",rules:"Правила рынка не подтверждены",overtime:"Прогноз основного времени несовместим с рынком с ОТ",
     prices:"Не подтверждены обе цены ТБ/ТМ",suspended:"Рынок приостановлен PARI",quote:"Линия устарела или время котировки неизвестно",
     calibration:"Вероятности не калиброваны на независимых матчах",validation:"Преимущество не подтверждено независимой проверкой",
@@ -300,6 +300,8 @@
       for(const x of f.probabilities||[]){
         const reasons=[];
         if(badData)reasons.push("data");
+        const modelInputsReady=f.requiredStatisticsReady!==false;
+        if(!modelInputsReady)reasons.push('data');
         // Preserve the final-eight-minutes match horizon in a 2x20 game.
         // Half watchlists use 8-16 minutes; this is a research policy, not a
         // transfer of validated quarter performance to halves.
@@ -332,12 +334,24 @@
         result.push({target,period,line:Number(x.line),direction:x.pOver>=x.pUnder?"ТБ":"ТМ",probability,
           pOver:x.pOver,pUnder:x.pUnder,pPush:x.pPush||0,push:x.pPush||0,robustness:x.robustness||null,
           status:critical?"shadow":"research",priority:false,calibrated:false,modelVersion:MODEL_VERSION,
+          calculationAvailable:!badData&&modelInputsReady,calculationModel:f.model||'score_clock',
+          calculationMissing:f.requiredStatisticsMissing||[],
           predictionIncludesOvertime:false,regime:input.regime||null,statisticsReady:input.statisticsReady===true,statisticsMissing:input.statisticsMissing||[],market,comparison,reasonCodes:reasons,reasons:reasons.map(r=>REASONS[r])});
       }
     }
     return result.sort((a,b)=>b.probability-a.probability||(a.target<b.target?-1:a.target>b.target?1:0)||a.line-b.line);
   }
   function selectPrioritySignals(input){return evaluateSignals(input).filter(x=>x.priority===true);}
+  function selectCalculatedDirections(evaluations){
+    const selected=[];
+    for(const target of ['quarter','half','match']){
+      const rows=(evaluations||[]).filter(x=>x.target===target&&x.calculationAvailable===true&&
+        !x.reasonCodes.some(r=>['data','preliminary','probabilities','rules','overtime','prices','quote','suspended'].includes(r)))
+        .sort((a,b)=>a.line-b.line);
+      if(rows.length)selected.push({...rows[Math.floor((rows.length-1)/2)],role:'model_calculation',priority:false,calibrated:false});
+    }
+    return selected;
+  }
   // Watchlist only. Never feeds selectPrioritySignals or Telegram delivery.
   function selectResearchCandidates(evaluations){
     const eligible=(evaluations||[]).filter(x=>!x.reasonCodes.some(r=>["data","window","preliminary","probabilities","suspended"].includes(r)));
@@ -367,6 +381,8 @@
     const counts=codes=>Object.entries(reasons).filter(([code])=>codes.includes(code))
       .map(([code,lines])=>({code,lines,label:REASONS[code]||code}));
     return {evaluatedLines:(evaluations||[]).length,
+      calculationReadyLines:(evaluations||[]).filter(x=>x.calculationAvailable===true).length,
+      comparableCalculationLines:(evaluations||[]).filter(x=>x.calculationAvailable===true&&!x.reasonCodes.some(r=>['data','rules','overtime','prices','quote','suspended'].includes(r))).length,
       missingStatistics:Object.entries(missing).map(([metric,lines])=>({metric,lines})),
       confidentSignals:(evaluations||[]).filter(x=>x.priority).length,
       inputReadyLines:(evaluations||[]).filter(x=>!x.reasonCodes.some(c=>inputCodes.includes(c))).length,
@@ -374,6 +390,6 @@
       automaticPriorityEnabled:false,calibrated:false,
       reasons:Object.entries(reasons).map(([code,lines])=>({code,lines,label:REASONS[code]||code})).sort((a,b)=>b.lines-a.lines||(a.code<b.code?-1:a.code>b.code?1:0))};
   }
-  return {possessionRemainder,detectScoringRegime,regimeSensitivity,quarterPosterior,simulateQuarter,quarterSensitivity,assessSensitivity,selectResearchCandidates,
+  return {selectCalculatedDirections,possessionRemainder,detectScoringRegime,regimeSensitivity,quarterPosterior,simulateQuarter,quarterSensitivity,assessSensitivity,selectResearchCandidates,
     summarizeSignals,selectPrioritySignals,evaluateSignals,marketComparison,MODEL_VERSION};
 });
