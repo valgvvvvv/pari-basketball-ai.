@@ -2,6 +2,7 @@
 
 Never match on just a nickname, and never align statistics by list position.
 """
+import asyncio
 import copy
 import re
 import time
@@ -11,6 +12,8 @@ import httpx
 BASE='https://site.api.espn.com/apis/site/v2/sports/basketball/'
 FORMATS={'19166':('mens-college-basketball',2,1200),'15100':('womens-college-basketball',4,600)}
 CACHE={}
+FAST_CACHE={}
+FAST_TASK=None
 METRICS={
  'fieldgoalsmade-fieldgoalsattempted':'field_goals',
  'threepointfieldgoalsmade-threepointfieldgoalsattempted':'three_pointers',
@@ -106,7 +109,7 @@ async def enrich(events):
                         if len(candidates)!=1:
                             event['espn_college_diagnostics']={'state':'no_unique_exact_match'};continue
                         b=candidates[0]
-                        summary,at=await fetch(slug,'summary',{'event':str(b['id'])},10)
+                        summary,at=await fetch(slug,'summary',{'event':str(b['id'])},5)
                         rows,state=parse_summary(summary,event,b,at)
                         event['espn_college_diagnostics']=state
                         event.setdefault('external_statistics',[]).extend(rows)
@@ -116,3 +119,51 @@ async def enrich(events):
     for key in list(CACHE):
         if CACHE[key][0]<time.time():del CACHE[key]
     return diag
+
+
+def identity(event):
+    raw=event.get('raw') or {}
+    return tuple(str(x) for x in (event.get('id'),event.get('start_time'),raw.get('team1Id'),raw.get('team2Id'),event.get('period_count'),event.get('period_length_seconds')))
+
+
+async def _fast_refresh(events):
+    global FAST_TASK
+    try:
+        for e in events:e['external_statistics']=[]
+        await enrich(events)
+        now=time.time()
+        for e in events:
+            FAST_CACHE[str(e['id'])]={'identity':identity(e),'checked':now,
+                'statistics':copy.deepcopy(e.get('external_statistics') or []),
+                'diagnostics':copy.deepcopy(e.get('espn_college_diagnostics'))}
+        active={str(e['id']) for e in events}
+        for key in list(FAST_CACHE):
+            if key not in active and now-FAST_CACHE[key]['checked']>60:del FAST_CACHE[key]
+    except Exception as exc:
+        for e in events:
+            FAST_CACHE[str(e['id'])]={'identity':identity(e),'checked':time.time(),'statistics':[],
+                'diagnostics':{'state':'source_unavailable','error':type(exc).__name__}}
+    finally:
+        FAST_TASK=None
+
+
+def apply_and_queue(events):
+    """Fast NCAA refresh is independent of the slow optional-provider task.
+
+    The HTTP route only copies cached rows and schedules work; it never waits.
+    Every row retains its observed timestamp and native score basis.
+    """
+    global FAST_TASK
+    now=time.time();eligible=[];needs=False
+    for e in events:
+        if str(e.get('sport_id')) not in FORMATS or not e.get('team_history'):continue
+        eligible.append(e);cached=FAST_CACHE.get(str(e['id']),{})
+        valid=cached.get('identity')==identity(e)
+        if valid and now-cached.get('checked',0)<=15:
+            rows=cached.get('statistics') or []
+            if rows:
+                e['external_statistics']=[r for r in e.get('external_statistics') or [] if r.get('source')!='ESPN']+copy.deepcopy(rows)
+            if cached.get('diagnostics'):e['espn_college_diagnostics']=copy.deepcopy(cached['diagnostics'])
+        if not valid or now-cached.get('checked',0)>=8:needs=True
+    if eligible and needs and (FAST_TASK is None or FAST_TASK.done()):
+        FAST_TASK=asyncio.create_task(_fast_refresh(copy.deepcopy(eligible)))
