@@ -4656,6 +4656,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                                 event["clock_source"] = cached_live.get("source")
                         if cached.get("statistics_source_diagnostics"):
                             event["statistics_source_diagnostics"] = cached["statistics_source_diagnostics"]
+                    espn_college.apply_and_queue(basketball)
                     _finalize_live_statistics(basketball)
 
                     # Queue optional providers independently of the fast PARI response.

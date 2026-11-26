@@ -3,7 +3,7 @@ import json
 import unittest
 from datetime import datetime,timezone
 from pathlib import Path
-from unittest.mock import AsyncMock,patch
+from unittest.mock import AsyncMock,Mock,patch
 import espn_college
 import pari_ssis
 import server
@@ -62,6 +62,23 @@ class ReadinessTests(unittest.TestCase):
 
 
 class FastPublicationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_fast_refresh_does_not_wait_for_the_slow_provider_task(self):
+        d=fixture();e=d['event'];now=datetime.now(timezone.utc).isoformat()
+        async def fresh(events):
+            events[0]['external_statistics'],events[0]['espn_college_diagnostics']=espn_college.parse_summary(d['summary'],e,d['board'],now)
+            return {'matched':1}
+        with patch.object(espn_college,'enrich',side_effect=fresh),patch.object(espn_college,'FAST_TASK',None),patch.dict(espn_college.FAST_CACHE,{},clear=True):
+            espn_college.apply_and_queue([e]);task=espn_college.FAST_TASK
+            self.assertIsNotNone(task);await task
+            busy=Mock();busy.done.return_value=False
+            with patch.object(espn_college,'FAST_TASK',busy):
+                espn_college.apply_and_queue([e])
+                self.assertTrue(e['external_statistics'])
+                self.assertEqual(e['external_statistics'][0]['observed_at_utc'],now)
+                e['score'][0]+=1
+                server._finalize_live_statistics([e])
+                self.assertFalse(e['external_statistics'],'new score cannot reuse old counters')
+
     async def test_independent_data_is_published_before_slow_provider_finishes(self):
         d=fixture();event=d['event']
         async def native(events):return {'matched':0}
