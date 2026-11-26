@@ -88,3 +88,19 @@ console.log('marked scoring distribution and 14 audited snapshot regressions: OK
 
 const missingSummary=core.summarizeSignals([{reasonCodes:['context'],statisticsMissing:['turnovers','turnovers']},{reasonCodes:['context'],statisticsMissing:['team_fouls']}]);
 assert.deepEqual(missingSummary.missingStatistics,[{metric:'turnovers',lines:1},{metric:'team_fouls',lines:1}]);
+
+// Missing auxiliary box score does not erase a valid score/clock calculation.
+const scored=core.evaluateSignals({...input,statisticsReady:false,statisticsMissing:['field_goals_attempted','team_fouls']});
+assert.ok(scored.length>0);assert.ok(scored.every(r=>r.calculationAvailable===true));
+assert.ok(scored.every(r=>r.priority===false&&r.calibrated===false));
+assert.ok(scored.every(r=>r.reasonCodes.includes('context')&&r.reasonCodes.includes('calibration')));
+const previews=core.selectCalculatedDirections(scored);
+assert.ok(previews.length>0);assert.ok(previews.every(r=>r.role==='model_calculation'&&!r.priority));
+assert.equal(core.summarizeSignals(scored).calculationReadyLines,scored.length);
+for(const code of ['data','rules','overtime','prices','quote','suspended','preliminary']){
+ assert.equal(core.selectCalculatedDirections([{...scored[0],reasonCodes:[code]}]).length,0,code);
+}
+assert.equal(core.selectCalculatedDirections([{...scored[0],calculationAvailable:false}]).length,0);
+const central=[20.5,30.5,40.5].map((line,i)=>({...scored[0],line,reasonCodes:['context'],probability:[.99,.7,.98][i]}));
+assert.equal(core.selectCalculatedDirections(central)[0].line,30.5,'central line chosen before model probability');
+console.log('actual calculation readiness stays separate from confidence admission: OK');

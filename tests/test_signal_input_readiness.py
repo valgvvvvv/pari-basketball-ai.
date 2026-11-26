@@ -76,6 +76,8 @@ class FastPublicationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(e['external_statistics'])
                 self.assertEqual(e['external_statistics'][0]['observed_at_utc'],now)
                 e['score'][0]+=1
+                espn_college.apply_and_queue([e])
+                self.assertEqual(e['espn_college_diagnostics']['state'],'score_not_current')
                 server._finalize_live_statistics([e])
                 self.assertFalse(e['external_statistics'],'new score cannot reuse old counters')
 

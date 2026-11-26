@@ -49,3 +49,7 @@ assert.equal(audit.applied,true);assert.ok(Math.abs(audit.projectionExact-f.proj
 ctx.auditEvent.external_statistics=ctx.auditEvent.external_statistics.map(r=>({...r,calculation_eligible:false}));
 assert.equal(vm.runInContext('possessionModelContext(auditEvent,{elapsed_seconds:1080,projection:180},2,"02:00")',ctx).applied,false);
 console.log('source eligibility, actual model inputs and period algebra: OK');
+
+assert.equal(vm.runInContext("calculationDataStatus({ready:true,kind:'live_tempo',estimate:{}},'match').requiredStatisticsReady",ctx),true);
+assert.equal(vm.runInContext("calculationDataStatus({ready:true,kind:'market_reference'},'match').requiredStatisticsReady",ctx),false);
+assert.equal(vm.runInContext("calculationDataStatus({ready:false,reason:'no clock'},'quarter').requiredStatisticsReady",ctx),false);
