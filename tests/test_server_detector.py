@@ -38,6 +38,18 @@ class DetectorTests(unittest.TestCase):
         actual.pop('model_source_sha256')
         self.assertEqual(actual, json.loads(node_result.stdout))
 
+    def test_outside_match_window_does_not_run_expensive_simulation(self):
+        from py_mini_racer import mini_racer
+        event = dict(fixture(), period=2, clock='09:00')
+        data = {'events': [event], 'checked_at_utc': datetime.now(timezone.utc).isoformat()}
+        with mini_racer() as engine:
+            engine.eval(server_detector.source_bundle())
+            engine.eval('automaticForecast=()=>{throw Error("unexpected match simulation")};')
+            actual = json.loads(engine.eval('JSON.stringify(serverPriorityCards('+json.dumps(data)+'))'))
+        self.assertEqual(actual['errors'], [])
+        self.assertTrue(all(r['decision']['target'] != 'match' for r in actual['evaluations']))
+        self.assertTrue(any(r['target'] == 'match' for r in actual['diagnostics']['modelBlockers']))
+
     def test_real_frontend_functions_execute_without_browser(self):
         data = {'events': [fixture()], 'checked_at_utc': datetime.now(timezone.utc).isoformat()}
         result = server_detector.calculate(data)
