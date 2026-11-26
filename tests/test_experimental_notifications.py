@@ -58,15 +58,21 @@ class ExperimentalNotifications(unittest.IsolatedAsyncioTestCase):
         self.assertIn("не проверенная вероятность",text)
         self.assertNotIn("Предварительное направление.",text)
 
-    def test_incompatible_markets_and_missing_context_cannot_send(self):
+    def test_site_research_rows_are_mirrored_without_promoting_market_readiness(self):
         for reason in ["data","suspended","preliminary","window"]:
             row=card(); row["signal"]["reasonCodes"].append(reason)
             self.assertEqual(signals.experimental_cards({"researchCandidates":[row]}),[],reason)
         for reason in ["rules","prices","quote","overtime","context","regime"]:
             row=card(); row['signal']['reasonCodes'].append(reason)
-            self.assertEqual(signals.experimental_cards({'researchCandidates':[row]}),[],reason)
-        row=card(); row['signal']['marketReady']=False
-        self.assertEqual(signals.experimental_cards({'researchCandidates':[row]}),[])
+            row['signal']['marketReady']=False
+            selected=signals.experimental_cards({'researchCandidates':[row]})
+            self.assertEqual(len(selected),1,reason)
+            self.assertFalse(selected[0]['signal']['marketReady'])
+            self.assertFalse(selected[0]['signal']['priority'])
+            self.assertEqual(selected[0]['signal']['reasonCodes'],row['signal']['reasonCodes'])
+            text=signals.message_for(selected[0])
+            self.assertIn('экспериментальный прогноз',text)
+            self.assertIn('Только ориентир',text)
         self.assertEqual(len(signals.experimental_cards({"researchCandidates":[card(str(i)) for i in range(5)]})),5)
 
     def test_unstable_or_low_probability_is_not_selected(self):
