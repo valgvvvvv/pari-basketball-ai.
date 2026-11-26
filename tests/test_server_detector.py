@@ -52,6 +52,13 @@ class DetectorTests(unittest.TestCase):
         self.assertEqual(len(result['researchCandidates']), 1)
         self.assertFalse(result['researchCandidates'][0]['signal']['priority'])
         self.assertFalse(result['researchCandidates'][0]['signal']['marketReady'])
+        # A real website research card must reach the opted-in Telegram mirror,
+        # even when it is not a compatible/validated betting-market signal.
+        with patch.dict(os.environ, {'SIGNAL_EXPERIMENTAL_ENABLED': '1'}):
+            mirrored = server_signals.experimental_cards(result)
+        self.assertEqual(len(mirrored), len(result['researchCandidates']))
+        self.assertFalse(mirrored[0]['signal']['priority'])
+        self.assertFalse(mirrored[0]['signal']['marketReady'])
         self.assertGreater(result['diagnostics']['evaluatedLines'], 0)
 
     def test_stale_unverified_and_q3_never_emit_match_signal(self):
