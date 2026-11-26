@@ -459,7 +459,7 @@ console.log('input validation regressions: OK');
   assert.equal([...timers.values()][0].delay,1000,'slow responses must not cause a tight retry loop');
   console.log('ten-second refresh cadence regressions: OK');
 })().catch(error=>{console.error(error);process.exitCode=1;});
-const optimizedMC=mcSource;
+const optimizedMC=mcSource.replace(/\r\n/g,"\n");
 const legacyMC=optimizedMC.replace(/  \/\/ Preserve the identical seeded sample,[\s\S]*?  const quantile=/,
  '  outcomes.sort((a,b)=>a-b);\n  const quantile=')
  .replace('const line=Number(x.line),under=bound(line,false),upper=bound(line,true);\n    const over=n-upper,push=upper-under;',
