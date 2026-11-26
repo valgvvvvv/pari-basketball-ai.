@@ -49,14 +49,14 @@ def experimental_cards(result):
     if not experimental_enabled():
         return []
     selected = []
-    # Mirror the website's research watchlist, not the stricter betting-market
-    # gate. Incompatible/unknown markets remain explicitly informational.
-    blocked = {'data', 'window', 'preliminary', 'probabilities', 'suspended'}
+    # The website may show informational watchlist rows; delivery requires a
+    # compatible market and enough observed context. Never send shadow blockers.
+    blocked = {'data', 'window', 'preliminary', 'probabilities', 'suspended', 'rules', 'prices', 'quote', 'overtime', 'context', 'regime'}
     for card in result.get('researchCandidates', []):
         signal = card.get('signal', {})
         robust = signal.get('robustness') or {}
         probability = robust.get('probabilityMin')
-        if (signal.get('watchlist') is not True or
+        if (signal.get('watchlist') is not True or signal.get('marketReady') is not True or
                 robust.get('available') is not True or robust.get('directionStable') is not True or
                 isinstance(probability, bool) or not isinstance(probability, (int, float)) or
                 not math.isfinite(probability) or not .65 <= probability <= 1 or
@@ -185,7 +185,10 @@ async def deliver(cards, current_only=False):
                     STATUS['error'] = 'notification_missing_saved_forecast'
                     decision['state'] = 'missing_saved_forecast'
                     continue
-                card = {**card, 'update': get(db, 'exposure:' + exposure_key(card)) == '1'}
+                if get(db, 'exposure:' + exposure_key(card)) == '1':
+                    decision['state'] = 'same_market_already_sent'
+                    continue
+                card = {**card, 'update': False}
                 try:
                     audit_delivery(card, 'attempt')
                     result = await say(message_for(card))
