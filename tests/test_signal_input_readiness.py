@@ -15,6 +15,17 @@ def fixture():
 
 
 class ReadinessTests(unittest.TestCase):
+    def test_count_formatting_does_not_create_a_false_provider_conflict(self):
+        now=datetime.now(timezone.utc).isoformat()
+        event={'id':'same-count','external_statistics':[
+            {'name':'field_goals_made','metric_key':'field_goals_made','home':28,'away':20,'source':'PARI','observed_at_utc':now},
+            {'name':'field_goals_made','metric_key':'field_goals_made','home':28.0,'away':'20.0','source':'ESPN','observed_at_utc':now,'match_status':'exact_event_id_match'}]}
+        server._finalize_live_statistics([event])
+        self.assertFalse(event['statistics_quality']['conflicts'])
+        event['external_statistics'][1]['home']=29
+        server._finalize_live_statistics([event])
+        self.assertTrue(event['statistics_quality']['conflicts'])
+
     def test_recorded_women_boxscore_preserves_team_orientation_and_attempts(self):
         d=fixture();now=datetime.now(timezone.utc).isoformat()
         rows,diag=espn_college.parse_summary(d['summary'],d['event'],d['board'],now)
