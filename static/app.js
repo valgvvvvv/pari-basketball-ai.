@@ -1282,6 +1282,13 @@ function forecastSensitivity(ev,forecast,quarter){
   }
   return {quarter:qRows,match:mRows};
 }
+function calculationDataStatus(forecast,target){
+  const possession=target==='match'?forecast?.estimate?.possession_model:forecast?.possession_model;
+  const ready=forecast?.ready===true&&forecast?.kind!=='market_reference';
+  return {model:possession?.applied?'possession_shotmix':target==='match'?'score_clock':'gamma_poisson',
+    requiredStatisticsReady:ready,
+    requiredStatisticsMissing:ready?[]:[forecast?.reason||'нет пригодного расчёта']};
+}
 function signalEvaluations(ev,forecast,quarterForecast){
   const at=Date.parse(ev?.feed_checked_at_utc||"");
   const clock=findLiveClock(ev),length=inferPeriodLengthForForecast(ev)?.seconds;
@@ -1303,8 +1310,8 @@ function signalEvaluations(ev,forecast,quarterForecast){
     timerVerified:ev?.timer_semantics_verified===true,
     clockValid:ev?.clock_integrity?.valid!==false&&!!findLiveClock(ev),
     scoreValid:validateScoreTimeline(ev,findLiveScore(ev),findLivePeriod(ev)).valid,
-    [periodTarget]:{ready:quarterForecast.ready,current:quarterForecast.current,preliminary:quarterForecast.preliminary,probabilities:withMarkets(sensitivity.quarter,periodTarget)},
-    match:{ready:forecast.ready&&forecast.kind==="live_tempo",current:forecast.estimate?.current,preliminary:forecast.estimate?.preliminary,
+    [periodTarget]:{...calculationDataStatus(quarterForecast,periodTarget),ready:quarterForecast.ready,current:quarterForecast.current,preliminary:quarterForecast.preliminary,probabilities:withMarkets(sensitivity.quarter,periodTarget)},
+    match:{...calculationDataStatus(forecast,'match'),ready:forecast.ready&&forecast.kind==="live_tempo",current:forecast.estimate?.current,preliminary:forecast.estimate?.preliminary,
       probabilities:withMarkets(sensitivity.match,"match")}
   });
 }
@@ -1929,7 +1936,12 @@ async function refreshLiveMatches() {
           const research=window.PARIForecastCore.selectResearchCandidates(evaluations);
           for(const s of research)researchCards.push({ev,signal:s,teams});
           const first=evaluations[0];
-          forecastHtml+='<span class="live-match-meta forecast-pending">Сигнала нет · '+escapeHtml(first?.reasons?.[0]||'нет пригодной линии')+' · открыть разбор →</span>';
+          const calculated=window.PARIForecastCore.selectCalculatedDirections(evaluations);
+          const preview=calculated[0];
+          forecastHtml+='<span class="live-match-meta forecast-pending">'+(preview?
+            'Расчётное направление: '+escapeHtml((preview.target==='match'?'Матч без ОТ':livePeriodLabel(ev,preview.period))+' · '+preview.direction+' '+preview.line)+' · оценка не калибрована':
+            (evaluations.some(x=>x.calculationAvailable)?'Расчёт готов; нет подходящей линии для отображения направления':'Расчёт ожидает входные данные'))+
+            ' · уверенный допуск: '+escapeHtml(first?.reasons?.[0]||'нет пригодной линии')+' · открыть разбор →</span>';
           // Re-evaluate locally too: an older server response must not bypass current quality gates.
           const signals=evaluations.filter(x=>x.priority===true);
           const signalTag=signals.map(s=>'<span class="priority-signal">★ '+escapeHtml(priorityLabel(s))+'</span>').join("");
@@ -1968,9 +1980,9 @@ async function refreshLiveMatches() {
               ' Открыть разбор →</small></button>';
           }).join("")+
           (!visibleCards.length?'<p>Подходящих кандидатов сейчас нет. Направление должно сохраняться при изменении оценки темпа; отбирается центральная линия, а не самая удобная альтернатива.</p>':'')+
-          '<p class="muted">Технические данные готовы для '+summary.inputReadyLines+' из '+summary.evaluatedLines+' линий. Это не оценка точности модели.</p>'+
+          '<p class="muted">Основной расчёт готов для '+summary.calculationReadyLines+' из '+summary.evaluatedLines+' линий; совместимый рынок подтверждён для '+summary.comparableCalculationLines+'. Полнота расширенной статистики проверяется отдельно.</p>'+
           '<details class="technical-details"><summary>Что блокирует сигналы · оценено линий: '+summary.evaluatedLines+'</summary><p>Счётчики относятся к линиям текущего снимка, не к уникальным матчам за день.</p>'+
-          (summary.missingStatistics?.length?'<h4>Каких показателей не хватает</h4>'+summary.missingStatistics.map(x=>'<p>'+escapeHtml(({field_goals_attempted:'Попытки бросков с игры',free_throws_attempted:'Попытки штрафных',offensive_rebounds:'Подборы в нападении',turnovers:'Потери',team_fouls:'Подтверждённые командные фолы'}[x.metric]||x.metric))+': '+x.lines+' линий</p>').join(''):'')+
+          (summary.missingStatistics?.length?'<h4>Дополнительные данные для владений и уверенного допуска</h4><p>Эти пропуски не запрещают уже готовый расчёт по счёту и времени.</p>'+summary.missingStatistics.map(x=>'<p>'+escapeHtml(({field_goals_attempted:'Попытки бросков с игры',free_throws_attempted:'Попытки штрафных',offensive_rebounds:'Подборы в нападении',turnovers:'Потери',team_fouls:'Подтверждённые командные фолы'}[x.metric]||x.metric))+': '+x.lines+' линий</p>').join(''):'')+
           '<p>Калибровка и независимая проверка преимущества относятся к проверке модели на исходах. Дополнительная статистика сама по себе эти ограничения не снимает.</p>'+
           Object.entries({inputs:'Получение данных',model:'Готовность модели',selection:'Условия отбора и состояние рынка'}).map(([key,title])=>
             '<h4>'+title+'</h4>'+(summary.blockerGroups[key].length?summary.blockerGroups[key].map(x=>'<p>'+escapeHtml(x.label)+': '+x.lines+'</p>').join(""):'<p>Отказов по оценённым линиям нет.</p>')).join("")+

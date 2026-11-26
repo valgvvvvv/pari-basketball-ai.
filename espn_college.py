@@ -163,7 +163,11 @@ def apply_and_queue(events):
             rows=cached.get('statistics') or []
             if rows:
                 e['external_statistics']=[r for r in e.get('external_statistics') or [] if r.get('source')!='ESPN']+copy.deepcopy(rows)
-            if cached.get('diagnostics'):e['espn_college_diagnostics']=copy.deepcopy(cached['diagnostics'])
+            if cached.get('diagnostics'):
+                state=copy.deepcopy(cached['diagnostics'])
+                if state.get('state')=='score_reconciled' and state.get('source_score')!=e.get('score'):
+                    state['state']='score_not_current'
+                e['espn_college_diagnostics']=state
         if not valid or now-cached.get('checked',0)>=8:needs=True
     if eligible and needs and (FAST_TASK is None or FAST_TASK.done()):
         FAST_TASK=asyncio.create_task(_fast_refresh(copy.deepcopy(eligible)))
