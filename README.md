@@ -229,3 +229,11 @@ JSON финала использует контракт `result_validation.py`: 
 Архив, ключи уведомлений и независимый отчёт различают первый/второй тайм и четверти.
 Регрессионный пример NCAA: Аризона — Колорадо Стэйт, общий счёт 64:49, второй тайм
 14:15, прошло 28:09 матча, осталось 11:51 тайма; расчёт тайма ≈76,8 очка.
+
+
+### Signal outcomes and 23:00 Moscow report (2026-11-26)
+- Successful Telegram delivery receipts retain the exact original message, decision and message ID in a separate lifecycle store. Confirmed results append ✅/❌/↔️ to the same message; pending and disputed outcomes never become losses. A failed edit is retried without sending a replacement forecast.
+- Previous quarters/halves are verified against a fresh, coherent later PARI period snapshot. Finished games use PARI event-card `fin`/`finished`, exact event/team/start identity, confirmed format, all regulation periods and reconciled arithmetic. Regulation predictions remain separate from overtime-inclusive markets. A secondary published final protocol is accepted only when its score agrees with primary PARI facts. No live disappearance, empty market or zero clock alone establishes a final. Research-validation records are not promoted by these operational checks.
+- At 23:00 Europe/Moscow the report selects successful deliveries in [previous day 23:00, today 23:00), using delivery time. It separates wins, losses, returns, pending/disputed outcomes, updates and unique matches. Multi-message reports resume from the last acknowledged part. `/report` requests an immediate rolling-24-hour preview without consuming the daily report.
+- The existing GitHub detector workflow checkpoints the latest seven days of receipts/results/report acknowledgements in `.signal-state/lifecycle.json` every scheduled run, and has an additional 20:00 UTC wake-up. A gzip checkpoint is synchronized through an HMAC-signed, timestamped owner-only endpoint; neither bot tokens nor chat IDs are stored in the checkpoint or repository. The first daily report waits for checkpoint restoration.
+- The free Render filesystem and GitHub cache/scheduler cannot guarantee exact 23:00 execution or lossless exactly-once delivery: a reset between a Telegram acknowledgement and the next checkpoint can cause a gap or repeat. Missed due reports are caught up after restoration. No paid resource is created.
