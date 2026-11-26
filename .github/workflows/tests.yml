@@ -21,6 +21,7 @@ jobs:
           node-version: "22"
       - run: node tests/forecast-core.test.cjs
       - run: node tests/signal-quality.test.cjs
+      - run: node tests/regime.test.cjs
       - run: node --check scripts/replay_forecasts.cjs
       - run: node --check static/app.js
       - run: node --check .github/scripts/collect_live_with_models.cjs
