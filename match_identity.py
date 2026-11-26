@@ -76,6 +76,8 @@ def _age(*values: Any) -> str:
 def _competition_key(value: Any, normalize: Callable[[Any], str] | None = None,
                      repair: Callable[[Any], str] | None = None) -> str:
     raw = (repair or _repair)(value or "")
+    if re.search(r'[nн][cс][aа][aа]',raw,re.I):
+        return 'ncaa'
     key = re.sub(r"(basketball|league|championship|tournament|division|conference|cup|men|male|female|season)",
                   "", (normalize or _normal)(raw))
     # Explicit competition aliases; do not use fuzzy team-name similarity as a substitute.
@@ -100,7 +102,7 @@ def match_context_compatible(pari: dict, external: dict,
     ext_league = external.get("league") or external.get("competition") or external.get("tournament")
     pg = _gender(pari.get("team1"), pari.get("team2"), pari_league, pari.get("sport_name"))
     eg = _gender(external.get("home"), external.get("away"), ext_league, external.get("status"))
-    if pg == "women" or eg == "women":
+    if (pg == "women") != (eg == "women"):
         return False
     if pg != "unknown" and eg != "unknown" and pg != eg:
         return False

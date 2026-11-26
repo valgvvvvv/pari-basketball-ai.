@@ -17,6 +17,7 @@ import server_signals
 import forecast_journal
 import pari_data
 import pari_ssis
+import espn_college
 import hmac
 import time
 import gzip
@@ -2325,6 +2326,12 @@ def _pari_explicit_text_format(*rows):
 
 
 PARI_COMPETITION_FORMATS = {
+    "15100": {
+        "period_length_seconds":600,"period_count":4,"overtime_length_seconds":300,
+        "source":"NCAA women varsity playing rules: four 10-minute quarters",
+        "rules_version":"NCAA women Rule 5; PARI competition 15100 verified 2026-11-27",
+        "source_url":"https://www.ncaa.org/championships/playing-rules/womens-basketball-playing-rules/",
+    },
     "13822": {
         "period_length_seconds": 600, "period_count": 4, "overtime_length_seconds": 300,
         "source": "Italy Serie A; national federation official FIBA playing rules",
@@ -3113,7 +3120,8 @@ def _finalize_live_statistics(events):
         event["period_statistics"] = period_rows
         normalized, seen = [], set()
         for raw in event.get("external_statistics") or []:
-            if raw.get("source") == "PARI-SSIS" and raw.get("score_basis") != event.get("score"):
+            if (raw.get("source") in ("PARI-SSIS","ESPN") and raw.get("score_basis") is not None
+                    and raw.get("score_basis") != event.get("score")):
                 continue
             row = _normalize_live_stat_row(raw)
             if not row:
@@ -3413,11 +3421,34 @@ async def _refresh_live_enrichment_background(events_snapshot):
         except Exception as exc:
             pari_diagnostics = {'matched':0,'errors':[type(exc).__name__]}
         try:
+            college_diagnostics = await espn_college.enrich(events_snapshot)
+        except Exception as exc:
+            college_diagnostics = {'matched':0,'errors':[type(exc).__name__]}
+        # Publish successful native/college data before slow optional providers.
+        # Source timestamps remain untouched; cache lifetime is not data freshness.
+        _finalize_live_statistics(events_snapshot)
+        pending={'status':'native_ready_external_pending','pari_ssis':pari_diagnostics,'espn_college':college_diagnostics}
+        for event in events_snapshot:
+            identity=str(event.get('id') or '')
+            if not identity:continue
+            _LIVE_ENRICHMENT_CACHE[identity]={
+                'signature':_live_event_signature(event), 'expires':datetime.now(timezone.utc).timestamp()+45,
+                'external_live':copy.deepcopy(event.get('external_live')),
+                'external_statistics':copy.deepcopy([r for r in event.get('external_statistics') or [] if r.get('source') not in ('PARI','PARI-PBP','PARI-derived','derived')]),
+                'period_statistics':copy.deepcopy([r for r in event.get('period_statistics') or [] if r.get('source') not in ('PARI','PARI-PBP','PARI-derived','derived')]),
+                'team_history':copy.deepcopy(event.get('team_history')),
+                'pari_ssis_diagnostics':copy.deepcopy(event.get('pari_ssis_diagnostics')),
+                'espn_college_diagnostics':copy.deepcopy(event.get('espn_college_diagnostics')),
+                'statistics_source_diagnostics':{'source_status':'native_ready_external_pending'},
+                'diagnostics':copy.deepcopy(pending)}
+        _LIVE_ENRICHMENT_LAST_STATUS=pending
+        try:
             diagnostics = await _enrich_with_sofascore_live(events_snapshot)
         except Exception as exc:
             # Optional provider failure must not discard a successful native load.
             diagnostics = {'status':'partial','statistics_errors':[type(exc).__name__]}
         diagnostics["pari_ssis"] = pari_diagnostics
+        diagnostics['espn_college'] = college_diagnostics
         _finalize_live_statistics(events_snapshot)
         now = datetime.now(timezone.utc)
         sportscore_diag = diagnostics.get("sportscore_diagnostics") or {}
@@ -3425,6 +3456,7 @@ async def _refresh_live_enrichment_background(events_snapshot):
             str(x) for x in (
                 list(diagnostics.get("statistics_errors") or [])
                 + list(pari_diagnostics.get('errors') or [])
+                + list(college_diagnostics.get('errors') or [])
                 + list(diagnostics.get("sofascore_errors") or [])
                 + list(sportscore_diag.get("errors") or [])
                 + list(sportscore_diag.get("sportscore_errors") or [])
@@ -3467,6 +3499,7 @@ async def _refresh_live_enrichment_background(events_snapshot):
                     if str(row.get("source") or "") not in ("PARI", "PARI-PBP", "PARI-derived", "derived")]),
                 "team_history": copy.deepcopy(event.get("team_history")),
                 "pari_ssis_diagnostics": copy.deepcopy(event.get("pari_ssis_diagnostics")),
+                "espn_college_diagnostics": copy.deepcopy(event.get("espn_college_diagnostics")),
                 "external_statistics": copy.deepcopy([
                     row for row in (event.get("external_statistics") or [])
                     if str(row.get("source") or "") not in ("PARI", "PARI-PBP", "PARI-derived", "derived")
@@ -4586,7 +4619,7 @@ async def _fetch_pari_live_events(catalog_only: bool = False):
                             needs_enrichment = True
                             continue
                         cache_applied += 1
-                        for key in ("team_history", "pari_ssis_diagnostics"):
+                        for key in ("team_history", "pari_ssis_diagnostics", "espn_college_diagnostics"):
                             if cached.get(key) is not None:
                                 event[key] = copy.deepcopy(cached[key])
                         ssis_diag = event.get('pari_ssis_diagnostics') or {}

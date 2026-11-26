@@ -1,0 +1,2141 @@
+{
+  "event": {
+    "id": "70279917",
+    "sport_id": "15100",
+    "start_time": 1795726800,
+    "score": [
+      31,
+      41
+    ],
+    "raw": {
+      "team1Id": 413413,
+      "team2Id": 412026
+    },
+    "team_history": {
+      "teams": [
+        {
+          "participant_id": "413413",
+          "name": {
+            "eng": "Washington State Cougars (w)",
+            "rus": "Вашингтон Стэйт Кугарс (ж)"
+          }
+        },
+        {
+          "participant_id": "412026",
+          "name": {
+            "eng": "Kansas Jayhawks (w)",
+            "rus": "Канзас Джейхокс (ж)"
+          }
+        }
+      ]
+    }
+  },
+  "board": {
+    "id": "401903558",
+    "uid": "s:40~l:54~e:401903558",
+    "date": "2026-11-26T21:00Z",
+    "name": "Kansas Jayhawks at Washington State Cougars",
+    "shortName": "KU VS WSU",
+    "season": {
+      "year": 2027,
+      "type": 2,
+      "slug": "regular-season"
+    },
+    "competitions": [
+      {
+        "id": "401903558",
+        "uid": "s:40~l:54~e:401903558~c:401903558",
+        "date": "2026-11-26T21:00Z",
+        "attendance": 0,
+        "type": {
+          "id": "6",
+          "abbreviation": "TRNMNT"
+        },
+        "timeValid": true,
+        "neutralSite": true,
+        "conferenceCompetition": false,
+        "playByPlayAvailable": true,
+        "recent": true,
+        "venue": {
+          "id": "4575",
+          "fullName": "Hard Rock Hotel Riviera Maya",
+          "address": {
+            "city": "Cancun",
+            "state": "Mexico"
+          },
+          "indoor": true
+        },
+        "competitors": [
+          {
+            "id": "265",
+            "uid": "s:40~l:54~t:265",
+            "type": "team",
+            "order": 0,
+            "homeAway": "home",
+            "team": {
+              "id": "265",
+              "uid": "s:40~l:54~t:265",
+              "location": "Washington State",
+              "name": "Cougars",
+              "abbreviation": "WSU",
+              "displayName": "Washington State Cougars",
+              "shortDisplayName": "Washington St",
+              "color": "a60f2d",
+              "alternateColor": "4d4d4d",
+              "isActive": true,
+              "venue": {
+                "id": "2052"
+              },
+              "links": [
+                {
+                  "rel": [
+                    "clubhouse",
+                    "desktop",
+                    "team"
+                  ],
+                  "href": "https://www.espn.com/womens-college-basketball/team/_/id/265/washington-state-cougars",
+                  "text": "Clubhouse",
+                  "isExternal": false,
+                  "isPremium": false
+                },
+                {
+                  "rel": [
+                    "clubhouse",
+                    "mobile",
+                    "team"
+                  ],
+                  "href": "https://m.espn.com/ncw/clubhouse?teamId=265",
+                  "text": "Clubhouse",
+                  "isExternal": false,
+                  "isPremium": false
+                },
+                {
+                  "rel": [
+                    "roster",
+                    "desktop",
+                    "team"
+                  ],
+                  "href": "https://www.espn.com/womens-college-basketball/team/roster/_/id/265",
+                  "text": "Roster",
+                  "isExternal": false,
+                  "isPremium": false
+                },
+                {
+                  "rel": [
+                    "roster",
+                    "sportscenter",
+                    "app",
+                    "team"
+                  ],
+                  "href": "sportscenter://x-callback-url/showClubhouse?uid=s:40~l:54~t:265&section=roster",
+                  "text": "Roster",
+                  "isExternal": false,
+                  "isPremium": false
+                },
+                {
+                  "rel": [
+                    "stats",
+                    "desktop",
+                    "team"
+                  ],
+                  "href": "https://www.espn.com/womens-college-basketball/team/stats/_/id/265",
+                  "text": "Statistics",
+                  "isExternal": false,
+                  "isPremium": false
+                },
+                {
+                  "rel": [
+                    "stats",
+                    "sportscenter",
+                    "app",
+                    "team"
+                  ],
+                  "href": "sportscenter://x-callback-url/showClubhouse?uid=s:40~l:54~t:265&section=stats",
+                  "text": "Statistics",
+                  "isExternal": false,
+                  "isPremium": false
+                },
+                {
+                  "rel": [
+                    "schedule",
+                    "desktop",
+                    "team"
+                  ],
+                  "href": "https://www.espn.com/womens-college-basketball/team/schedule/_/id/265",
+                  "text": "Schedule",
+                  "isExternal": false,
+                  "isPremium": false
+                },
+                {
+                  "rel": [
+                    "schedule",
+                    "sportscenter",
+                    "app",
+                    "team"
+                  ],
+                  "href": "sportscenter://x-callback-url/showClubhouse?uid=s:40~l:54~t:265&section=scores",
+                  "text": "Schedule",
+                  "isExternal": false,
+                  "isPremium": false
+                }
+              ],
+              "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/265.png",
+              "logoDark": "https://a.espncdn.com/i/teamlogos/ncaa/500-dark/265.png",
+              "conferenceId": "21"
+            },
+            "score": "32",
+            "linescores": [
+              {
+                "value": 15.0,
+                "displayValue": "15",
+                "period": 1
+              },
+              {
+                "value": 15.0,
+                "displayValue": "15",
+                "period": 2
+              },
+              {
+                "value": 2.0,
+                "displayValue": "2",
+                "period": 3
+              }
+            ],
+            "statistics": [
+              {
+                "name": "rebounds",
+                "abbreviation": "REB",
+                "displayValue": "12"
+              },
+              {
+                "name": "avgRebounds",
+                "abbreviation": "REB",
+                "displayValue": "12.0"
+              },
+              {
+                "name": "assists",
+                "abbreviation": "AST",
+                "displayValue": "4"
+              },
+              {
+                "name": "fieldGoalsAttempted",
+                "abbreviation": "FGA",
+                "displayValue": "28"
+              },
+              {
+                "name": "fieldGoalsMade",
+                "abbreviation": "FGM",
+                "displayValue": "12"
+              },
+              {
+                "name": "fieldGoalPct",
+                "abbreviation": "FG%",
+                "displayValue": "42.9"
+              },
+              {
+                "name": "freeThrowPct",
+                "abbreviation": "FT%",
+                "displayValue": "83.3"
+              },
+              {
+                "name": "freeThrowsAttempted",
+                "abbreviation": "FTA",
+                "displayValue": "6"
+              },
+              {
+                "name": "freeThrowsMade",
+                "abbreviation": "FTM",
+                "displayValue": "5"
+              },
+              {
+                "name": "points",
+                "abbreviation": "PTS",
+                "displayValue": "32"
+              },
+              {
+                "name": "threePointFieldGoalsAttempted",
+                "abbreviation": "3PA",
+                "displayValue": "10"
+              },
+              {
+                "name": "threePointFieldGoalsMade",
+                "abbreviation": "3PM",
+                "displayValue": "3"
+              },
+              {
+                "name": "avgPoints",
+                "abbreviation": "PTS",
+                "displayValue": "32.0"
+              },
+              {
+                "name": "avgAssists",
+                "abbreviation": "AST",
+                "displayValue": "4.0"
+              },
+              {
+                "name": "threePointFieldGoalPct",
+                "abbreviation": "3P%",
+                "displayValue": "30.0"
+              }
+            ],
+            "leaders": [
+              {
+                "name": "points",
+                "displayName": "Points",
+                "shortDisplayName": "Pts",
+                "abbreviation": "Pts",
+                "leaders": [
+                  {
+                    "displayValue": "11",
+                    "value": 11.0,
+                    "athlete": {
+                      "id": "5175978",
+                      "fullName": "Eleonora Villa",
+                      "displayName": "Eleonora Villa",
+                      "shortName": "E. Villa",
+                      "links": [
+                        {
+                          "rel": [
+                            "playercard",
+                            "desktop",
+                            "athlete"
+                          ],
+                          "href": "https://www.espn.com/womens-college-basketball/player/_/id/5175978/eleonora-villa"
+                        }
+                      ],
+                      "headshot": "https://a.espncdn.com/i/headshots/womens-college-basketball/players/full/5175978.png",
+                      "jersey": "2",
+                      "position": {
+                        "abbreviation": "G"
+                      },
+                      "team": {
+                        "id": "265"
+                      },
+                      "active": true
+                    },
+                    "team": {
+                      "id": "265"
+                    }
+                  }
+                ]
+              },
+              {
+                "name": "rebounds",
+                "displayName": "Rebounds",
+                "shortDisplayName": "Reb",
+                "abbreviation": "Reb",
+                "leaders": [
+                  {
+                    "displayValue": "5",
+                    "value": 5.0,
+                    "athlete": {
+                      "id": "5175979",
+                      "fullName": "Alex Covill",
+                      "displayName": "Alex Covill",
+                      "shortName": "A. Covill",
+                      "links": [
+                        {
+                          "rel": [
+                            "playercard",
+                            "desktop",
+                            "athlete"
+                          ],
+                          "href": "https://www.espn.com/womens-college-basketball/player/_/id/5175979/alex-covill"
+                        }
+                      ],
+                      "headshot": "https://a.espncdn.com/i/headshots/womens-college-basketball/players/full/5175979.png",
+                      "jersey": "33",
+                      "position": {
+                        "abbreviation": "C"
+                      },
+                      "team": {
+                        "id": "265"
+                      },
+                      "active": true
+                    },
+                    "team": {
+                      "id": "265"
+                    }
+                  }
+                ]
+              },
+              {
+                "name": "assists",
+                "displayName": "Assists",
+                "shortDisplayName": "Ast",
+                "abbreviation": "Ast",
+                "leaders": [
+                  {
+                    "displayValue": "3",
+                    "value": 3.0,
+                    "athlete": {
+                      "id": "5313392",
+                      "fullName": "Tanja Valancic",
+                      "displayName": "Tanja Valancic",
+                      "shortName": "T. Valancic",
+                      "links": [
+                        {
+                          "rel": [
+                            "playercard",
+                            "desktop",
+                            "athlete"
+                          ],
+                          "href": "https://www.espn.com/womens-college-basketball/player/_/id/5313392/tanja-valancic"
+                        }
+                      ],
+                      "headshot": "https://a.espncdn.com/i/headshots/womens-college-basketball/players/full/5313392.png",
+                      "jersey": "9",
+                      "position": {
+                        "abbreviation": "F"
+                      },
+                      "team": {
+                        "id": "265"
+                      },
+                      "active": true
+                    },
+                    "team": {
+                      "id": "265"
+                    }
+                  }
+                ]
+              },
+              {
+                "name": "rating",
+                "displayName": "Rating",
+                "shortDisplayName": "RAT",
+                "abbreviation": "RAT",
+                "leaders": [
+                  {
+                    "displayValue": "8 PTS",
+                    "value": 18.5,
+                    "athlete": {
+                      "id": "5175979",
+                      "fullName": "Alex Covill",
+                      "displayName": "Alex Covill",
+                      "shortName": "A. Covill",
+                      "links": [
+                        {
+                          "rel": [
+                            "playercard",
+                            "desktop",
+                            "athlete"
+                          ],
+                          "href": "https://www.espn.com/womens-college-basketball/player/_/id/5175979/alex-covill"
+                        }
+                      ],
+                      "headshot": "https://a.espncdn.com/i/headshots/womens-college-basketball/players/full/5175979.png",
+                      "jersey": "33",
+                      "position": {
+                        "abbreviation": "C"
+                      },
+                      "team": {
+                        "id": "265"
+                      },
+                      "active": true
+                    },
+                    "team": {
+                      "id": "265"
+                    }
+                  }
+                ]
+              }
+            ],
+            "curatedRank": {
+              "current": 99
+            },
+            "records": [
+              {
+                "name": "overall",
+                "abbreviation": "Season",
+                "type": "total",
+                "summary": "2-3"
+              },
+              {
+                "name": "Home",
+                "abbreviation": "Home",
+                "type": "home",
+                "summary": "2-1"
+              },
+              {
+                "name": "Road",
+                "abbreviation": "AWAY",
+                "type": "road",
+                "summary": "0-2"
+              },
+              {
+                "name": "vs. Conf.",
+                "abbreviation": "VS CONF",
+                "type": "vsconf",
+                "summary": "0-0"
+              }
+            ]
+          },
+          {
+            "id": "2305",
+            "uid": "s:40~l:54~t:2305",
+            "type": "team",
+            "order": 1,
+            "homeAway": "away",
+            "team": {
+              "id": "2305",
+              "uid": "s:40~l:54~t:2305",
+              "location": "Kansas",
+              "name": "Jayhawks",
+              "abbreviation": "KU",
+              "displayName": "Kansas Jayhawks",
+              "shortDisplayName": "Kansas",
+              "color": "0051ba",
+              "alternateColor": "e8000d",
+              "isActive": true,
+              "venue": {
+                "id": "2171"
+              },
+              "links": [
+                {
+                  "rel": [
+                    "clubhouse",
+                    "desktop",
+                    "team"
+                  ],
+                  "href": "https://www.espn.com/womens-college-basketball/team/_/id/2305/kansas-jayhawks",
+                  "text": "Clubhouse",
+                  "isExternal": false,
+                  "isPremium": false
+                },
+                {
+                  "rel": [
+                    "clubhouse",
+                    "mobile",
+                    "team"
+                  ],
+                  "href": "https://m.espn.com/ncw/clubhouse?teamId=2305",
+                  "text": "Clubhouse",
+                  "isExternal": false,
+                  "isPremium": false
+                },
+                {
+                  "rel": [
+                    "roster",
+                    "desktop",
+                    "team"
+                  ],
+                  "href": "https://www.espn.com/womens-college-basketball/team/roster/_/id/2305",
+                  "text": "Roster",
+                  "isExternal": false,
+                  "isPremium": false
+                },
+                {
+                  "rel": [
+                    "roster",
+                    "sportscenter",
+                    "app",
+                    "team"
+                  ],
+                  "href": "sportscenter://x-callback-url/showClubhouse?uid=s:40~l:54~t:2305&section=roster",
+                  "text": "Roster",
+                  "isExternal": false,
+                  "isPremium": false
+                },
+                {
+                  "rel": [
+                    "stats",
+                    "desktop",
+                    "team"
+                  ],
+                  "href": "https://www.espn.com/womens-college-basketball/team/stats/_/id/2305",
+                  "text": "Statistics",
+                  "isExternal": false,
+                  "isPremium": false
+                },
+                {
+                  "rel": [
+                    "stats",
+                    "sportscenter",
+                    "app",
+                    "team"
+                  ],
+                  "href": "sportscenter://x-callback-url/showClubhouse?uid=s:40~l:54~t:2305&section=stats",
+                  "text": "Statistics",
+                  "isExternal": false,
+                  "isPremium": false
+                },
+                {
+                  "rel": [
+                    "schedule",
+                    "desktop",
+                    "team"
+                  ],
+                  "href": "https://www.espn.com/womens-college-basketball/team/schedule/_/id/2305",
+                  "text": "Schedule",
+                  "isExternal": false,
+                  "isPremium": false
+                },
+                {
+                  "rel": [
+                    "schedule",
+                    "sportscenter",
+                    "app",
+                    "team"
+                  ],
+                  "href": "sportscenter://x-callback-url/showClubhouse?uid=s:40~l:54~t:2305&section=scores",
+                  "text": "Schedule",
+                  "isExternal": false,
+                  "isPremium": false
+                }
+              ],
+              "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2305.png",
+              "logoDark": "https://a.espncdn.com/i/teamlogos/ncaa/500-dark/2305.png",
+              "conferenceId": "8"
+            },
+            "score": "41",
+            "linescores": [
+              {
+                "value": 18.0,
+                "displayValue": "18",
+                "period": 1
+              },
+              {
+                "value": 21.0,
+                "displayValue": "21",
+                "period": 2
+              },
+              {
+                "value": 2.0,
+                "displayValue": "2",
+                "period": 3
+              }
+            ],
+            "statistics": [
+              {
+                "name": "rebounds",
+                "abbreviation": "REB",
+                "displayValue": "20"
+              },
+              {
+                "name": "avgRebounds",
+                "abbreviation": "REB",
+                "displayValue": "20.0"
+              },
+              {
+                "name": "assists",
+                "abbreviation": "AST",
+                "displayValue": "4"
+              },
+              {
+                "name": "fieldGoalsAttempted",
+                "abbreviation": "FGA",
+                "displayValue": "29"
+              },
+              {
+                "name": "fieldGoalsMade",
+                "abbreviation": "FGM",
+                "displayValue": "15"
+              },
+              {
+                "name": "fieldGoalPct",
+                "abbreviation": "FG%",
+                "displayValue": "51.7"
+              },
+              {
+                "name": "freeThrowPct",
+                "abbreviation": "FT%",
+                "displayValue": "71.4"
+              },
+              {
+                "name": "freeThrowsAttempted",
+                "abbreviation": "FTA",
+                "displayValue": "14"
+              },
+              {
+                "name": "freeThrowsMade",
+                "abbreviation": "FTM",
+                "displayValue": "10"
+              },
+              {
+                "name": "points",
+                "abbreviation": "PTS",
+                "displayValue": "41"
+              },
+              {
+                "name": "threePointFieldGoalsAttempted",
+                "abbreviation": "3PA",
+                "displayValue": "6"
+              },
+              {
+                "name": "threePointFieldGoalsMade",
+                "abbreviation": "3PM",
+                "displayValue": "1"
+              },
+              {
+                "name": "avgPoints",
+                "abbreviation": "PTS",
+                "displayValue": "41.0"
+              },
+              {
+                "name": "avgAssists",
+                "abbreviation": "AST",
+                "displayValue": "4.0"
+              },
+              {
+                "name": "threePointFieldGoalPct",
+                "abbreviation": "3P%",
+                "displayValue": "16.7"
+              }
+            ],
+            "leaders": [
+              {
+                "name": "points",
+                "displayName": "Points",
+                "shortDisplayName": "Pts",
+                "abbreviation": "Pts",
+                "leaders": [
+                  {
+                    "displayValue": "16",
+                    "value": 16.0,
+                    "athlete": {
+                      "id": "5175749",
+                      "fullName": "S'Mya Nichols",
+                      "displayName": "S'Mya Nichols",
+                      "shortName": "S. Nichols",
+                      "links": [
+                        {
+                          "rel": [
+                            "playercard",
+                            "desktop",
+                            "athlete"
+                          ],
+                          "href": "https://www.espn.com/womens-college-basketball/player/_/id/5175749/smya-nichols"
+                        }
+                      ],
+                      "headshot": "https://a.espncdn.com/i/headshots/womens-college-basketball/players/full/5175749.png",
+                      "jersey": "12",
+                      "position": {
+                        "abbreviation": "G"
+                      },
+                      "team": {
+                        "id": "2305"
+                      },
+                      "active": true
+                    },
+                    "team": {
+                      "id": "2305"
+                    }
+                  }
+                ]
+              },
+              {
+                "name": "rebounds",
+                "displayName": "Rebounds",
+                "shortDisplayName": "Reb",
+                "abbreviation": "Reb",
+                "leaders": [
+                  {
+                    "displayValue": "6",
+                    "value": 6.0,
+                    "athlete": {
+                      "id": "5312764",
+                      "fullName": "Jaliya Davis",
+                      "displayName": "Jaliya Davis",
+                      "shortName": "J. Davis",
+                      "links": [
+                        {
+                          "rel": [
+                            "playercard",
+                            "desktop",
+                            "athlete"
+                          ],
+                          "href": "https://www.espn.com/womens-college-basketball/player/_/id/5312764/jaliya-davis"
+                        }
+                      ],
+                      "headshot": "https://a.espncdn.com/i/headshots/womens-college-basketball/players/full/5312764.png",
+                      "jersey": "25",
+                      "position": {
+                        "abbreviation": "F"
+                      },
+                      "team": {
+                        "id": "2305"
+                      },
+                      "active": true
+                    },
+                    "team": {
+                      "id": "2305"
+                    }
+                  }
+                ]
+              },
+              {
+                "name": "assists",
+                "displayName": "Assists",
+                "shortDisplayName": "Ast",
+                "abbreviation": "Ast",
+                "leaders": [
+                  {
+                    "displayValue": "2",
+                    "value": 2.0,
+                    "athlete": {
+                      "id": "5175749",
+                      "fullName": "S'Mya Nichols",
+                      "displayName": "S'Mya Nichols",
+                      "shortName": "S. Nichols",
+                      "links": [
+                        {
+                          "rel": [
+                            "playercard",
+                            "desktop",
+                            "athlete"
+                          ],
+                          "href": "https://www.espn.com/womens-college-basketball/player/_/id/5175749/smya-nichols"
+                        }
+                      ],
+                      "headshot": "https://a.espncdn.com/i/headshots/womens-college-basketball/players/full/5175749.png",
+                      "jersey": "12",
+                      "position": {
+                        "abbreviation": "G"
+                      },
+                      "team": {
+                        "id": "2305"
+                      },
+                      "active": true
+                    },
+                    "team": {
+                      "id": "2305"
+                    }
+                  }
+                ]
+              },
+              {
+                "name": "rating",
+                "displayName": "Rating",
+                "shortDisplayName": "RAT",
+                "abbreviation": "RAT",
+                "leaders": [
+                  {
+                    "displayValue": "16 PTS",
+                    "value": 26.5,
+                    "athlete": {
+                      "id": "5175749",
+                      "fullName": "S'Mya Nichols",
+                      "displayName": "S'Mya Nichols",
+                      "shortName": "S. Nichols",
+                      "links": [
+                        {
+                          "rel": [
+                            "playercard",
+                            "desktop",
+                            "athlete"
+                          ],
+                          "href": "https://www.espn.com/womens-college-basketball/player/_/id/5175749/smya-nichols"
+                        }
+                      ],
+                      "headshot": "https://a.espncdn.com/i/headshots/womens-college-basketball/players/full/5175749.png",
+                      "jersey": "12",
+                      "position": {
+                        "abbreviation": "G"
+                      },
+                      "team": {
+                        "id": "2305"
+                      },
+                      "active": true
+                    },
+                    "team": {
+                      "id": "2305"
+                    }
+                  }
+                ]
+              }
+            ],
+            "curatedRank": {
+              "current": 99
+            },
+            "records": [
+              {
+                "name": "overall",
+                "abbreviation": "Season",
+                "type": "total",
+                "summary": "3-3"
+              },
+              {
+                "name": "Home",
+                "abbreviation": "Home",
+                "type": "home",
+                "summary": "3-0"
+              },
+              {
+                "name": "Road",
+                "abbreviation": "AWAY",
+                "type": "road",
+                "summary": "0-1"
+              },
+              {
+                "name": "vs. Conf.",
+                "abbreviation": "VS CONF",
+                "type": "vsconf",
+                "summary": "0-0"
+              }
+            ]
+          }
+        ],
+        "notes": [
+          {
+            "type": "event",
+            "headline": "Cancun Challenge - Riviera Division"
+          }
+        ],
+        "situation": {
+          "lastPlay": {
+            "id": "401903558122053336",
+            "type": {
+              "id": "540",
+              "text": "MadeFreeThrow"
+            },
+            "text": "Eleonora Villa makes free throw 2 of 2",
+            "scoreValue": 1,
+            "team": {
+              "id": "265"
+            },
+            "probability": {
+              "tiePercentage": 0.0,
+              "homeWinPercentage": 0.054,
+              "awayWinPercentage": 0.946
+            },
+            "athletesInvolved": [
+              {
+                "id": "5175978",
+                "fullName": "Eleonora Villa",
+                "displayName": "Eleonora Villa",
+                "shortName": "E. Villa",
+                "links": [
+                  {
+                    "rel": [
+                      "playercard",
+                      "desktop",
+                      "athlete"
+                    ],
+                    "href": "https://www.espn.com/womens-college-basketball/player/_/id/5175978/eleonora-villa"
+                  }
+                ],
+                "headshot": "https://a.espncdn.com/i/headshots/womens-college-basketball/players/full/5175978.png",
+                "jersey": "2",
+                "position": "G",
+                "team": {
+                  "id": "265"
+                }
+              }
+            ]
+          }
+        },
+        "status": {
+          "clock": 539.0,
+          "displayClock": "8:59",
+          "period": 3,
+          "type": {
+            "id": "2",
+            "name": "STATUS_IN_PROGRESS",
+            "state": "in",
+            "completed": false,
+            "description": "In Progress",
+            "detail": "8:59 - 3rd Quarter",
+            "shortDetail": "8:59 - 3rd"
+          }
+        },
+        "broadcasts": [
+          {
+            "market": "home",
+            "names": [
+              "FloSports"
+            ]
+          }
+        ],
+        "format": {
+          "regulation": {
+            "periods": 4
+          }
+        },
+        "startDate": "2026-11-26T21:00Z",
+        "broadcast": "",
+        "geoBroadcasts": [
+          {
+            "type": {
+              "id": "4",
+              "shortName": "Streaming"
+            },
+            "market": {
+              "id": "2",
+              "type": "Home"
+            },
+            "media": {
+              "shortName": "FloSports"
+            },
+            "lang": "en",
+            "region": "us"
+          }
+        ],
+        "highlights": []
+      }
+    ],
+    "links": [
+      {
+        "language": "en-US",
+        "rel": [
+          "live",
+          "desktop",
+          "event"
+        ],
+        "href": "https://www.espn.com/womens-college-basketball/game?gameId=401903558",
+        "text": "Gamecast",
+        "shortText": "Gamecast",
+        "isExternal": false,
+        "isPremium": false
+      },
+      {
+        "language": "en-US",
+        "rel": [
+          "boxscore",
+          "desktop",
+          "event"
+        ],
+        "href": "https://www.espn.com/womens-college-basketball/boxscore/_/gameId/401903558",
+        "text": "Box Score",
+        "shortText": "Box Score",
+        "isExternal": false,
+        "isPremium": false
+      },
+      {
+        "language": "en-US",
+        "rel": [
+          "pbp",
+          "desktop",
+          "event"
+        ],
+        "href": "https://www.espn.com/womens-college-basketball/playbyplay/_/gameId/401903558",
+        "text": "Play-by-Play",
+        "shortText": "Play-by-Play",
+        "isExternal": false,
+        "isPremium": false
+      }
+    ],
+    "status": {
+      "clock": 539.0,
+      "displayClock": "8:59",
+      "period": 3,
+      "type": {
+        "id": "2",
+        "name": "STATUS_IN_PROGRESS",
+        "state": "in",
+        "completed": false,
+        "description": "In Progress",
+        "detail": "8:59 - 3rd Quarter",
+        "shortDetail": "8:59 - 3rd"
+      }
+    }
+  },
+  "summary": {
+    "header": {
+      "id": "401903558",
+      "uid": "s:40~l:54~e:401903558",
+      "season": {
+        "year": 2027,
+        "current": true,
+        "type": 2
+      },
+      "timeValid": true,
+      "competitions": [
+        {
+          "id": "401903558",
+          "uid": "s:40~l:54~e:401903558~c:401903558",
+          "date": "2026-11-26T21:00Z",
+          "neutralSite": true,
+          "conferenceCompetition": false,
+          "boxscoreAvailable": true,
+          "commentaryAvailable": false,
+          "liveAvailable": true,
+          "shotChartAvailable": true,
+          "timeoutsAvailable": false,
+          "possessionArrowAvailable": false,
+          "onWatchESPN": false,
+          "recent": true,
+          "wallclockAvailable": true,
+          "boxscoreSource": "full",
+          "playByPlaySource": "full",
+          "competitors": [
+            {
+              "id": "265",
+              "uid": "s:40~l:54~t:265",
+              "order": 0,
+              "homeAway": "home",
+              "team": {
+                "id": "265",
+                "guid": "38bff782-82d4-a032-5363-bfacd1da4ec2",
+                "uid": "s:40~l:54~t:265",
+                "location": "Washington State",
+                "name": "Cougars",
+                "nickname": "Washington St",
+                "abbreviation": "WSU",
+                "displayName": "Washington State Cougars",
+                "color": "a60f2d",
+                "alternateColor": "4d4d4d",
+                "logos": [
+                  {
+                    "href": "https://a.espncdn.com/i/teamlogos/ncaa/500/265.png",
+                    "width": 500,
+                    "height": 500,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "default"
+                    ],
+                    "lastUpdated": "2025-12-24T20:19Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/i/teamlogos/ncaa/500-dark/265.png",
+                    "width": 500,
+                    "height": 500,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "dark"
+                    ],
+                    "lastUpdated": "2025-12-24T20:18Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/38bff782-82d4-a032-5363-bfacd1da4ec2/logos/primary_logo_on_white_color.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "primary_logo_on_white_color"
+                    ],
+                    "lastUpdated": "2026-07-23T17:48Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/38bff782-82d4-a032-5363-bfacd1da4ec2/logos/primary_logo_on_black_color.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "primary_logo_on_black_color"
+                    ],
+                    "lastUpdated": "2026-07-23T17:48Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/38bff782-82d4-a032-5363-bfacd1da4ec2/logos/primary_logo_on_primary_color.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "primary_logo_on_primary_color"
+                    ],
+                    "lastUpdated": "2026-07-23T17:48Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/38bff782-82d4-a032-5363-bfacd1da4ec2/logos/primary_logo_on_secondary_color.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "primary_logo_on_secondary_color"
+                    ],
+                    "lastUpdated": "2026-07-23T17:48Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/38bff782-82d4-a032-5363-bfacd1da4ec2/logos/primary_logo_black.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "primary_logo_black"
+                    ],
+                    "lastUpdated": "2026-07-23T17:48Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/38bff782-82d4-a032-5363-bfacd1da4ec2/logos/primary_logo_white.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "primary_logo_white"
+                    ],
+                    "lastUpdated": "2026-07-23T17:48Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/38bff782-82d4-a032-5363-bfacd1da4ec2/logos/secondary_logo_on_white_color.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "secondary_logo_on_white_color"
+                    ],
+                    "lastUpdated": "2026-07-23T17:48Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/38bff782-82d4-a032-5363-bfacd1da4ec2/logos/secondary_logo_on_black_color.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "secondary_logo_on_black_color"
+                    ],
+                    "lastUpdated": "2026-07-23T17:48Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/38bff782-82d4-a032-5363-bfacd1da4ec2/logos/secondary_logo_on_primary_color.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "secondary_logo_on_primary_color"
+                    ],
+                    "lastUpdated": "2026-07-23T17:48Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/38bff782-82d4-a032-5363-bfacd1da4ec2/logos/secondary_logo_on_secondary_color.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "secondary_logo_on_secondary_color"
+                    ],
+                    "lastUpdated": "2026-07-23T17:48Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/38bff782-82d4-a032-5363-bfacd1da4ec2/logos/secondary_logo_black.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "secondary_logo_black"
+                    ],
+                    "lastUpdated": "2026-07-23T17:48Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/38bff782-82d4-a032-5363-bfacd1da4ec2/logos/secondary_logo_white.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "secondary_logo_white"
+                    ],
+                    "lastUpdated": "2026-07-23T17:48Z"
+                  }
+                ],
+                "groups": {
+                  "id": "21",
+                  "parent": {
+                    "id": "50",
+                    "name": "NCAA Division I",
+                    "slug": "ncaa-division-i"
+                  },
+                  "isConference": true,
+                  "slug": "pac-12-conference"
+                },
+                "links": [
+                  {
+                    "rel": [
+                      "clubhouse",
+                      "desktop",
+                      "team"
+                    ],
+                    "href": "https://www.espn.com/womens-college-basketball/team/_/id/265/washington-state-cougars",
+                    "text": "Clubhouse"
+                  }
+                ]
+              },
+              "score": "31",
+              "linescores": [
+                {
+                  "displayValue": "15"
+                },
+                {
+                  "displayValue": "15"
+                },
+                {
+                  "displayValue": "1"
+                }
+              ],
+              "record": [
+                {
+                  "type": "total",
+                  "summary": "2-3",
+                  "displayValue": "2-3"
+                },
+                {
+                  "type": "home",
+                  "summary": "2-1",
+                  "displayValue": "2-1"
+                },
+                {
+                  "type": "vsconf",
+                  "summary": "0-0",
+                  "displayValue": "0-0"
+                }
+              ],
+              "timeoutsUsed": 0,
+              "timeoutsRemaining": 0,
+              "fouls": {
+                "teamFouls": 0,
+                "teamFoulsCurrent": 0,
+                "foulsToGive": 0,
+                "bonusState": "DOUBLE"
+              },
+              "possession": false
+            },
+            {
+              "id": "2305",
+              "uid": "s:40~l:54~t:2305",
+              "order": 1,
+              "homeAway": "away",
+              "team": {
+                "id": "2305",
+                "guid": "ebdc66a4-649d-bfd7-852a-a19dff90b344",
+                "uid": "s:40~l:54~t:2305",
+                "location": "Kansas",
+                "name": "Jayhawks",
+                "nickname": "Kansas",
+                "abbreviation": "KU",
+                "displayName": "Kansas Jayhawks",
+                "color": "0051ba",
+                "alternateColor": "e8000d",
+                "logos": [
+                  {
+                    "href": "https://a.espncdn.com/i/teamlogos/ncaa/500/2305.png",
+                    "width": 500,
+                    "height": 500,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "default"
+                    ],
+                    "lastUpdated": "2025-12-23T01:44Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/i/teamlogos/ncaa/500-dark/2305.png",
+                    "width": 500,
+                    "height": 500,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "dark"
+                    ],
+                    "lastUpdated": "2025-12-23T01:44Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/ebdc66a4-649d-bfd7-852a-a19dff90b344/logos/primary_logo_on_white_color.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "primary_logo_on_white_color"
+                    ],
+                    "lastUpdated": "2026-07-23T17:30Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/ebdc66a4-649d-bfd7-852a-a19dff90b344/logos/primary_logo_on_black_color.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "primary_logo_on_black_color"
+                    ],
+                    "lastUpdated": "2026-07-23T17:30Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/ebdc66a4-649d-bfd7-852a-a19dff90b344/logos/primary_logo_on_primary_color.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "primary_logo_on_primary_color"
+                    ],
+                    "lastUpdated": "2026-07-23T17:30Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/ebdc66a4-649d-bfd7-852a-a19dff90b344/logos/primary_logo_on_secondary_color.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "primary_logo_on_secondary_color"
+                    ],
+                    "lastUpdated": "2026-07-23T17:30Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/ebdc66a4-649d-bfd7-852a-a19dff90b344/logos/primary_logo_black.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "primary_logo_black"
+                    ],
+                    "lastUpdated": "2026-07-23T17:30Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/ebdc66a4-649d-bfd7-852a-a19dff90b344/logos/primary_logo_white.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "primary_logo_white"
+                    ],
+                    "lastUpdated": "2026-07-23T17:30Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/ebdc66a4-649d-bfd7-852a-a19dff90b344/logos/secondary_logo_on_white_color.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "secondary_logo_on_white_color"
+                    ],
+                    "lastUpdated": "2026-07-23T17:30Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/ebdc66a4-649d-bfd7-852a-a19dff90b344/logos/secondary_logo_on_black_color.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "secondary_logo_on_black_color"
+                    ],
+                    "lastUpdated": "2026-07-23T17:30Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/ebdc66a4-649d-bfd7-852a-a19dff90b344/logos/secondary_logo_on_primary_color.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "secondary_logo_on_primary_color"
+                    ],
+                    "lastUpdated": "2026-07-23T17:30Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/ebdc66a4-649d-bfd7-852a-a19dff90b344/logos/secondary_logo_on_secondary_color.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "secondary_logo_on_secondary_color"
+                    ],
+                    "lastUpdated": "2026-07-23T17:30Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/ebdc66a4-649d-bfd7-852a-a19dff90b344/logos/secondary_logo_black.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "secondary_logo_black"
+                    ],
+                    "lastUpdated": "2026-07-23T17:30Z"
+                  },
+                  {
+                    "href": "https://a.espncdn.com/guid/ebdc66a4-649d-bfd7-852a-a19dff90b344/logos/secondary_logo_white.png",
+                    "width": 4096,
+                    "height": 4096,
+                    "alt": "",
+                    "rel": [
+                      "full",
+                      "secondary_logo_white"
+                    ],
+                    "lastUpdated": "2026-07-23T17:30Z"
+                  }
+                ],
+                "groups": {
+                  "id": "8",
+                  "parent": {
+                    "id": "50",
+                    "name": "NCAA Division I",
+                    "slug": "ncaa-division-i"
+                  },
+                  "isConference": true,
+                  "slug": "big-12-conference"
+                },
+                "links": [
+                  {
+                    "rel": [
+                      "clubhouse",
+                      "desktop",
+                      "team"
+                    ],
+                    "href": "https://www.espn.com/womens-college-basketball/team/_/id/2305/kansas-jayhawks",
+                    "text": "Clubhouse"
+                  }
+                ]
+              },
+              "score": "41",
+              "linescores": [
+                {
+                  "displayValue": "18"
+                },
+                {
+                  "displayValue": "21"
+                },
+                {
+                  "displayValue": "2"
+                }
+              ],
+              "record": [
+                {
+                  "type": "total",
+                  "summary": "3-3",
+                  "displayValue": "3-3"
+                },
+                {
+                  "type": "road",
+                  "summary": "0-1",
+                  "displayValue": "0-1"
+                },
+                {
+                  "type": "vsconf",
+                  "summary": "0-0",
+                  "displayValue": "0-0"
+                }
+              ],
+              "timeoutsUsed": 0,
+              "timeoutsRemaining": 0,
+              "fouls": {
+                "teamFouls": 0,
+                "teamFoulsCurrent": 0,
+                "foulsToGive": 0,
+                "bonusState": "DOUBLE"
+              },
+              "possession": false
+            }
+          ],
+          "status": {
+            "displayClock": "9:00",
+            "period": 3,
+            "type": {
+              "id": "2",
+              "name": "STATUS_IN_PROGRESS",
+              "state": "in",
+              "completed": false,
+              "description": "In Progress",
+              "detail": "9:00 - 3rd Quarter",
+              "shortDetail": "9:00 - 3rd",
+              "statusPrimary": "9:00",
+              "statusSecondary": "3rd"
+            },
+            "displayPeriod": "3rd"
+          },
+          "broadcasts": [
+            {
+              "type": {
+                "id": "4",
+                "shortName": "Streaming"
+              },
+              "market": {
+                "id": "2",
+                "type": "Home"
+              },
+              "media": {
+                "shortName": "FloSports"
+              },
+              "lang": "en",
+              "region": "us",
+              "isNational": false
+            }
+          ],
+          "boxscoreMinutes": true
+        }
+      ],
+      "links": [
+        {
+          "rel": [
+            "live",
+            "desktop",
+            "event"
+          ],
+          "href": "https://www.espn.com/womens-college-basketball/game?gameId=401903558",
+          "text": "Gamecast",
+          "shortText": "Gamecast",
+          "isExternal": false,
+          "isPremium": false
+        },
+        {
+          "rel": [
+            "boxscore",
+            "desktop",
+            "event"
+          ],
+          "href": "https://www.espn.com/womens-college-basketball/boxscore/_/gameId/401903558",
+          "text": "Box Score",
+          "shortText": "Box Score",
+          "isExternal": false,
+          "isPremium": false
+        },
+        {
+          "rel": [
+            "pbp",
+            "desktop",
+            "event"
+          ],
+          "href": "https://www.espn.com/womens-college-basketball/playbyplay/_/gameId/401903558",
+          "text": "Play-by-Play",
+          "shortText": "Play-by-Play",
+          "isExternal": false,
+          "isPremium": false
+        },
+        {
+          "rel": [
+            "teamstats",
+            "desktop",
+            "event"
+          ],
+          "href": "https://www.espn.com/womens-college-basketball/matchup?gameId=401903558",
+          "text": "Team Stats",
+          "shortText": "Team Stats",
+          "isExternal": false,
+          "isPremium": false
+        }
+      ],
+      "week": 4,
+      "league": {
+        "id": "54",
+        "uid": "s:40~l:54",
+        "name": "NCAA Women's Basketball",
+        "abbreviation": "NCAAW",
+        "shortName": "NCAAW",
+        "midsizeName": "NCAAW Basketball",
+        "slug": "womens-college-basketball",
+        "isTournament": false,
+        "links": [
+          {
+            "rel": [
+              "index",
+              "desktop",
+              "league"
+            ],
+            "href": "https://www.espn.com/womens-college-basketball/",
+            "text": "Index"
+          },
+          {
+            "rel": [
+              "index",
+              "sportscenter",
+              "app",
+              "league"
+            ],
+            "href": "sportscenter://x-callback-url/showClubhouse?uid=s:40~l:54",
+            "text": "Index"
+          },
+          {
+            "rel": [
+              "schedule",
+              "desktop",
+              "league"
+            ],
+            "href": "https://www.espn.com/womens-college-basketball/schedule",
+            "text": "Schedule"
+          },
+          {
+            "rel": [
+              "schedule",
+              "sportscenter",
+              "app",
+              "league"
+            ],
+            "href": "sportscenter://x-callback-url/showClubhouse?uid=s:40~l:54&section=scores",
+            "text": "Schedule"
+          },
+          {
+            "rel": [
+              "standings",
+              "desktop",
+              "league"
+            ],
+            "href": "https://www.espn.com/womens-college-basketball/standings",
+            "text": "Standings"
+          },
+          {
+            "rel": [
+              "standings",
+              "sportscenter",
+              "app",
+              "league"
+            ],
+            "href": "sportscenter://x-callback-url/showClubhouse?uid=s:40~l:54&section=standings",
+            "text": "Standings"
+          },
+          {
+            "rel": [
+              "rankings",
+              "desktop",
+              "league"
+            ],
+            "href": "https://www.espn.com/womens-college-basketball/rankings",
+            "text": "Rankings"
+          },
+          {
+            "rel": [
+              "rankings",
+              "sportscenter",
+              "app",
+              "league"
+            ],
+            "href": "sportscenter://x-callback-url/showClubhouse?uid=s:40~l:54&section=rankings",
+            "text": "Rankings"
+          },
+          {
+            "rel": [
+              "scores",
+              "desktop",
+              "league"
+            ],
+            "href": "https://www.espn.com/womens-college-basketball/scoreboard",
+            "text": "Scores"
+          },
+          {
+            "rel": [
+              "scores",
+              "sportscenter",
+              "app",
+              "league"
+            ],
+            "href": "sportscenter://x-callback-url/showClubhouse?uid=s:40~l:54&section=scores",
+            "text": "Scores"
+          },
+          {
+            "rel": [
+              "stats",
+              "desktop",
+              "league"
+            ],
+            "href": "https://www.espn.com/womens-college-basketball/stats",
+            "text": "Stats"
+          },
+          {
+            "rel": [
+              "stats",
+              "sportscenter",
+              "app",
+              "league"
+            ],
+            "href": "sportscenter://x-callback-url/showClubhouse?uid=s:40~l:54&section=stats",
+            "text": "Stats"
+          },
+          {
+            "rel": [
+              "teams",
+              "desktop",
+              "league"
+            ],
+            "href": "https://www.espn.com/womens-college-basketball/teams",
+            "text": "Teams"
+          },
+          {
+            "rel": [
+              "injuries",
+              "desktop",
+              "league"
+            ],
+            "href": "https://www.espn.com/womens-college-basketball/injuries",
+            "text": "Injuries"
+          },
+          {
+            "rel": [
+              "odds",
+              "desktop",
+              "league"
+            ],
+            "href": "https://www.espn.com/womens-college-basketball/odds",
+            "text": "Odds"
+          },
+          {
+            "rel": [
+              "odds",
+              "sportscenter",
+              "app",
+              "league"
+            ],
+            "href": "sportscenter://x-callback-url/showClubhouse?uid=s:40~l:54&section=odds",
+            "text": "Odds"
+          },
+          {
+            "rel": [
+              "playoff-bracket",
+              "desktop",
+              "league"
+            ],
+            "href": "https://www.espn.com/womens-college-basketball/bracket",
+            "text": "Bracket"
+          },
+          {
+            "rel": [
+              "playoff-bracket",
+              "sportscenter",
+              "app",
+              "league"
+            ],
+            "href": "sportscenter://x-callback-url/showClubhouse?uid=s:40~l:54&section=bracket",
+            "text": "Bracket"
+          }
+        ],
+        "logos": [
+          {
+            "href": "https://a.espncdn.com/redesign/assets/img/icons/NCAASports_WomensBasketball.png",
+            "rel": [
+              "full",
+              "default"
+            ]
+          },
+          {
+            "href": "https://a.espncdn.com/redesign/assets/img/icons/NCAASports_WomensBasketball.png",
+            "rel": [
+              "full",
+              "dark"
+            ]
+          }
+        ]
+      },
+      "gameNote": "Cancun Challenge - Riviera Division"
+    },
+    "boxscore": {
+      "teams": [
+        {
+          "team": {
+            "id": "2305",
+            "uid": "s:40~l:54~t:2305",
+            "slug": "kansas-jayhawks",
+            "location": "Kansas",
+            "name": "Jayhawks",
+            "abbreviation": "KU",
+            "displayName": "Kansas Jayhawks",
+            "shortDisplayName": "Kansas",
+            "color": "0051ba",
+            "alternateColor": "e8000d",
+            "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2305.png"
+          },
+          "statistics": [
+            {
+              "name": "fieldGoalsMade-fieldGoalsAttempted",
+              "displayValue": "15-29",
+              "label": "FG"
+            },
+            {
+              "name": "fieldGoalPct",
+              "displayValue": "52",
+              "abbreviation": "FG%",
+              "label": "Field Goal %"
+            },
+            {
+              "name": "threePointFieldGoalsMade-threePointFieldGoalsAttempted",
+              "displayValue": "1-6",
+              "label": "3PT"
+            },
+            {
+              "name": "threePointFieldGoalPct",
+              "displayValue": "17",
+              "abbreviation": "3P%",
+              "label": "Three Point %"
+            },
+            {
+              "name": "freeThrowsMade-freeThrowsAttempted",
+              "displayValue": "10-14",
+              "label": "FT"
+            },
+            {
+              "name": "freeThrowPct",
+              "displayValue": "71",
+              "abbreviation": "FT%",
+              "label": "Free Throw %"
+            },
+            {
+              "name": "totalRebounds",
+              "displayValue": "20",
+              "abbreviation": "REB",
+              "label": "Rebounds"
+            },
+            {
+              "name": "offensiveRebounds",
+              "displayValue": "5",
+              "abbreviation": "OR",
+              "label": "Offensive Rebounds"
+            },
+            {
+              "name": "defensiveRebounds",
+              "displayValue": "15",
+              "abbreviation": "DR",
+              "label": "Defensive Rebounds"
+            },
+            {
+              "name": "assists",
+              "displayValue": "4",
+              "abbreviation": "AST",
+              "label": "Assists"
+            },
+            {
+              "name": "steals",
+              "displayValue": "5",
+              "abbreviation": "STL",
+              "label": "Steals"
+            },
+            {
+              "name": "blocks",
+              "displayValue": "0",
+              "abbreviation": "BLK",
+              "label": "Blocks"
+            },
+            {
+              "name": "turnovers",
+              "displayValue": "6",
+              "abbreviation": "TO",
+              "label": "Turnovers"
+            },
+            {
+              "name": "teamTurnovers",
+              "displayValue": "0",
+              "abbreviation": "TTO",
+              "label": "Team Turnovers"
+            },
+            {
+              "name": "totalTurnovers",
+              "displayValue": "6",
+              "abbreviation": "ToTO",
+              "label": "Total Turnovers"
+            },
+            {
+              "name": "technicalFouls",
+              "displayValue": "0",
+              "abbreviation": "TECH",
+              "label": "Technical Fouls"
+            },
+            {
+              "name": "totalTechnicalFouls",
+              "displayValue": "0",
+              "abbreviation": "TECH",
+              "label": "Total Technical Fouls"
+            },
+            {
+              "name": "turnoverPoints",
+              "displayValue": "8",
+              "abbreviation": "PTS OFF TO",
+              "label": "Points Off Turnovers"
+            },
+            {
+              "name": "fastBreakPoints",
+              "displayValue": "2",
+              "abbreviation": "FBPs",
+              "label": "Fast Break Points"
+            },
+            {
+              "name": "pointsInPaint",
+              "displayValue": "16",
+              "abbreviation": "PIP",
+              "label": "Points in Paint"
+            },
+            {
+              "name": "fouls",
+              "displayValue": "5",
+              "abbreviation": "PF",
+              "label": "Fouls"
+            },
+            {
+              "name": "largestLead",
+              "displayValue": "11",
+              "abbreviation": "LL",
+              "label": "Largest Lead"
+            },
+            {
+              "name": "leadChanges",
+              "displayValue": "0",
+              "abbreviation": "LC",
+              "label": "Lead Changes"
+            },
+            {
+              "name": "leadPercentage",
+              "displayValue": "95",
+              "abbreviation": "LPCT",
+              "label": "Percent Led"
+            }
+          ],
+          "displayOrder": 1,
+          "homeAway": "away"
+        },
+        {
+          "team": {
+            "id": "265",
+            "uid": "s:40~l:54~t:265",
+            "slug": "washington-state-cougars",
+            "location": "Washington State",
+            "name": "Cougars",
+            "abbreviation": "WSU",
+            "displayName": "Washington State Cougars",
+            "shortDisplayName": "Washington St",
+            "color": "a60f2d",
+            "alternateColor": "4d4d4d",
+            "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/265.png"
+          },
+          "statistics": [
+            {
+              "name": "fieldGoalsMade-fieldGoalsAttempted",
+              "displayValue": "12-28",
+              "label": "FG"
+            },
+            {
+              "name": "fieldGoalPct",
+              "displayValue": "43",
+              "abbreviation": "FG%",
+              "label": "Field Goal %"
+            },
+            {
+              "name": "threePointFieldGoalsMade-threePointFieldGoalsAttempted",
+              "displayValue": "3-10",
+              "label": "3PT"
+            },
+            {
+              "name": "threePointFieldGoalPct",
+              "displayValue": "30",
+              "abbreviation": "3P%",
+              "label": "Three Point %"
+            },
+            {
+              "name": "freeThrowsMade-freeThrowsAttempted",
+              "displayValue": "4-5",
+              "label": "FT"
+            },
+            {
+              "name": "freeThrowPct",
+              "displayValue": "80",
+              "abbreviation": "FT%",
+              "label": "Free Throw %"
+            },
+            {
+              "name": "totalRebounds",
+              "displayValue": "12",
+              "abbreviation": "REB",
+              "label": "Rebounds"
+            },
+            {
+              "name": "offensiveRebounds",
+              "displayValue": "2",
+              "abbreviation": "OR",
+              "label": "Offensive Rebounds"
+            },
+            {
+              "name": "defensiveRebounds",
+              "displayValue": "10",
+              "abbreviation": "DR",
+              "label": "Defensive Rebounds"
+            },
+            {
+              "name": "assists",
+              "displayValue": "4",
+              "abbreviation": "AST",
+              "label": "Assists"
+            },
+            {
+              "name": "steals",
+              "displayValue": "1",
+              "abbreviation": "STL",
+              "label": "Steals"
+            },
+            {
+              "name": "blocks",
+              "displayValue": "3",
+              "abbreviation": "BLK",
+              "label": "Blocks"
+            },
+            {
+              "name": "turnovers",
+              "displayValue": "9",
+              "abbreviation": "TO",
+              "label": "Turnovers"
+            },
+            {
+              "name": "teamTurnovers",
+              "displayValue": "0",
+              "abbreviation": "TTO",
+              "label": "Team Turnovers"
+            },
+            {
+              "name": "totalTurnovers",
+              "displayValue": "9",
+              "abbreviation": "ToTO",
+              "label": "Total Turnovers"
+            },
+            {
+              "name": "technicalFouls",
+              "displayValue": "0",
+              "abbreviation": "TECH",
+              "label": "Technical Fouls"
+            },
+            {
+              "name": "totalTechnicalFouls",
+              "displayValue": "0",
+              "abbreviation": "TECH",
+              "label": "Total Technical Fouls"
+            },
+            {
+              "name": "turnoverPoints",
+              "displayValue": "5",
+              "abbreviation": "PTS OFF TO",
+              "label": "Points Off Turnovers"
+            },
+            {
+              "name": "fastBreakPoints",
+              "displayValue": "4",
+              "abbreviation": "FBPs",
+              "label": "Fast Break Points"
+            },
+            {
+              "name": "pointsInPaint",
+              "displayValue": "10",
+              "abbreviation": "PIP",
+              "label": "Points in Paint"
+            },
+            {
+              "name": "fouls",
+              "displayValue": "9",
+              "abbreviation": "PF",
+              "label": "Fouls"
+            },
+            {
+              "name": "largestLead",
+              "displayValue": "0",
+              "abbreviation": "LL",
+              "label": "Largest Lead"
+            },
+            {
+              "name": "leadChanges",
+              "displayValue": "0",
+              "abbreviation": "LC",
+              "label": "Lead Changes"
+            },
+            {
+              "name": "leadPercentage",
+              "displayValue": "0",
+              "abbreviation": "LPCT",
+              "label": "Percent Led"
+            }
+          ],
+          "displayOrder": 2,
+          "homeAway": "home"
+        }
+      ]
+    }
+  }
+}

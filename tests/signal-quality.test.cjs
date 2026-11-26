@@ -85,3 +85,6 @@ for(const fixture of auditCases){
  // actual_total is retained for evaluation only; never passed to any forecast.
 }
 console.log('marked scoring distribution and 14 audited snapshot regressions: OK');
+
+const missingSummary=core.summarizeSignals([{reasonCodes:['context'],statisticsMissing:['turnovers','turnovers']},{reasonCodes:['context'],statisticsMissing:['team_fouls']}]);
+assert.deepEqual(missingSummary.missingStatistics,[{metric:'turnovers',lines:1},{metric:'team_fouls',lines:1}]);

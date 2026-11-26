@@ -1296,6 +1296,8 @@ function signalEvaluations(ev,forecast,quarterForecast){
     nowMs:Date.now(),regime:scoringRegime(ev),
     statisticsReady:["field_goals_attempted","free_throws_attempted","offensive_rebounds","turnovers","team_fouls"]
       .every(k=>(ev.statistics_quality?.calculation_metrics??ev.statistics_quality?.available_metrics??[]).includes(k))&&!(ev.statistics_quality?.conflicts||[]).length,
+    statisticsMissing:["field_goals_attempted","free_throws_attempted","offensive_rebounds","turnovers","team_fouls"]
+      .filter(k=>!(ev.statistics_quality?.calculation_metrics??ev.statistics_quality?.available_metrics??[]).includes(k)),
     ageSeconds:Number.isFinite(at)?(Date.now()-at)/1000:null,
     period:findLivePeriod(ev),periodCount:inferPeriodLengthForForecast(ev)?.periods,elapsedSeconds:elapsed,periodLengthSeconds:length,
     timerVerified:ev?.timer_semantics_verified===true,
@@ -1968,6 +1970,8 @@ async function refreshLiveMatches() {
           (!visibleCards.length?'<p>Подходящих кандидатов сейчас нет. Направление должно сохраняться при изменении оценки темпа; отбирается центральная линия, а не самая удобная альтернатива.</p>':'')+
           '<p class="muted">Технические данные готовы для '+summary.inputReadyLines+' из '+summary.evaluatedLines+' линий. Это не оценка точности модели.</p>'+
           '<details class="technical-details"><summary>Что блокирует сигналы · оценено линий: '+summary.evaluatedLines+'</summary><p>Счётчики относятся к линиям текущего снимка, не к уникальным матчам за день.</p>'+
+          (summary.missingStatistics?.length?'<h4>Каких показателей не хватает</h4>'+summary.missingStatistics.map(x=>'<p>'+escapeHtml(({field_goals_attempted:'Попытки бросков с игры',free_throws_attempted:'Попытки штрафных',offensive_rebounds:'Подборы в нападении',turnovers:'Потери',team_fouls:'Подтверждённые командные фолы'}[x.metric]||x.metric))+': '+x.lines+' линий</p>').join(''):'')+
+          '<p>Калибровка и независимая проверка преимущества относятся к проверке модели на исходах. Дополнительная статистика сама по себе эти ограничения не снимает.</p>'+
           Object.entries({inputs:'Получение данных',model:'Готовность модели',selection:'Условия отбора и состояние рынка'}).map(([key,title])=>
             '<h4>'+title+'</h4>'+(summary.blockerGroups[key].length?summary.blockerGroups[key].map(x=>'<p>'+escapeHtml(x.label)+': '+x.lines+'</p>').join(""):'<p>Отказов по оценённым линиям нет.</p>')).join("")+
 

@@ -332,7 +332,7 @@
         result.push({target,period,line:Number(x.line),direction:x.pOver>=x.pUnder?"ТБ":"ТМ",probability,
           pOver:x.pOver,pUnder:x.pUnder,pPush:x.pPush||0,push:x.pPush||0,robustness:x.robustness||null,
           status:critical?"shadow":"research",priority:false,calibrated:false,modelVersion:MODEL_VERSION,
-          predictionIncludesOvertime:false,regime:input.regime||null,statisticsReady:input.statisticsReady===true,market,comparison,reasonCodes:reasons,reasons:reasons.map(r=>REASONS[r])});
+          predictionIncludesOvertime:false,regime:input.regime||null,statisticsReady:input.statisticsReady===true,statisticsMissing:input.statisticsMissing||[],market,comparison,reasonCodes:reasons,reasons:reasons.map(r=>REASONS[r])});
       }
     }
     return result.sort((a,b)=>b.probability-a.probability||(a.target<b.target?-1:a.target>b.target?1:0)||a.line-b.line);
@@ -358,6 +358,8 @@
   }
   function summarizeSignals(evaluations){
     const reasons={};
+    const missing={};
+    for(const row of evaluations||[])for(const metric of new Set(row.statisticsMissing||[]))missing[metric]=(missing[metric]||0)+1;
     for(const row of evaluations||[])for(const reason of new Set(row.reasonCodes||[]))reasons[reason]=(reasons[reason]||0)+1;
     const inputCodes=["data","probabilities","prices","quote","rules"];
     const modelCodes=["calibration","validation","overtime","context","regime"];
@@ -365,6 +367,7 @@
     const counts=codes=>Object.entries(reasons).filter(([code])=>codes.includes(code))
       .map(([code,lines])=>({code,lines,label:REASONS[code]||code}));
     return {evaluatedLines:(evaluations||[]).length,
+      missingStatistics:Object.entries(missing).map(([metric,lines])=>({metric,lines})),
       confidentSignals:(evaluations||[]).filter(x=>x.priority).length,
       inputReadyLines:(evaluations||[]).filter(x=>!x.reasonCodes.some(c=>inputCodes.includes(c))).length,
       blockerGroups:{inputs:counts(inputCodes),model:counts(modelCodes),selection:counts(selectionCodes)},
