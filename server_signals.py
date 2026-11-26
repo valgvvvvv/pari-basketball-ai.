@@ -17,7 +17,7 @@ import signal_lifecycle as lifecycle
 logging.getLogger('httpx').setLevel(logging.WARNING)
 STATE_PATH = Path(os.environ.get('SIGNAL_STATE_PATH', str(Path(tempfile.gettempdir()) / 'pari_signal_state.sqlite3')))
 INTERVAL_SECONDS = 10
-STATUS = {'mode': 'server', 'delivery_version': '2026-11-26-grouped-v2',
+STATUS = {'mode': 'server', 'delivery_version': '2026-11-26-watchlist-v3',
           'interval_seconds': INTERVAL_SECONDS, 'checked_at_utc': None,
           'cards': [], 'error': None, 'sent': 0, 'commands_checked_at_utc': None}
 LOCK = asyncio.Lock()
@@ -49,13 +49,15 @@ def experimental_cards(result):
     if not experimental_enabled():
         return []
     selected = []
-    # Preserve the current market/context gates while grouping notifications.
-    blocked = {'data', 'window', 'preliminary', 'probabilities', 'suspended', 'rules', 'prices', 'quote', 'overtime', 'context', 'regime'}
+    # Mirror the site's explicitly opted-in RESEARCH watchlist, whose selector
+    # already applies these input/window gates. Market/model blockers remain in
+    # the immutable signal and its warning; this never promotes betting readiness.
+    blocked = {'data', 'window', 'preliminary', 'probabilities', 'suspended'}
     for card in result.get('researchCandidates', []):
         signal = card.get('signal', {})
         robust = signal.get('robustness') or {}
         probability = robust.get('probabilityMin')
-        if (signal.get('watchlist') is not True or signal.get('marketReady') is not True or
+        if (signal.get('watchlist') is not True or
                 robust.get('available') is not True or robust.get('directionStable') is not True or
                 isinstance(probability, bool) or not isinstance(probability, (int, float)) or
                 not math.isfinite(probability) or not .65 <= probability <= 1 or
