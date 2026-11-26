@@ -252,11 +252,25 @@ function dynamicScenarioMonteCarlo(current,mu,lines=[],seedText="",ev=null,perio
     scenarioMeans[i]=current+lambda;
     outcomes[i]=Math.max(current,current+poisson(lambda));
   }
-  outcomes.sort((a,b)=>a-b);
+  // Preserve the identical seeded sample, but sort its distinct score values
+  // rather than 100,000 repeated outcomes for every live event.
+  const frequencies=new Map();
+  for(const total of outcomes)frequencies.set(total,(frequencies.get(total)||0)+1);
+  let cursor=0;
+  for(const total of [...frequencies.keys()].sort((a,b)=>a-b)){
+    const end=cursor+frequencies.get(total);outcomes.fill(total,cursor,end);cursor=end;
+  }
+  const bound=(value,inclusive)=>{
+    let lo=0,hi=n;
+    while(lo<hi){const mid=(lo+hi)>>>1;
+      if(outcomes[mid]<value||(inclusive&&outcomes[mid]===value))lo=mid+1;else hi=mid;
+    }
+    return lo;
+  };
   const quantile=q=>outcomes[Math.min(n-1,Math.max(0,Math.ceil(q*n)-1))];
   const probabilities=(lines||[]).filter(x=>Number.isFinite(Number(x.line))).map(x=>{
-    const line=Number(x.line);let over=0,under=0,push=0;
-    for(const total of outcomes){if(total>line)over++;else if(total<line)under++;else push++;}
+    const line=Number(x.line),under=bound(line,false),upper=bound(line,true);
+    const over=n-upper,push=upper-under;
     const pOver=over/n,pUnder=under/n,pPush=push/n,decisive=over+under,conditionalOver=decisive?over/decisive:0.5;
     return {...x,pOver,pUnder,pPush,
       direction:conditionalOver>=0.57?"ТБ":conditionalOver<=0.43?"ТМ":"без выраженного преимущества",
