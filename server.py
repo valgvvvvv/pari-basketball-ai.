@@ -3092,6 +3092,17 @@ def _expand_shooting_rows(rows):
     return list(unique.values())
 
 
+def _stat_comparison_value(value):
+    """Compare counts numerically: provider strings 28 and derived 28.0 agree."""
+    try:
+        number=float(str(value).strip().replace(',','.'))
+        if math.isfinite(number):
+            return ('number',number)
+    except (TypeError,ValueError,OverflowError):
+        pass
+    return ('text',str(value))
+
+
 def _finalize_live_statistics(events):
     expected = [
         "field_goals_made", "field_goals_attempted", "two_pointers_made",
@@ -3260,7 +3271,7 @@ def _finalize_live_statistics(events):
                 target_key = (row.get("target") or "match", row.get("target_period"))
                 by_target.setdefault(target_key, []).append(row)
             for (target, target_period), target_rows in by_target.items():
-                values = {(str(row.get("home")), str(row.get("away"))) for row in target_rows}
+                values = {(_stat_comparison_value(row.get("home")), _stat_comparison_value(row.get("away"))) for row in target_rows}
                 if len(values) > 1:
                     conflicts.append({"metric":metric,"target":target,"target_period":target_period,
                                       "sources":list(dict.fromkeys(str(x.get("source")) for x in target_rows)),
