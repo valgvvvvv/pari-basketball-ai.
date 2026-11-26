@@ -17,7 +17,7 @@ import signal_lifecycle as lifecycle
 logging.getLogger('httpx').setLevel(logging.WARNING)
 STATE_PATH = Path(os.environ.get('SIGNAL_STATE_PATH', str(Path(tempfile.gettempdir()) / 'pari_signal_state.sqlite3')))
 INTERVAL_SECONDS = 10
-STATUS = {'mode': 'server', 'delivery_version': '2026-11-26-results-v1',
+STATUS = {'mode': 'server', 'delivery_version': '2026-11-26-grouped-v2',
           'interval_seconds': INTERVAL_SECONDS, 'checked_at_utc': None,
           'cards': [], 'error': None, 'sent': 0, 'commands_checked_at_utc': None}
 LOCK = asyncio.Lock()
@@ -49,8 +49,7 @@ def experimental_cards(result):
     if not experimental_enabled():
         return []
     selected = []
-    # The website may show informational watchlist rows; delivery requires a
-    # compatible market and enough observed context. Never send shadow blockers.
+    # Preserve the current market/context gates while grouping notifications.
     blocked = {'data', 'window', 'preliminary', 'probabilities', 'suspended', 'rules', 'prices', 'quote', 'overtime', 'context', 'regime'}
     for card in result.get('researchCandidates', []):
         signal = card.get('signal', {})
@@ -68,7 +67,7 @@ def experimental_cards(result):
 
 def message_for(card):
     if not card.get('experimental'):
-        return ('🔔 Сигнал\n' + card['teams'] + '\n' + card['label'] + '\n' + card['context'] +
+        return lifecycle.clean_text('🔔 Сигнал\n' + card['teams'] + '\n' + card['label'] + '\n' + card['context'] +
                 '\n\nДетектор сервера · оценка модели не калибрована.\nhttps://pari-basketball-ai.onrender.com/')
     signal = card['signal']
     target = ('Матч · основное время' if signal['target'] == 'match' else
@@ -78,14 +77,14 @@ def message_for(card):
                    '\nТолько ориентир для наблюдения: правила или цены рынка не подтверждены.')
     if 'overtime' in signal.get('reasonCodes', []):
         market_note = '\nТолько ориентир для наблюдения: рынок с ОТ, прогноз без ОТ. Для этого рынка не применять.'
-    return (('🔄 Обновление · экспериментальный прогноз\n' if card.get('update') else
+    return lifecycle.clean_text((('🔄 Обновление · экспериментальный прогноз\n' if card.get('update') else
              '🔔 Сигнал · экспериментальный прогноз\n') + card['teams'] + '\n' + label +
             '\nНаправление сохраняется в сценариях риска. Это не проверенная вероятность выигрыша.' +
             '\n' + card.get('context', '') +
             market_note +
             '\nИзменение линии — обновление наблюдения, а не новый вход.' +
             '\n\nПредварительное направление. Вероятность и преимущество не подтверждены независимой проверкой.' +
-            '\nhttps://pari-basketball-ai.onrender.com/\n⏳ Ожидает подтверждения результата.')
+            '\nhttps://pari-basketball-ai.onrender.com/\n⏳ Ожидает подтверждения результата.'))
 
 
 def connection():
@@ -156,7 +155,7 @@ def public_status():
 async def deliver(cards, current_only=False):
     if not enabled():
         return
-    async with LOCK:
+    async with LOCK, RESULT_LOCK:
         db = connection()
         try:
             if get(db, 'paused') == '1':
@@ -185,13 +184,30 @@ async def deliver(cards, current_only=False):
                     STATUS['error'] = 'notification_missing_saved_forecast'
                     decision['state'] = 'missing_saved_forecast'
                     continue
-                if get(db, 'exposure:' + exposure_key(card)) == '1':
-                    decision['state'] = 'same_market_already_sent'
+                records = await asyncio.to_thread(lifecycle.rows)
+                # Checkpoint receipts survive a reset of the delivery dedupe DB.
+                if any(key_for({**r['payload']}) == key for r in records):
+                    decision['state'] = 'already_sent'
                     continue
-                card = {**card, 'update': False}
+                previous = [r for r in records if r['payload']['event'] == str(card['event'])]
+                root = min(previous, key=lambda r: r['sent_at']) if previous else None
+                card = {**card, 'update': bool(previous) or get(db, 'exposure:' + exposure_key(card)) == '1'}
+                sent_at = time.time()
+                message_text = message_for(card)
                 try:
                     audit_delivery(card, 'attempt')
-                    result = await say(message_for(card))
+                    if root:
+                        candidate = {'id': card['forecast_id'], 'sent_at': sent_at,
+                                     'payload': {'teams': card['teams'], 'signal': card['signal'],
+                                                 'original_text': message_text}, 'result': None}
+                        shared = [r for r in records if r['message_id'] == root['message_id']]
+                        rendered = lifecycle.group_text(shared+[candidate])
+                        await telegram('editMessageText', chat_id=int(os.environ['SIGNAL_CHAT_ID']),
+                                       message_id=root['message_id'], text=rendered,
+                                       link_preview_options={'is_disabled': True})
+                        result = {'message_id': root['message_id'], 'date': sent_at}
+                    else:
+                        result = await say(message_text)
                 except Exception:
                     RETRY_AT[key] = time.time() + 3
                     decision['state'] = 'failed_retrying'
@@ -210,6 +226,9 @@ async def deliver(cards, current_only=False):
                 try:
                     lifecycle.register(card, result.get('message_id') if isinstance(result, dict) else None, message_for(card),
                                        result.get('date') if isinstance(result, dict) else None)
+                    if root:
+                        for saved in [r for r in lifecycle.rows() if r['message_id'] == root['message_id']]:
+                            lifecycle.mark_edited(saved['id'], rendered)
                 except Exception:
                     STATUS['lifecycle_error'] = 'delivery_receipt_not_saved'
                 try:
@@ -305,15 +324,22 @@ async def results_once():
         await signal_results.check_finals()
         records = await asyncio.to_thread(lifecycle.rows)
         edit_failed = False
+        groups = {}
         for row in records:
-            text = lifecycle.edited_text(row)
-            if not text or row.get('edited_hash') == lifecycle.edit_hash(text):
+            groups.setdefault(row['message_id'], []).append(row)
+        for message_id, group in groups.items():
+            text = lifecycle.group_text(group)
+            if (len(group) == 1 and not group[0].get('result')
+                    and text == group[0]['payload']['original_text']):
+                continue
+            if all(row.get('edited_hash') == lifecycle.edit_hash(text) for row in group):
                 continue
             try:
                 await telegram('editMessageText', chat_id=int(os.environ['SIGNAL_CHAT_ID']),
-                               message_id=row['message_id'], text=text,
+                               message_id=message_id, text=text,
                                link_preview_options={'is_disabled': True})
-                await asyncio.to_thread(lifecycle.mark_edited, row['id'], text)
+                for row in group:
+                    await asyncio.to_thread(lifecycle.mark_edited, row['id'], text)
             except Exception:
                 edit_failed = True
                 STATUS['result_edit_error'] = 'Telegram edit failed; retry scheduled'
