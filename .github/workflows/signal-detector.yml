@@ -3,6 +3,7 @@ name: Signal Telegram detector
 on:
   schedule:
     - cron: '2-57/5 * * * *'
+    - cron: '0 20 * * *' # 23:00 Europe/Moscow; also wakes a sleeping free service
   workflow_dispatch:
 
 permissions:
@@ -15,7 +16,7 @@ concurrency:
 jobs:
   check-detector:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 9
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -32,6 +33,12 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: signal-playwright-1.58.0-ubuntu24
+      - name: Restore outcomes and check daily report at 23 Moscow time
+        env:
+          SIGNAL_BOT_TOKEN: ${{ secrets.SIGNAL_BOT_TOKEN }}
+          SIGNAL_CHAT_ID: ${{ secrets.SIGNAL_CHAT_ID }}
+          SIGNAL_DATA_DIR: ${{ github.workspace }}/.signal-state
+        run: python signal-bot/lifecycle_sync.py
       - name: Install monitor
         run: |
           pip install -r signal-bot/requirements.txt

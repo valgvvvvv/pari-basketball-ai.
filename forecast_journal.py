@@ -82,7 +82,7 @@ def export_rows(deliveries_only=False):
         db.close()
 
 
-def record_notification(forecast_id, state, delivery_reference=None):
+def record_notification(forecast_id, state, delivery_reference=None, notification_text=None, notification_card=None):
     """Append delivery evidence to an exact immutable decision, never a current line."""
     if state not in ('attempt', 'sent', 'failed'):
         raise ValueError('Unknown delivery state')
@@ -93,6 +93,9 @@ def record_notification(forecast_id, state, delivery_reference=None):
         payload = {'forecast_id': forecast_id, 'state': state,
                    'at_utc': datetime.now(timezone.utc).isoformat(),
                    'telegram_message_id': delivery_reference}
+        if state == 'sent' and notification_text is not None:
+            payload['original_text'] = notification_text
+            payload['card'] = notification_card
         db.execute('INSERT INTO notifications VALUES (?,?,?,?)',
                    (digest(payload), forecast_id, state, packed(payload)))
         db.commit()

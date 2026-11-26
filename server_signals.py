@@ -12,11 +12,12 @@ from pathlib import Path
 import tempfile
 
 import httpx
+import signal_lifecycle as lifecycle
 
 logging.getLogger('httpx').setLevel(logging.WARNING)
 STATE_PATH = Path(os.environ.get('SIGNAL_STATE_PATH', str(Path(tempfile.gettempdir()) / 'pari_signal_state.sqlite3')))
 INTERVAL_SECONDS = 10
-STATUS = {'mode': 'server', 'delivery_version': '2026-11-23-v4',
+STATUS = {'mode': 'server', 'delivery_version': '2026-11-26-results-v1',
           'interval_seconds': INTERVAL_SECONDS, 'checked_at_utc': None,
           'cards': [], 'error': None, 'sent': 0, 'commands_checked_at_utc': None}
 LOCK = asyncio.Lock()
@@ -24,6 +25,9 @@ COMMAND_LOCK = asyncio.Lock()
 PENDING = {}
 RETRY_AT = {}
 WAKE = asyncio.Event()
+RESULT_LOCK = asyncio.Lock()
+REPORT_LOCK = asyncio.Lock()
+RESULT_WAKE = asyncio.Event()
 
 
 def enabled():
@@ -81,7 +85,7 @@ def message_for(card):
             market_note +
             '\nИзменение линии — обновление наблюдения, а не новый вход.' +
             '\n\nПредварительное направление. Вероятность и преимущество не подтверждены независимой проверкой.' +
-            '\nhttps://pari-basketball-ai.onrender.com/')
+            '\nhttps://pari-basketball-ai.onrender.com/\n⏳ Ожидает подтверждения результата.')
 
 
 def connection():
@@ -115,7 +119,9 @@ def exposure_key(card):
 
 def audit_delivery(card, state, message_id=None):
     import forecast_journal
-    forecast_journal.record_notification(card['forecast_id'], state, message_id)
+    forecast_journal.record_notification(card['forecast_id'], state, message_id,
+        notification_text=message_for(card) if state == 'sent' else None,
+        notification_card={k: card.get(k) for k in ('event', 'teams', 'signal', 'origin', 'update')} if state == 'sent' else None)
 
 
 async def telegram(method, **payload):
@@ -124,6 +130,8 @@ async def telegram(method, **payload):
             response = await client.post('https://api.telegram.org/bot' + os.environ['SIGNAL_BOT_TOKEN'] + '/' + method, json=payload)
             data = response.json()
         if not data.get('ok'):
+            if method == 'editMessageText' and 'message is not modified' in str(data.get('description', '')).lower():
+                return {'unchanged': True}
             raise RuntimeError('Telegram API rejected request')
         return data['result']
     except Exception:
@@ -139,7 +147,7 @@ async def say(text):
 def public_status():
     checked = STATUS['checked_at_utc']
     age = (datetime.now(timezone.utc)-datetime.fromisoformat(checked)).total_seconds() if checked else None
-    return {**STATUS, 'enabled': enabled(), 'notification_mode': notification_mode(), 'state_persistent': False,
+    return {**STATUS, 'daily_report_timezone': 'Europe/Moscow', 'daily_report_hour': 23, 'enabled': enabled(), 'notification_mode': notification_mode(), 'state_persistent': False,
             'age_seconds': round(age, 1) if age is not None else None,
             'detector_fresh': age is not None and 0 <= age <= 90,
             'limitation': 'Runs while the free Render service is awake; state is lost after ephemeral disk resets.'}
@@ -197,6 +205,11 @@ async def deliver(cards, current_only=False):
                 STATUS['last_sent_at_utc'] = datetime.now(timezone.utc).isoformat()
                 RETRY_AT.pop(key, None)
                 try:
+                    lifecycle.register(card, result.get('message_id') if isinstance(result, dict) else None, message_for(card),
+                                       result.get('date') if isinstance(result, dict) else None)
+                except Exception:
+                    STATUS['lifecycle_error'] = 'delivery_receipt_not_saved'
+                try:
                     audit_delivery(card, 'sent', result.get('message_id') if isinstance(result, dict) else None)
                 except Exception:
                     STATUS['audit_error'] = 'sent_receipt_not_saved'
@@ -212,6 +225,7 @@ async def process(data, history):
     snapshot = deepcopy(data)
     for event in snapshot.get('events', []):
         event['recent_snapshots'] = history.get(str(event.get('id')), [])
+        event['feed_checked_at_utc'] = snapshot.get('checked_at_utc')
     result = await asyncio.to_thread(server_detector.calculate, snapshot)
     import forecast_journal
     identities = await asyncio.to_thread(forecast_journal.record, result['evaluations'], result['model_source_sha256'])
@@ -223,6 +237,10 @@ async def process(data, history):
     for card in cards + result.get('researchCandidates', []):
         s = card['signal']
         card['forecast_id'] = saved.get((str(card['event']), s['target'], s['period'], s['line']))
+        event = next((e for e in snapshot.get('events', []) if str(e.get('id')) == str(card['event'])), {})
+        card['origin'] = lifecycle.origin(event)
+    await asyncio.to_thread(lifecycle.observe, snapshot.get('events', []))
+    RESULT_WAKE.set()
     data['priority_signals'] = cards
     data['research_candidates'] = result.get('researchCandidates', [])
     data['signal_diagnostics'] = result.get('diagnostics', {})
@@ -260,110 +278,93 @@ async def delivery_loop():
 
 
 
-def _daily_report_text(day_key):
-    """Summarize only Telegram deliveries captured on this Helsinki-local day."""
-    from zoneinfo import ZoneInfo
+def restore_journal_receipts():
     import forecast_journal
-    tz = ZoneInfo(os.environ.get('SIGNAL_TIMEZONE', 'Europe/Helsinki'))
-    rows = forecast_journal.export_rows(deliveries_only=True)
-    selected = []
-    for row in rows:
-        try:
-            captured = datetime.fromisoformat(row['captured_at_utc'].replace('Z', '+00:00'))
-            if captured.astimezone(tz).date().isoformat() != day_key:
+    restored = 0
+    for row in forecast_journal.export_rows(deliveries_only=True):
+        for receipt in row.get('notifications', []):
+            card = receipt.get('card')
+            if receipt.get('state') == 'sent' and receipt.get('original_text') and card:
+                lifecycle.register({**card, 'forecast_id': row['id']}, receipt['telegram_message_id'],
+                                   receipt['original_text'], lifecycle.stamp(receipt['at_utc']))
+                restored += 1
+    return restored
+
+
+async def results_once():
+    if not enabled():
+        return
+    import signal_results
+    async with RESULT_LOCK:
+        if STATUS.get('lifecycle_error') == 'delivery_receipt_not_saved':
+            await asyncio.to_thread(restore_journal_receipts)
+            STATUS.pop('lifecycle_error', None)
+        await signal_results.check_finals()
+        records = await asyncio.to_thread(lifecycle.rows)
+        edit_failed = False
+        for row in records:
+            text = lifecycle.edited_text(row)
+            if not text or row.get('edited_hash') == lifecycle.edit_hash(text):
                 continue
-        except Exception:
-            continue
-        if any(n.get('state') == 'sent' for n in row.get('notifications', [])):
-            selected.append(row)
-
-    wins = losses = pushes = pending = 0
-    lines = []
-    for row in selected:
-        decision = row.get('decision') or {}
-        outcome = row.get('outcome') or {}
-        if outcome.get('push'):
-            pushes += 1
-            mark = '↔️ Возврат'
-        elif outcome.get('win') is True:
-            wins += 1
-            mark = '✅ Зашёл'
-        elif outcome.get('win') is False:
-            losses += 1
-            mark = '❌ Не зашёл'
-        else:
-            pending += 1
-            mark = '⏳ Не подтверждён'
-        snap = row.get('source_event_snapshot') or {}
-        teams = str(snap.get('team1') or row.get('event_id') or 'Матч') + ' — ' + str(snap.get('team2') or '')
-        target = 'Матч' if decision.get('target') == 'match' else (('Тайм ' if decision.get('target') == 'half' else 'Q') + str(decision.get('period') or '?'))
-        lines.append(f"{mark} · {teams}\n{target} {decision.get('direction') or '?'} {decision.get('line') or '?'}")
-
-    total = len(selected)
-    base = wins + losses
-    accuracy = f"{wins / base * 100:.1f}%" if base else 'н/д'
-    header = [
-        f"📊 Отчёт PARI Basketball AI за {day_key}",
-        f"Всего отправлено прогнозов: {total}",
-        f"✅ Зашли: {wins}",
-        f"❌ Не зашли: {losses}",
-        f"↔️ Возвраты: {pushes}",
-        f"⏳ Не подтверждены: {pending}",
-        f"Точность среди рассчитанных (без возвратов): {accuracy}",
-        "",
-        "Список прогнозов:"
-    ]
-    if not lines:
-        header.append("Сегодня отправленных прогнозов не было.")
-    return "\n".join(header + lines)
+            try:
+                await telegram('editMessageText', chat_id=int(os.environ['SIGNAL_CHAT_ID']),
+                               message_id=row['message_id'], text=text,
+                               link_preview_options={'is_disabled': True})
+                await asyncio.to_thread(lifecycle.mark_edited, row['id'], text)
+            except Exception:
+                edit_failed = True
+                STATUS['result_edit_error'] = 'Telegram edit failed; retry scheduled'
+                continue
+        if not edit_failed:
+            STATUS.pop('result_edit_error', None)
+        counts = {}
+        for row in records:
+            key = (row.get('result') or {}).get('state', 'pending')
+            counts[key] = counts.get(key, 0)+1
+        STATUS['result_counts'] = counts
+        STATUS['results_checked_at_utc'] = datetime.now(timezone.utc).isoformat()
 
 
 async def daily_report_once(now=None):
-    """Send one daily Telegram report at 23:00 in configured local timezone."""
-    if not enabled():
+    if not enabled() or STATUS.get('checkpoint_ready') is not True:
         return False
-    from zoneinfo import ZoneInfo
-    tz = ZoneInfo(os.environ.get('SIGNAL_TIMEZONE', 'Europe/Helsinki'))
-    local_now = (now or datetime.now(tz)).astimezone(tz)
-    if local_now.hour != 23:
-        return False
-    day_key = local_now.date().isoformat()
-    db = connection()
-    try:
-        if get(db, 'daily_report_sent:' + day_key) == '1':
+    cutoff = lifecycle.latest_cutoff(now).timestamp()
+    async with REPORT_LOCK:
+        state = await asyncio.to_thread(lifecycle.report_state, cutoff)
+        if not state or len(state['sent']) == len(state['chunks']):
             return False
-        report = await asyncio.to_thread(_daily_report_text, day_key)
-        chunks = []
-        current = ''
-        for line in report.splitlines():
-            candidate = (current + '\n' + line).strip()
-            if len(candidate) > 3800 and current:
-                chunks.append(current)
-                current = line
-            else:
-                current = candidate
-        if current:
-            chunks.append(current)
-        for index, chunk in enumerate(chunks):
-            suffix = f"\n(часть {index + 1}/{len(chunks)})" if len(chunks) > 1 else ''
-            await say(chunk + suffix)
-        put(db, 'daily_report_sent:' + day_key, '1')
-        STATUS['last_daily_report_local_date'] = day_key
+        for index in range(len(state['sent']), len(state['chunks'])):
+            suffix = f"\n(часть {index+1}/{len(state['chunks'])})" if len(state['chunks']) > 1 else ''
+            result = await say(state['chunks'][index]+suffix)
+            if not isinstance(result, dict) or not isinstance(result.get('message_id'), int):
+                raise RuntimeError('Daily report receipt missing')
+            state['sent'].append(result['message_id'])
+            await asyncio.to_thread(lifecycle.report_receipt, cutoff, state)
         STATUS['last_daily_report_at_utc'] = datetime.now(timezone.utc).isoformat()
+        STATUS['daily_report_timezone'] = 'Europe/Moscow'
+        STATUS['daily_report_hour'] = 23
         return True
-    finally:
-        db.close()
 
 
 async def daily_report_loop():
-    """Check local time frequently; a database key prevents duplicate reports."""
+    # Separate from live collection. The existing GitHub job restores this
+    # checkpoint and wakes the free service, including a dedicated 20:00 UTC run.
+    try:
+        await asyncio.to_thread(restore_journal_receipts)
+    except Exception:
+        STATUS['lifecycle_error'] = 'journal_restore_failed'
     while True:
         try:
+            await results_once()
             await daily_report_once()
             STATUS.pop('daily_report_error', None)
         except Exception as exc:
             STATUS['daily_report_error'] = type(exc).__name__
-        await asyncio.sleep(20)
+        try:
+            await asyncio.wait_for(RESULT_WAKE.wait(), timeout=20)
+        except asyncio.TimeoutError:
+            pass
+        RESULT_WAKE.clear()
 
 
 async def commands_once():
@@ -387,6 +388,9 @@ async def commands_once():
                         await say('Проверка доставки: Telegram работает. Режим: ' +
                                   ('экспериментальный прогноз.' if experimental_enabled() else 'только подтверждённые сигналы.') +
                                   '\nЭто техническая проверка, а не прогноз матча.')
+                    elif command == '/report':
+                        for part in lifecycle.chunks(lifecycle.report_text(datetime.now(lifecycle.MSK))):
+                            await say(part)
                     elif command == '/status':
                         checked = STATUS['checked_at_utc']
                         checked = (datetime.fromisoformat(checked).astimezone(timezone(timedelta(hours=3))).strftime('%d.%m %H:%M:%S МСК')

@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -16,6 +16,9 @@ from match_identity import match_context_compatible as external_match_context_co
 import server_signals
 import forecast_journal
 import pari_data
+import hmac
+import time
+import gzip
 
 app = FastAPI(title="PARI Basketball AI", version="0.2.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -5145,6 +5148,48 @@ async def _archive_collector_loop():
 @app.get('/api/signals/status')
 def signal_status():
     return server_signals.public_status()
+
+
+@app.post('/internal/signals/lifecycle')
+async def sync_signal_lifecycle(request: Request):
+    """Private, signed checkpoint sync for the existing owner-only GitHub job."""
+    if not server_signals.enabled():
+        raise HTTPException(503, 'Signal service unavailable')
+    try:
+        timestamp = request.headers.get('X-Signal-Timestamp', '')
+        if abs(time.time()-float(timestamp)) > 180:
+            raise ValueError()
+    except ValueError:
+        raise HTTPException(401, 'Invalid signature') from None
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > 8*1024*1024:
+            raise HTTPException(413, 'Checkpoint too large')
+    expected = hmac.new(os.environ['SIGNAL_BOT_TOKEN'].encode(), timestamp.encode()+b'.'+bytes(raw), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, request.headers.get('X-Signal-Signature', '')):
+        raise HTTPException(401, 'Invalid signature')
+    try:
+        if request.headers.get('Content-Encoding') == 'gzip':
+            with gzip.GzipFile(fileobj=io.BytesIO(raw)) as compressed:
+                decoded = compressed.read(64*1024*1024+1)
+            if len(decoded) > 64*1024*1024:
+                raise HTTPException(413, 'Checkpoint too large')
+        else:
+            decoded = raw
+        payload = json.loads(decoded)
+        if str(payload.get('owner')) != os.environ['SIGNAL_CHAT_ID']:
+            raise HTTPException(403, 'Wrong owner')
+        async with server_signals.RESULT_LOCK:
+            await asyncio.to_thread(server_signals.lifecycle.import_state, payload.get('state') or {})
+        server_signals.STATUS['checkpoint_ready'] = True
+        await server_signals.results_once()
+        await server_signals.daily_report_once()
+        state = await asyncio.to_thread(server_signals.lifecycle.export_state)
+        server_signals.STATUS['checkpoint_synced_at_utc'] = datetime.now(timezone.utc).isoformat()
+        return state
+    except (KeyError, ValueError, TypeError, OSError, EOFError):
+        raise HTTPException(400, 'Invalid checkpoint') from None
 
 @app.get('/api/research/status')
 def research_status():
