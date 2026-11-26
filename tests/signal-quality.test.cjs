@@ -5,7 +5,7 @@ const market={rulesConfirmed:true,ruleSource:'captured-official-rule',includesOv
   pricesVerified:true,overOdds:1.8,underOdds:2.05,quotedAtUtc:new Date(at).toISOString(),suspended:false};
 const row={line:160.5,pOver:.75,pUnder:.25,pPush:0,market};
 const input={nowMs:at,ageSeconds:0,period:4,elapsedSeconds:120,periodLengthSeconds:600,
-  timerVerified:true,scoreValid:true,clockValid:true,match:{ready:true,current:130,probabilities:[row]}};
+  timerVerified:true,scoreValid:true,clockValid:true,statisticsReady:true,match:{ready:true,current:130,probabilities:[row]}};
 const decision=(patch={})=>core.evaluateSignals({...input,match:{...input.match,probabilities:[{...row,market:{...market,...patch}}]}})[0];
 assert.equal(decision().status,'research');
 assert.equal(decision().priority,false);

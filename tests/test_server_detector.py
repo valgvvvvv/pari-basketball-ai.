@@ -95,17 +95,17 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         self.audit.stop(); self.send.stop(); self.lock.stop(); self.path.stop(); self.env.stop(); self.folder.cleanup()
 
-    async def test_first_snapshot_and_new_lines_are_sent_once(self):
+    async def test_only_first_signal_per_market_is_sent(self):
         await server_signals.deliver([self.card])
         self.assertEqual(self.say.await_count, 1)
         new = dict(self.card, signal=dict(self.card['signal'], line=191.5))
         await server_signals.deliver([new])
         await server_signals.deliver([new])
-        self.assertEqual(self.say.await_count, 2)
+        self.assertEqual(self.say.await_count, 1)
         new = dict(new, event='another-game')
         await server_signals.deliver([new])
         await server_signals.deliver([new])
-        self.assertEqual(self.say.await_count, 3)
+        self.assertEqual(self.say.await_count, 2)
 
     async def test_failed_send_retries_and_expired_card_is_skipped(self):
         await server_signals.deliver([])

@@ -143,8 +143,82 @@
         variants:checks.map((v,i)=>({name:v.name,probability:probabilities[i]}))}};
     });
   }
-  const MODEL_VERSION="regulation-research-v6-twenty-minute-halves";
-  const REASONS={data:"Не подтверждены свежесть, счёт или таймер",window:"Вне окна отбора",preliminary:"Предварительный расчёт",
+  // Diagnostic change detection on two disjoint 90-second playing-time windows.
+  // A score rate is not possession pace. Thresholds are research policy, not win probabilities.
+  function detectScoringRegime(input){
+    const unavailable=reason=>({available:false,status:"unknown",reason,calibrated:false});
+    if(input.timerVerified!==true)return unavailable("таймер не подтверждён");
+    const length=input.periodLengthSeconds,period=input.period,now=input.nowMs;
+    if(!Number.isFinite(now)||!Number.isFinite(length)||length<300||!Number.isInteger(period)||period<1)
+      return unavailable("не подтверждён формат");
+    const rows=[];
+    for(const r of input.snapshots||[]){
+      if(Number(r.period)!==period)continue;
+      const m=/^(\d{1,2}):([0-5]\d)$/.exec(String(r.clock||""));
+      const t=Date.parse(r.captured_at||"");
+      let pair=r.score;if(typeof pair==="string"){try{pair=JSON.parse(pair);}catch(_){continue;}}
+      if(!m||!Number.isFinite(t)||t>now||!Array.isArray(pair)||pair.length!==2||
+         !pair.every(x=>typeof x==="number"&&Number.isInteger(x)&&x>=0))continue;
+      const remaining=Number(m[1])*60+Number(m[2]);
+      if(remaining>length)continue;
+      rows.push({t,elapsed:length-remaining,pair,total:pair[0]+pair[1],possessions:r.possessions});
+    }
+    rows.sort((a,b)=>a.t-b.t);
+    const latest=rows.at(-1);
+    if(!latest||now-latest.t>90000)return unavailable("нет свежих снимков");
+    // Retain a local segment only; never bridge periods, clock reversals or score corrections.
+    const segment=[];
+    for(const r of rows.filter(r=>latest.t-r.t<=900000)){
+      const prev=segment.at(-1);
+      if(prev&&(r.elapsed<prev.elapsed||r.pair.some((x,j)=>x<prev.pair[j])||
+         r.t-prev.t>90000||r.elapsed-prev.elapsed>(r.t-prev.t)/1000+5))segment.length=0;
+      const last=segment.at(-1);
+      if(last&&r.elapsed===last.elapsed){
+        if(r.total!==last.total)segment[segment.length-1]=r;
+        continue;
+      }
+      segment.push(r);
+    }
+    const nearest=(elapsed,limit=15)=>segment.filter(r=>Math.abs(r.elapsed-elapsed)<=limit)
+      .sort((a,b)=>Math.abs(a.elapsed-elapsed)-Math.abs(b.elapsed-elapsed))[0];
+    const end=segment.at(-1),mid=end&&nearest(end.elapsed-90),start=end&&nearest(end.elapsed-180),split=end&&nearest(end.elapsed-45);
+    if(!end||now-end.t>90000)return unavailable("таймер приостановлен; нет нового игрового отрезка");
+    if(segment.length<5||!start||!mid||!split)return unavailable("нужны два окна по 90 игровых секунд");
+    const rate=(a,b)=>(b.total-a.total)*60/(b.elapsed-a.elapsed);
+    const previousRate=rate(start,mid),recentRate=rate(mid,end),halfA=rate(mid,split),halfB=rate(split,end);
+    const change=recentRate-previousRate,ratio=previousRate>0?recentRate/previousRate:null;
+    // Compound scoring noise: allow three points per scoring event. This is a warning statistic.
+    const se=Math.sqrt(3*((mid.total-start.total)/(mid.elapsed-start.elapsed)**2+
+      (end.total-mid.total)/(end.elapsed-mid.elapsed)**2))*60;
+    const z=se>0?Math.abs(change)/se:0;
+    const relative=previousRate>0?Math.abs(change)/previousRate:recentRate>0?1:0;
+    const candidate=relative>=.3&&z>=1.96;
+    const persistent=change>0?halfA>previousRate&&halfB>previousRate:halfA<previousRate&&halfB<previousRate;
+    const status=candidate?(persistent?(change>0?"rising":"falling"):"burst"):"stable";
+    let possessionChange=null;
+    if([start,mid,end].every(r=>typeof r.possessions==="number"&&Number.isFinite(r.possessions))&&
+       start.possessions<=mid.possessions&&mid.possessions<=end.possessions){
+      possessionChange={previous:(mid.possessions-start.possessions)*60/(mid.elapsed-start.elapsed),
+        recent:(end.possessions-mid.possessions)*60/(end.elapsed-mid.elapsed)};
+    }
+    return {available:true,status,previousRate,recentRate,ratio,z,persistent,candidate,
+      previousPoints:mid.total-start.total,recentPoints:end.total-mid.total,
+      windowSeconds:90,metric:possessionChange?"scoring_and_possessions":"scoring_only",possessionChange,
+      calibrated:false,policy:"disjoint-90s-marked-noise-v1"};
+  }
+  function regimeSensitivity(posterior,lines,regime){
+    if(!posterior?.ready||!regime?.available||!regime.candidate||!Number.isFinite(posterior.remainingMinutes)||posterior.remainingMinutes<0)return [];
+    return [["Недавняя результативность",regime.recentRate],["Возврат к предыдущему окну",regime.previousRate]].map(([name,rate])=>{
+      const alpha=.5+rate*1.5,beta=1.5,expectedRemaining=alpha/beta*posterior.remainingMinutes;
+      const variance=expectedRemaining**2/alpha;
+      const result=simulateQuarter({...posterior,alpha,beta,expectedRemaining,
+        meanUncertaintyVariance:variance,meanUncertaintySd:Math.sqrt(variance),scoringUnit:3},lines);
+      return {name,projection:posterior.current+expectedRemaining,interval80:[result.low80,result.high80],
+        interval95:[result.low95,result.high95],probabilities:result.probabilities};
+    });
+  }
+  const MODEL_VERSION="regulation-research-v7-regime-integrity";
+  const REASONS={context:"Недостаточно статистики для проверки владений и концовки",regime:"Обнаружено изменение результативности; прежний темп нестабилен",data:"Не подтверждены свежесть, счёт или таймер",window:"Вне окна отбора",preliminary:"Предварительный расчёт",
     probabilities:"Некорректное распределение",rules:"Правила рынка не подтверждены",overtime:"Прогноз основного времени несовместим с рынком с ОТ",
     prices:"Не подтверждены обе цены ТБ/ТМ",suspended:"Рынок приостановлен PARI",quote:"Линия устарела или время котировки неизвестно",
     calibration:"Вероятности не калиброваны на независимых матчах",validation:"Преимущество не подтверждено независимой проверкой",
@@ -179,6 +253,8 @@
         if(target==="match"?(period!==periodCount||input.elapsedSeconds<(isHalves?720:120)):
            (input.elapsedSeconds<(isHalves?480:240)||input.elapsedSeconds>(isHalves?960:480)))reasons.push("window");
         if(f.preliminary)reasons.push("preliminary");
+        if(input.statisticsReady!==true)reasons.push("context");
+        if(input.regime?.candidate)reasons.push("regime");
         const values=[x.pOver,x.pUnder,x.pPush??0];
         const valid=x.line!=null&&Number.isFinite(Number(x.line))&&!x.stale&&
           (f.current==null||Number(x.line)>Number(f.current))&&
@@ -203,7 +279,7 @@
         result.push({target,period,line:Number(x.line),direction:x.pOver>=x.pUnder?"ТБ":"ТМ",probability,
           pOver:x.pOver,pUnder:x.pUnder,pPush:x.pPush||0,push:x.pPush||0,robustness:x.robustness||null,
           status:critical?"shadow":"research",priority:false,calibrated:false,modelVersion:MODEL_VERSION,
-          predictionIncludesOvertime:false,market,comparison,reasonCodes:reasons,reasons:reasons.map(r=>REASONS[r])});
+          predictionIncludesOvertime:false,regime:input.regime||null,statisticsReady:input.statisticsReady===true,market,comparison,reasonCodes:reasons,reasons:reasons.map(r=>REASONS[r])});
       }
     }
     return result.sort((a,b)=>b.probability-a.probability||(a.target<b.target?-1:a.target>b.target?1:0)||a.line-b.line);
@@ -231,7 +307,7 @@
     const reasons={};
     for(const row of evaluations||[])for(const reason of new Set(row.reasonCodes||[]))reasons[reason]=(reasons[reason]||0)+1;
     const inputCodes=["data","probabilities","prices","quote","rules"];
-    const modelCodes=["calibration","validation","overtime"];
+    const modelCodes=["calibration","validation","overtime","context","regime"];
     const selectionCodes=["window","preliminary","threshold","edge","suspended"];
     const counts=codes=>Object.entries(reasons).filter(([code])=>codes.includes(code))
       .map(([code,lines])=>({code,lines,label:REASONS[code]||code}));
@@ -242,6 +318,6 @@
       automaticPriorityEnabled:false,calibrated:false,
       reasons:Object.entries(reasons).map(([code,lines])=>({code,lines,label:REASONS[code]||code})).sort((a,b)=>b.lines-a.lines||(a.code<b.code?-1:a.code>b.code?1:0))};
   }
-  return {quarterPosterior,simulateQuarter,quarterSensitivity,assessSensitivity,selectResearchCandidates,
+  return {detectScoringRegime,regimeSensitivity,quarterPosterior,simulateQuarter,quarterSensitivity,assessSensitivity,selectResearchCandidates,
     summarizeSignals,selectPrioritySignals,evaluateSignals,marketComparison,MODEL_VERSION};
 });

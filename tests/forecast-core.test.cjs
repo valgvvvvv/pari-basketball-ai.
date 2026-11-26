@@ -256,7 +256,7 @@ assert.equal(runtimeSandbox.highlight({period:2,clock:"15:00",period_length_seco
 const prioritySandbox={window:{PARIForecastCore:core},isTwentyMinuteHalves:()=>false,findLiveClock:e=>e.clock,
   inferPeriodLengthForForecast:()=>({seconds:600}),findLivePeriod:e=>e.period,
   findLiveScore:()=>[60,60],validateScoreTimeline:()=>({valid:true})};
-vm.runInNewContext(appSource.slice(appSource.indexOf("function forecastSensitivity("),appSource.indexOf("function priorityLabel("))+";this.select=prioritySignals;this.evaluate=signalEvaluations;",prioritySandbox);
+vm.runInNewContext(appSource.slice(appSource.indexOf("function scoringRegime("),appSource.indexOf("function priorityLabel("))+";this.select=prioritySignals;this.evaluate=signalEvaluations;",prioritySandbox);
 const matchForPriority={ready:true,kind:"live_tempo",estimate:{current:120,poisson:{probabilities:priorityFixture.match.probabilities}}};
 const signalEvent={period:4,clock:"08:00",feed_checked_at_utc:new Date().toISOString(),timer_semantics_verified:true};
 assert.equal(prioritySandbox.evaluate(signalEvent,matchForPriority,{ready:false}).filter(x=>!x.reasonCodes.includes('window')).length,1,"Q4 2:00 elapsed must not depend on the separate 4–8-minute quarter window");

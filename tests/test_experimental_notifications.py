@@ -51,18 +51,17 @@ class ExperimentalNotifications(unittest.IsolatedAsyncioTestCase):
         self.assertIn("экспериментальный прогноз",text)
         self.assertNotIn("68.0%",text)
         self.assertIn("не проверенная вероятность",text)
-        self.assertIn("не подтверждены",text)
+        self.assertIn("Рынок совместим",text)
 
-    def test_stale_or_invalid_data_is_blocked_but_site_watchlist_is_mirrored(self):
+    def test_incompatible_markets_and_missing_context_cannot_send(self):
         for reason in ["data","suspended","preliminary","window"]:
             row=card(); row["signal"]["reasonCodes"].append(reason)
             self.assertEqual(signals.experimental_cards({"researchCandidates":[row]}),[],reason)
-        for reason in ["rules","prices","quote","overtime"]:
-            row=card(); row["signal"]["marketReady"]=False
-            row["signal"]["reasonCodes"].append(reason)
-            selected=signals.experimental_cards({"researchCandidates":[row]})
-            self.assertEqual(len(selected),1)
-            self.assertIn("Только ориентир", signals.message_for(selected[0]))
+        for reason in ["rules","prices","quote","overtime","context","regime"]:
+            row=card(); row["signal"]["reasonCodes"].append(reason)
+            self.assertEqual(signals.experimental_cards({"researchCandidates":[row]}),[],reason)
+        row=card(); row["signal"]["marketReady"]=False
+        self.assertEqual(signals.experimental_cards({"researchCandidates":[row]}),[])
         self.assertEqual(len(signals.experimental_cards({"researchCandidates":[card(str(i)) for i in range(5)]})),5)
 
     def test_unstable_or_low_probability_is_not_selected(self):
@@ -117,9 +116,8 @@ class ExperimentalNotifications(unittest.IsolatedAsyncioTestCase):
             await signals.deliver([changed])
             next_period=deepcopy(row);next_period['signal']['period']=4
             await signals.deliver([next_period])
-        self.assertEqual(send.await_count,3)
-        self.assertIn("Обновление",send.await_args_list[1].args[0])
-        self.assertIn("не новый вход",send.await_args_list[1].args[0])
+        self.assertEqual(send.await_count,2)
+        self.assertNotIn("Обновление",send.await_args_list[1].args[0])
         self.assertEqual(self.audit_mock.call_args.args[1:],("sent",42))
 
     async def test_first_snapshot_delivers_both_cards_and_records_only_successes(self):
