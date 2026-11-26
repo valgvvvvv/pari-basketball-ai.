@@ -60,7 +60,7 @@ def stat_map(participant):
 def parse_statistics(payload, event, observed_at):
     data = body(payload)
     sides = participants(data, event)
-    result = {'statistics':[], 'periods':[], 'unmapped':[], 'received':[], 'state':'identity_not_confirmed'}
+    result = {'statistics':[], 'periods':[], 'unmapped':[], 'received':[], 'source_score':None, 'state':'identity_not_confirmed'}
     if not data:
         result['state'] = 'statistics_unavailable'
         return result
@@ -69,10 +69,11 @@ def parse_statistics(payload, event, observed_at):
     maps = [stat_map(p) for p in sides]
     score = [m.get(('30','')) for m in maps]
     try:
-        coherent = [int(x) for x in score] == list(event.get('score') or [])
+        result['source_score'] = [int(x) for x in score]
+        coherent = result['source_score'] == list(event.get('score') or [])
     except (TypeError, ValueError):
         coherent = False
-    result['state'] = 'score_reconciled' if coherent else 'score_not_current'
+    result['state'] = 'score_reconciled' if coherent else ('score_not_current' if result['source_score'] else 'score_unavailable')
     for kind, stage in sorted(set(maps[0]) | set(maps[1])):
         values = [m.get((kind, stage)) for m in maps]
         metric = KINDS.get(kind)
@@ -83,7 +84,13 @@ def parse_statistics(payload, event, observed_at):
         if metric is None or (stage and period is None):
             result['unmapped'].append({'kind':kind,'stage':stage,'home':values[0],'away':values[1]})
             continue
-        if not coherent or kind == '1':
+        period_basis = [m.get(('30',stage)) for m in maps] if stage else None
+        try:
+            completed = (period is not None and period < int(event.get('period') or 0)
+                and [int(x) for x in period_basis] == [int(x) for x in event['period_scores'][period-1]])
+        except (TypeError, ValueError, KeyError, IndexError):
+            completed = False
+        if (not coherent and not completed) or kind == '1':
             continue
         row = dict(name=metric, metric_key=metric, home=values[0], away=values[1],
             source='PARI-SSIS', source_event_id=str(event['id']), match_status='exact_event_id_match',
@@ -91,6 +98,7 @@ def parse_statistics(payload, event, observed_at):
             observed_at_utc=observed_at, score_basis=list(event['score']), kind=kind, stage=stage)
         if period is not None:
             row['period'] = period
+            row['period_score_basis'] = period_basis
         result['periods' if period is not None else 'statistics'].append(row)
     return result
 
