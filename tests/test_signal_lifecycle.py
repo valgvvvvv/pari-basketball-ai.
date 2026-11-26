@@ -6,6 +6,7 @@ import gzip
 import hmac
 import json
 import os
+import sqlite3
 from pathlib import Path
 import time
 import unittest
@@ -95,6 +96,57 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(r['result']['state'], 'disputed')
         previous = deepcopy(r['result'])
         life.observe([e]); self.assertEqual(life.rows()[0]['result'], previous)
+
+    async def test_same_game_updates_and_new_targets_edit_one_message(self):
+        state_path = self.path.with_suffix('.delivery.sqlite3')
+        signals.STATUS['sent'] = 0
+        with patch.object(signals, 'STATE_PATH', state_path), patch.object(signals, 'audit_delivery'), patch.object(signals, 'say', AsyncMock(return_value={'message_id': 90})) as send, patch.object(signals, 'telegram', AsyncMock()) as edit:
+            signals.LOCK = asyncio.Lock()
+            prepared = []
+            for n, target in enumerate(('quarter', 'quarter', 'match')):
+                c = card(target=target, line=44.5+n, identity='new-'+str(n))
+                c['expires'] = (time.time()+60)*1000
+                prepared.append(c)
+                await signals.deliver([c])
+            self.assertEqual(send.await_count, 1)
+            self.assertEqual(edit.await_count, 2)
+            self.assertEqual({r['message_id'] for r in life.rows()}, {90})
+            self.assertEqual(len(life.rows()), 3)
+            self.assertIn('44.5', edit.await_args.kwargs['text'])
+            self.assertIn('45.5', edit.await_args.kwargs['text'])
+            self.assertIn('Матч', edit.await_args.kwargs['text'])
+            life.observe([event()])
+            with patch('signal_results.check_finals', AsyncMock()):
+                await signals.results_once()
+            self.assertEqual(edit.await_count, 3)
+            self.assertIn('✅', edit.await_args.kwargs['text'])
+            self.assertIn('46.5', edit.await_args.kwargs['text'])
+            # Reset the dedupe database: lifecycle receipts still suppress replay.
+            state_path.unlink()
+            await signals.deliver(prepared)
+            self.assertEqual(send.await_count, 1)
+            self.assertEqual(edit.await_count, 3)
+        state_path.unlink(missing_ok=True)
+
+    def test_legacy_unique_receipts_migrate_without_losing_originals(self):
+        db = sqlite3.connect(self.path)
+        db.execute('CREATE TABLE messages (id TEXT PRIMARY KEY, message_id INTEGER UNIQUE NOT NULL, sent_at REAL NOT NULL, payload TEXT NOT NULL, result TEXT, edited_hash TEXT)')
+        db.commit(); db.close()
+        self.save(card(identity='old'), 1)
+        self.save(card(identity='new'), 1)
+        checkpoint = life.export_state()
+        self.assertEqual(len(checkpoint['rows']), 2)
+        life.import_state(checkpoint)
+        self.assertEqual(len(life.rows()), 2)
+
+    def test_removed_footer_stays_removed_after_result_edit(self):
+        original = '🔔 Сигнал\nРынок совместим; преимущество не проверено.\nИзменение линии — обновление наблюдения, а не новый вход.\n\nПредварительное направление. Вероятность и преимущество не подтверждены независимой проверкой.\nhttps://pari-basketball-ai.onrender.com/'
+        life.register(card(), 1, original)
+        life.observe([event()])
+        text = life.group_text(life.rows())
+        self.assertIn('✅', text)
+        self.assertNotIn('https://pari-basketball', text)
+        self.assertNotIn('преимущество не', text)
 
     async def test_edit_is_retried_and_success_is_not_edited_again(self):
         self.save(); life.observe([event()])

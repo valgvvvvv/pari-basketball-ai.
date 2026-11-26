@@ -17,7 +17,7 @@ spec.loader.exec_module(signals)
 
 
 def card(event="1"):
-    return {"event":event,"forecast_id":"saved-test-forecast","teams":"Team A — Team B","context":"50:48 · Q3 · 04:00",
+    return {"event":event,"forecast_id":"saved-test-forecast-"+event,"teams":"Team A — Team B","context":"50:48 · Q3 · 04:00",
             "expires":time.time()*1000+60000,
             "signal":{"target":"quarter","period":3,"line":44.5,"direction":"ТМ",
                       "probability":.72,"rankingProbability":.68,"marketReady":True,"watchlist":True,
@@ -27,19 +27,24 @@ def card(event="1"):
 
 class ExperimentalNotifications(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        self.lifecycle_path=ROOT / ('test-receipts-'+uuid.uuid4().hex+'.sqlite3')
         self.env=patch.dict(os.environ,{"SIGNAL_SERVER_ENABLED":"1","SIGNAL_EXPERIMENTAL_ENABLED":"1",
-                                       "SIGNAL_BOT_TOKEN":"test-token","SIGNAL_CHAT_ID":"123"})
+                                       "SIGNAL_BOT_TOKEN":"test-token","SIGNAL_CHAT_ID":"123",
+                                       'SIGNAL_LIFECYCLE_PATH':str(self.lifecycle_path)})
         self.env.start()
         self.path=ROOT / ("test-signal-"+uuid.uuid4().hex+".sqlite3")
         self.state=patch.object(signals,"STATE_PATH",self.path); self.state.start()
         self.audit=patch.object(signals,"audit_delivery"); self.audit_mock=self.audit.start()
         signals.LOCK=asyncio.Lock()
+        signals.RESULT_LOCK=asyncio.Lock()
         signals.COMMAND_LOCK=asyncio.Lock()
         signals.PENDING.clear(); signals.RETRY_AT.clear(); signals.WAKE=asyncio.Event()
         signals.STATUS.update(cards=[],error=None,sent=0)
 
     async def asyncTearDown(self):
         self.audit.stop(); self.state.stop(); self.env.stop(); self.path.unlink(missing_ok=True)
+        for suffix in ('', '-wal', '-shm'):
+            Path(str(self.lifecycle_path)+suffix).unlink(missing_ok=True)
 
     def test_explicit_opt_in_and_label(self):
         row=card(); result={"researchCandidates":[row]}
@@ -51,17 +56,17 @@ class ExperimentalNotifications(unittest.IsolatedAsyncioTestCase):
         self.assertIn("экспериментальный прогноз",text)
         self.assertNotIn("68.0%",text)
         self.assertIn("не проверенная вероятность",text)
-        self.assertIn("Рынок совместим",text)
+        self.assertNotIn("Предварительное направление.",text)
 
     def test_incompatible_markets_and_missing_context_cannot_send(self):
         for reason in ["data","suspended","preliminary","window"]:
             row=card(); row["signal"]["reasonCodes"].append(reason)
             self.assertEqual(signals.experimental_cards({"researchCandidates":[row]}),[],reason)
         for reason in ["rules","prices","quote","overtime","context","regime"]:
-            row=card(); row["signal"]["reasonCodes"].append(reason)
-            self.assertEqual(signals.experimental_cards({"researchCandidates":[row]}),[],reason)
-        row=card(); row["signal"]["marketReady"]=False
-        self.assertEqual(signals.experimental_cards({"researchCandidates":[row]}),[])
+            row=card(); row['signal']['reasonCodes'].append(reason)
+            self.assertEqual(signals.experimental_cards({'researchCandidates':[row]}),[],reason)
+        row=card(); row['signal']['marketReady']=False
+        self.assertEqual(signals.experimental_cards({'researchCandidates':[row]}),[])
         self.assertEqual(len(signals.experimental_cards({"researchCandidates":[card(str(i)) for i in range(5)]})),5)
 
     def test_unstable_or_low_probability_is_not_selected(self):
@@ -110,14 +115,19 @@ class ExperimentalNotifications(unittest.IsolatedAsyncioTestCase):
     async def test_new_lines_are_labeled_updates_and_exact_duplicates_are_suppressed(self):
         await signals.deliver([])
         row=signals.experimental_cards({"researchCandidates":[card()]})[0]
-        with patch.object(signals,"say",AsyncMock(return_value={"message_id":42})) as send:
+        with patch.object(signals,"say",AsyncMock(return_value={"message_id":42})) as send, patch.object(signals,'telegram',AsyncMock()) as edit:
             await signals.deliver([row])
             changed=deepcopy(row);changed['signal'].update(line=40.5,direction='ТБ')
+            changed['forecast_id']='changed-line'
             await signals.deliver([changed])
             next_period=deepcopy(row);next_period['signal']['period']=4
+            next_period['forecast_id']='next-period'
             await signals.deliver([next_period])
-        self.assertEqual(send.await_count,2)
-        self.assertNotIn("Обновление",send.await_args_list[1].args[0])
+        self.assertEqual(send.await_count,1)
+        self.assertEqual(edit.await_count,2)
+        self.assertIn('40.5',edit.await_args.kwargs['text'])
+        self.assertIn('Четверть Q4',edit.await_args.kwargs['text'])
+        self.assertNotIn('не новый вход',edit.await_args.kwargs['text'])
         self.assertEqual(self.audit_mock.call_args.args[1:],("sent",42))
 
     async def test_first_snapshot_delivers_both_cards_and_records_only_successes(self):

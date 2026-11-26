@@ -78,7 +78,8 @@ class DetectorTests(unittest.TestCase):
 class DeliveryTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.folder = tempfile.TemporaryDirectory()
-        self.env = patch.dict(os.environ, {'SIGNAL_SERVER_ENABLED': '1', 'SIGNAL_BOT_TOKEN': 'test-only', 'SIGNAL_CHAT_ID': '123'})
+        self.env = patch.dict(os.environ, {'SIGNAL_SERVER_ENABLED': '1', 'SIGNAL_BOT_TOKEN': 'test-only', 'SIGNAL_CHAT_ID': '123',
+                                         'SIGNAL_LIFECYCLE_PATH': str(Path(self.folder.name)/'receipts.sqlite3')})
         self.env.start()
         self.path = patch.object(server_signals, 'STATE_PATH', Path(self.folder.name)/'state.sqlite3')
         self.path.start()
@@ -87,6 +88,8 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
         server_signals.RETRY_AT.clear()
         self.send = patch.object(server_signals, 'say', new_callable=AsyncMock)
         self.say = self.send.start()
+        self.say.return_value = {'message_id': 42}
+        server_signals.RESULT_LOCK = asyncio.Lock()
         self.audit = patch.object(server_signals, 'audit_delivery'); self.audit.start()
         self.card = {'event': 'x', 'forecast_id': 'saved-test-forecast', 'teams': 'Home — Away', 'label': 'Матч · ТМ 190.5',
                      'signal': {'target': 'match', 'period': 4, 'line': 190.5, 'direction': 'ТМ'},
@@ -95,14 +98,17 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         self.audit.stop(); self.send.stop(); self.lock.stop(); self.path.stop(); self.env.stop(); self.folder.cleanup()
 
-    async def test_only_first_signal_per_market_is_sent(self):
+    async def test_only_first_signal_per_game_is_sent_and_changes_are_edited(self):
         await server_signals.deliver([self.card])
         self.assertEqual(self.say.await_count, 1)
-        new = dict(self.card, signal=dict(self.card['signal'], line=191.5))
-        await server_signals.deliver([new])
-        await server_signals.deliver([new])
+        new = dict(self.card, forecast_id='changed', signal=dict(self.card['signal'], line=191.5))
+        with patch.object(server_signals, 'telegram', new_callable=AsyncMock) as edit:
+            await server_signals.deliver([new])
+            await server_signals.deliver([new])
+        self.assertEqual(edit.await_count, 1)
         self.assertEqual(self.say.await_count, 1)
-        new = dict(new, event='another-game')
+        new = dict(new, event='another-game', forecast_id='another')
+        self.say.return_value = {'message_id': 43}
         await server_signals.deliver([new])
         await server_signals.deliver([new])
         self.assertEqual(self.say.await_count, 2)
