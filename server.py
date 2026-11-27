@@ -18,6 +18,7 @@ import forecast_journal
 import pari_data
 import pari_ssis
 import espn_college
+import learning_service
 import hmac
 import time
 import gzip
@@ -5013,6 +5014,7 @@ async def _refresh_live_snapshot():
                 ids = ','.join(str(e.get('id')) for e in data.get('events', []))
                 history = await asyncio.to_thread(archive_recent, 10, ids)
                 await server_signals.process(data, history['events'])
+                await asyncio.to_thread(learning_service.attach, data, history['events'])
             except Exception as exc:
                 server_signals.STATUS['error'] = type(exc).__name__
                 emit_diagnostic('SIGNAL_DETECTOR_ERROR', {'error': type(exc).__name__}, level='error')
@@ -5313,6 +5315,22 @@ async def sync_signal_lifecycle(request: Request):
 @app.get('/api/research/status')
 def research_status():
     return forecast_journal.status()
+
+
+@app.get('/api/learning/status')
+def learning_status():
+    return learning_service.status()
+
+
+@app.get('/api/learning/export')
+def learning_export():
+    return Response('\n'.join(json.dumps(r, ensure_ascii=False) for r in learning_service.export()),
+                    media_type='application/x-ndjson', headers={'Cache-Control':'no-store'})
+
+
+@app.on_event('startup')
+async def start_learning_model_refresh():
+    asyncio.create_task(learning_service.refresh_loop())
 
 @app.get('/api/research/export')
 def research_export(deliveries_only: bool = False):
