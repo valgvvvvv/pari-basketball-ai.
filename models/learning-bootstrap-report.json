@@ -95,5 +95,96 @@
     }
   },
   "exclusions": {},
-  "nba_source_season": "2025-11, retrospective only"
+  "nba_source_season": "2025-11, retrospective only",
+  "universal": {
+    "source_games": {
+      "ncaa_m": 178,
+      "ncaa_w": 179,
+      "nba": 130
+    },
+    "checkpoints": 41034,
+    "scope": "All basketball leagues; transfer accuracy is not validated separately for unseen leagues",
+    "reports": {
+      "universal:match:universal": {
+        "games": 132,
+        "checkpoints": 5278,
+        "mae": 12.488984269737466,
+        "bias": 8.586265906261048,
+        "tempo_mae": 14.937381889931322,
+        "interval80_coverage": 0.8059877622377623,
+        "tempo_comparable_mae": 12.042699092744298,
+        "tempo_comparable_checkpoints": 5147
+      },
+      "universal:period:universal": {
+        "games": 132,
+        "checkpoints": 5278,
+        "mae": 5.954663036302885,
+        "bias": 2.8700501607638955,
+        "tempo_mae": 6.614916738539753,
+        "interval80_coverage": 0.7675165112665113,
+        "tempo_comparable_mae": 5.799677502994984,
+        "tempo_comparable_checkpoints": 5147
+      },
+      "universal_2x20:match:universal": {
+        "games": 27,
+        "checkpoints": 1079,
+        "mae": 10.205628988460827,
+        "bias": 6.00747037821741,
+        "tempo_mae": 13.434180517327933,
+        "interval80_coverage": 0.8710826210826211,
+        "tempo_comparable_mae": 10.03303227398878,
+        "tempo_comparable_checkpoints": 1052
+      },
+      "universal_2x20:period:universal": {
+        "games": 27,
+        "checkpoints": 1079,
+        "mae": 6.376664582168086,
+        "bias": 2.9672465140951654,
+        "tempo_mae": 7.9983046243670675,
+        "interval80_coverage": 0.8367996201329534,
+        "tempo_comparable_mae": 6.323492233292795,
+        "tempo_comparable_checkpoints": 1052
+      },
+      "universal_4x10:match:universal": {
+        "games": 32,
+        "checkpoints": 1279,
+        "mae": 7.769117904474324,
+        "bias": 0.7064592929285494,
+        "tempo_mae": 14.698965276187543,
+        "interval80_coverage": 0.7967948717948719,
+        "tempo_comparable_mae": 7.62206550223261,
+        "tempo_comparable_checkpoints": 1248
+      },
+      "universal_4x10:period:universal": {
+        "games": 32,
+        "checkpoints": 1279,
+        "mae": 3.967216719690299,
+        "bias": 0.3354370505680559,
+        "tempo_mae": 4.91298331401755,
+        "interval80_coverage": 0.7653445512820513,
+        "tempo_comparable_mae": 3.9219821205600285,
+        "tempo_comparable_checkpoints": 1248
+      },
+      "universal_4x12:match:universal": {
+        "games": 30,
+        "checkpoints": 1440,
+        "mae": 10.696910853336725,
+        "bias": -0.8072810655626903,
+        "tempo_mae": 19.02792054819558,
+        "interval80_coverage": 0.6993055555555556,
+        "tempo_comparable_mae": 10.573440871492826,
+        "tempo_comparable_checkpoints": 1410
+      },
+      "universal_4x12:period:universal": {
+        "games": 30,
+        "checkpoints": 1440,
+        "mae": 4.897204331525634,
+        "bias": 0.16446713340040725,
+        "tempo_mae": 6.193622216928646,
+        "interval80_coverage": 0.7659722222222223,
+        "tempo_comparable_mae": 4.8451452808953235,
+        "tempo_comparable_checkpoints": 1410
+      }
+    }
+  }
 }
