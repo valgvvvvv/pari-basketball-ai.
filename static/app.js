@@ -1940,7 +1940,7 @@ async function refreshLiveMatches() {
           const preview=calculated[0];
           forecastHtml+='<span class="live-match-meta forecast-pending">'+(preview?
             'Расчётное направление: '+escapeHtml((preview.target==='match'?'Матч без ОТ':livePeriodLabel(ev,preview.period))+' · '+preview.direction+' '+preview.line)+' · оценка не калибрована':
-            (evaluations.some(x=>x.calculationAvailable)?'Расчёт готов; нет подходящей линии для отображения направления':'Расчёт ожидает входные данные'))+
+            ((calculationDataStatus(forecast,'match').requiredStatisticsReady||calculationDataStatus(quarterForecast,'period').requiredStatisticsReady)?'Расчёт готов; нет подходящей линии для отображения направления':'Расчёт ожидает входные данные'))+
             ' · уверенный допуск: '+escapeHtml(first?.reasons?.[0]||'нет пригодной линии')+' · открыть разбор →</span>';
           // Re-evaluate locally too: an older server response must not bypass current quality gates.
           const signals=evaluations.filter(x=>x.priority===true);
