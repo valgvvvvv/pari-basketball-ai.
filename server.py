@@ -4990,7 +4990,31 @@ async def pari_live_events(catalog_only: bool = False):
     if catalog_only:
         return await _fetch_pari_live_events(catalog_only=True)
 
+    global _LIVE_API_REFRESH_TASK, _LIVE_API_REFRESH_ATTEMPT
+    published = globals().get('_PUBLISHED_LIVE_SNAPSHOT')
+    if published:
+        now = time.time()
+        age = max(0, now-published['saved_at'])
+        if (age >= server_signals.INTERVAL_SECONDS and now-_LIVE_API_REFRESH_ATTEMPT >= server_signals.INTERVAL_SECONDS
+                and (_LIVE_API_REFRESH_TASK is None or _LIVE_API_REFRESH_TASK.done())):
+            _LIVE_API_REFRESH_ATTEMPT = now
+            _LIVE_API_REFRESH_TASK = asyncio.create_task(_refresh_live_for_api())
+        data = published['data']
+        source_age = max(0,now-datetime.fromisoformat(data['checked_at_utc'].replace('Z','+00:00')).timestamp())
+        return {**data,'snapshot_age_seconds':round(source_age,1),'snapshot_stale':source_age>90,
+                'refresh_pending':_LIVE_API_REFRESH_TASK is not None and not _LIVE_API_REFRESH_TASK.done()}
     return await _refresh_live_snapshot()
+
+
+_LIVE_API_REFRESH_TASK = None
+_LIVE_API_REFRESH_ATTEMPT = 0
+
+
+async def _refresh_live_for_api():
+    try:
+        await _refresh_live_snapshot()
+    except Exception as exc:
+        emit_diagnostic('LIVE_BACKGROUND_REFRESH', {'error':type(exc).__name__}, level='warning')
 
 
 _LIVE_REFRESH_LOCK = asyncio.Lock()
@@ -5015,6 +5039,7 @@ async def _refresh_live_snapshot():
                 history = await asyncio.to_thread(archive_recent, 10, ids)
                 await server_signals.process(data, history['events'])
                 await asyncio.to_thread(learning_service.attach, data, history['events'])
+                data['recent_snapshots_by_event'] = history['events']
             except Exception as exc:
                 server_signals.STATUS['error'] = type(exc).__name__
                 emit_diagnostic('SIGNAL_DETECTOR_ERROR', {'error': type(exc).__name__}, level='error')
@@ -5032,6 +5057,8 @@ async def _refresh_live_snapshot():
             # timestamps stay unchanged so consumers still reject stale inputs.
             globals()["_PARI_LIVE_CACHE"] = {
                 "saved_at": datetime.now(timezone.utc).timestamp(), "data": data}
+            globals()['_PUBLISHED_LIVE_SNAPSHOT'] = {
+                'saved_at':time.time(),'data':copy.deepcopy(data)}
         else:
             _ARCHIVE_LAST.update({'checked_at': datetime.now(timezone.utc).isoformat(),
                                   'events': 0, 'saved': 0, 'error': 'PARI feed unavailable'})

@@ -380,6 +380,35 @@
     return {id,tier:0,...best,label:target+' · '+best.direction+' '+best.line+' · оценка '+(best.probability*100).toFixed(1)+'%',calibrated:false,priority:false};
   }
   function compareLiveMatches(a,b){return a.tier-b.tier||((b.probability??-1)-(a.probability??-1))||(a.id<b.id?-1:a.id>b.id?1:0);}
+  function stableLiveQueue(ranks,previous,nowMs){
+    const old=previous||{ids:[],items:{},lastReorderAt:0},items={},byId=new Map(ranks.map(r=>[r.id,r]));
+    const fresh=ranks.filter(r=>!old.items[r.id]).sort(compareLiveMatches).map(r=>r.id);
+    for(const r of ranks){
+      const before=old.items[r.id];let item=before?{...before}:{tier:r.tier,pendingTier:null,since:nowMs};
+      if(r.tier>item.tier)item={tier:r.tier,pendingTier:null,since:nowMs};
+      else if(r.tier<item.tier){
+        if(item.pendingTier!==r.tier){item.pendingTier=r.tier;item.since=nowMs;}
+        else if(nowMs-item.since>=20000)item={tier:r.tier,pendingTier:null,since:nowMs};
+      }else item.pendingTier=null;
+      items[r.id]=item;
+    }
+    let ids=old.ids.filter(id=>byId.has(id)).concat(fresh);
+    const position=new Map(ids.map((id,i)=>[id,i]));
+    ids.sort((a,b)=>items[a].tier-items[b].tier||position.get(a)-position.get(b));
+    const due=!old.ids.length||nowMs-old.lastReorderAt>=45000;
+    if(due||fresh.length){
+      // Stable insertion: small probability changes preserve previous order.
+      for(let i=1;i<ids.length;i++){
+        if(!due&&!fresh.includes(ids[i]))continue;
+        let j=i;
+        while(j>0&&items[ids[j]].tier===items[ids[j-1]].tier&&
+          (byId.get(ids[j]).probability??-1)-(byId.get(ids[j-1]).probability??-1)>=.05){
+          [ids[j-1],ids[j]]=[ids[j],ids[j-1]];j--;
+        }
+      }
+    }
+    return {ids,items,lastReorderAt:due?nowMs:old.lastReorderAt};
+  }
   function selectPrioritySignals(input){return evaluateSignals(input).filter(x=>x.priority===true);}
   function selectCalculatedDirections(evaluations){
     const selected=[];
@@ -429,6 +458,6 @@
       automaticPriorityEnabled:false,calibrated:false,
       reasons:Object.entries(reasons).map(([code,lines])=>({code,lines,label:REASONS[code]||code})).sort((a,b)=>b.lines-a.lines||(a.code<b.code?-1:a.code>b.code?1:0))};
   }
-  return {rankLiveMatch,compareLiveMatches,selectCalculatedDirections,possessionRemainder,detectScoringRegime,regimeSensitivity,quarterPosterior,simulateQuarter,quarterSensitivity,assessSensitivity,selectResearchCandidates,
+  return {stableLiveQueue,rankLiveMatch,compareLiveMatches,selectCalculatedDirections,possessionRemainder,detectScoringRegime,regimeSensitivity,quarterPosterior,simulateQuarter,quarterSensitivity,assessSensitivity,selectResearchCandidates,
     summarizeSignals,selectPrioritySignals,evaluateSignals,marketComparison,MODEL_VERSION};
 });

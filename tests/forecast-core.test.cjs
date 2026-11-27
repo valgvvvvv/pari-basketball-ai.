@@ -162,7 +162,7 @@ assert.ok(appSource.includes("Date.now()-feedChecked>120000"), "stale API snapsh
 assert.ok(appSource.includes("validateScoreTimeline"), "period sums must be checked against the match score");
 assert.ok(appSource.includes("providerEventTimestampAvailable"), "provider event freshness must be distinguished from API response age");
 assert.ok(appSource.includes("full_play_by_play") && appSource.includes("score_clock_period_results") && appSource.includes("score_clock_only"), "data coverage modes must be explicit");
-assert.ok(appSource.includes("/api/archive/recent?minutes=10"), "live refresh must retrieve timestamped rolling snapshots");
+assert.ok(appSource.includes("data.recent_snapshots_by_event"), "live response must bundle timestamped rolling snapshots");
 assert.ok(appSource.includes("const renderedMatchCards = count ? window.pariLiveEvents.map"), "live list cards must use events enriched with recent snapshots");
 assert.ok(appSource.includes("scoreSource") && appSource.includes("clockSource") && appSource.includes("statisticsSource"), "source provenance must be tracked by layer");
 assert.ok(appSource.includes("probText=p=>p?"), "headline probabilities must come from the forecast distribution only");
@@ -179,7 +179,7 @@ assert.ok(!applyPoissonSource.includes("dataQuality.rolling_snapshot_count="), "
 assert.ok(appSource.includes("priorExposureSeconds:aggregatePriorExposureSeconds"), "missing period splits must use aggregate historical score and exact exposure");
 assert.ok(!appSource.slice(appSource.indexOf("function saveAnalysisHistory("),appSource.indexOf("function clearAnalysisHistory(")).includes("if(!estimate&&!quarter?.ready)return"), "raw snapshot history must persist even when no forecast is available");
 assert.ok(appSource.includes('forecastStatus:estimate||quarter?.ready?"calculated":"not_available"'), "history must distinguish snapshot from forecast availability");
-assert.ok(htmlSource.includes("20261127-match-order-v16"), "readiness fix must bump frontend cache");
+assert.ok(htmlSource.includes("20261127-stable-live-v17"), "readiness fix must bump frontend cache");
 assert.ok(htmlSource.includes("confirmedIndependentMatches") && htmlSource.includes("Финалы ещё не сверяются автоматически"), "quality panel must show zero confirmed independent finals and not claim accuracy without settlement");
 assert.ok(archivePublisherSource.startsWith("import hashlib"), "permanent archive publisher must import hashlib before calculating checksums");
 assert.ok(archiveCollectorSource.includes("contract.snapshot_id = row.snapshot_id") && archiveCollectorSource.includes("contract.contract_id = crypto.createHash"), "all prediction blocks from one source update must share snapshot_id; target identity uses contract_id");
@@ -188,7 +188,7 @@ assert.ok(!archiveCollectorSource.includes("window.automaticForecast") && archiv
 assert.ok(archiveCollectorSource.includes("result.source_checked_at_utc || row.captured_at_utc") && archiveCollectorSource.includes("String(row.score || \"\"),"), "archive snapshot IDs must use the same source timestamp, score, period and clock key as the UI");
 assert.ok(archiveCollectorSource.includes("source_event_snapshot: JSON.parse(JSON.stringify(rawEvent))") && archiveCollectorSource.includes("model_versions:"), "archive must preserve immutable raw source event and method versions separately from forecasts");
 assert.ok(appSource.includes("Применимо: ") && appSource.includes("рассчитано сейчас:"), "registry must show factual tool counts");
-assert.ok(htmlSource.includes("20261127-match-order-v16"), "frontend cache must be bumped after display fixes");
+assert.ok(htmlSource.includes("20261127-stable-live-v17"), "frontend cache must be bumped after display fixes");
 assert.ok(appSource.includes("const qLines=") && !appSource.includes("qLines+="), "quarter forecast text must be immutable after declaration");
 const timerFnStart = appSource.indexOf("function findQuarterClockFromElapsed(");
 const timerFnEnd = appSource.indexOf("function automaticQuarterForecast(", timerFnStart);
@@ -347,7 +347,7 @@ assert.equal(mcResult.momentum,20);
 assert.equal(mcResult.research_scheme,true);
 assert.ok(htmlSource.indexOf("forecast-core.js") < htmlSource.indexOf("app.js"),
   "the tested forecast core must load before the UI code");
-assert.ok(htmlSource.includes("20261127-match-order-v16"), "forecast core cache must be refreshed with model changes");
+assert.ok(htmlSource.includes("20261127-stable-live-v17"), "forecast core cache must be refreshed with model changes");
 assert.ok(appSource.includes("market.prices.push"), "quarter market prices must preserve both factor IDs");
 assert.ok(appSource.includes('outcomeStatus:"unresolved"'), "unconfirmed history outcomes must not be shown as settled");
 assert.ok(appSource.includes('overtime_policy:"not_included_market_rule_unverified"'), "regulation-only forecasts must not imply overtime inclusion");
@@ -444,20 +444,20 @@ console.log('input validation regressions: OK');
     clearTimeout:id=>timers.delete(id)};
   const start=appSource.indexOf('async function refreshLiveMatches()');
   const end=appSource.indexOf('if ($("refreshLiveMatches"))',start);
-  vm.runInNewContext('let liveRefreshInFlight=false;const LIVE_REFRESH_INTERVAL_MS=10000;'+
-    'let nextLiveRefreshDelay=10000;let liveRefreshTimer=null;'+appSource.slice(start,end)+
+  vm.runInNewContext('let liveRefreshInFlight=false;const LIVE_REFRESH_INTERVAL_MS=5000;'+
+    'let nextLiveRefreshDelay=5000;let liveRefreshTimer=null;'+appSource.slice(start,end)+
     ';this.refresh=refreshLiveMatches;',sandbox);
   const first=sandbox.refresh();await sandbox.refresh();
   assert.equal(calls,1,'concurrent triggers must not stack requests');
   now=3500;rejectRequest(new Error('transport unavailable'));await first;
   assert.equal(timers.size,1,'only one automatic refresh must remain');
-  assert.equal([...timers.values()][0].delay,6500,'response time counts toward the ten-second cadence');
+  assert.equal([...timers.values()][0].delay,1500,'response time counts toward the five-second cadence');
   const manual=sandbox.refresh();
   assert.equal(timers.size,1,'manual refresh cancels pending poll, leaving only its watchdog');
   now=20000;rejectRequest(new Error('slow transport'));await manual;
   assert.equal(timers.size,1);
   assert.equal([...timers.values()][0].delay,1000,'slow responses must not cause a tight retry loop');
-  console.log('ten-second refresh cadence regressions: OK');
+  console.log('five-second refresh cadence regressions: OK');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 const optimizedMC=mcSource.replace(/\r\n/g,"\n");
 const legacyMC=optimizedMC.replace(/  \/\/ Preserve the identical seeded sample,[\s\S]*?  const quantile=/,

@@ -1730,7 +1730,27 @@ window.addEventListener("keydown",event=>{
   if(["ArrowUp","ArrowDown","PageUp","PageDown","Home","End"," "].includes(event.key))userScrollIntentVersion++;
 });
 let liveRefreshInFlight = false;
-const LIVE_REFRESH_INTERVAL_MS = 10000;
+const LIVE_REFRESH_INTERVAL_MS = 5000;
+let lastRenderedLiveStamp=null,liveQueueState=null;
+const liveCardMarkup=new Map();
+function patchLiveMatchCards(cards){
+  const present=new Map(Array.from(liveList.querySelectorAll('button[data-event-id]')).map(el=>[el.dataset.eventId,el]));
+  const wanted=new Set(cards.map(x=>x.rank.id));
+  for(const [id,node] of present)if(!wanted.has(id)){node.remove();liveCardMarkup.delete(id);}
+  for(const child of Array.from(liveList.children))if(!child.matches('button[data-event-id]'))child.remove();
+  let cursor=liveList.firstElementChild;
+  for(const card of cards){
+    const id=card.rank.id;let node=present.get(id);
+    if(!node||liveCardMarkup.get(id)!==card.html){
+      const template=document.createElement('template');template.innerHTML=card.html;
+      const next=template.content.firstElementChild;
+      if(node){node.className=next.className;node.innerHTML=next.innerHTML;}else node=next;
+      liveCardMarkup.set(id,card.html);
+    }
+    if(node===cursor)cursor=cursor.nextElementSibling;
+    else liveList.insertBefore(node,cursor);
+  }
+}
 let nextLiveRefreshDelay = LIVE_REFRESH_INTERVAL_MS;
 let liveRefreshTimer = null;
 function quarterForecastMarkup(quarterForecast, ev) {
@@ -1809,22 +1829,9 @@ async function refreshLiveMatches() {
       return;
     }
     const count = (data.events || []).length;
-    let recentSnapshotsByEvent = {};
-    if(count){
-      const recentController=new AbortController();
-      const recentTimeout=setTimeout(()=>recentController.abort(),5000);
-      try{
-        const ids=(data.events||[]).map(ev=>String(ev.id||"")).filter(Boolean);
-        const recentResponse=await fetch("/api/archive/recent?minutes=10&event_ids="+encodeURIComponent(ids.join(",")),
-          {cache:"no-store",signal:recentController.signal});
-        if(recentResponse.ok){
-          const recentData=await recentResponse.json();
-          if(recentData?.ok&&recentData.events)recentSnapshotsByEvent=recentData.events;
-        }
-      }catch(_recentError){
-        // Rolling tempo is optional; never block the current live feed on an empty cache.
-      }finally{clearTimeout(recentTimeout);}
-    }
+    const stampAge=(Date.now()-Date.parse(data.checked_at_utc||''))/1000;
+    if(data.checked_at_utc&&data.checked_at_utc===lastRenderedLiveStamp&&stampAge<20)return;
+    const recentSnapshotsByEvent=data.recent_snapshots_by_event||{};
     window.pariLiveEvents = (data.events || []).map(ev=>({...ev,
       feed_checked_at_utc:data.checked_at_utc||null,
       snapshot_id:[String(ev.id||""),String(data.checked_at_utc||""),String(ev.score||""),String(ev.period||""),String(ev.clock||"")].join("|"),
@@ -1836,7 +1843,7 @@ async function refreshLiveMatches() {
     const sourceStatus = $("liveSourceStatus");
     const sourceDetail = $("liveSourceDetail");
     if (sourceStatus) { sourceStatus.textContent = "Подключён"; sourceStatus.className = "success"; }
-    if (sourceDetail) sourceDetail.textContent = "PARI API отвечает · автообновление каждые 10 секунд";
+    if (sourceDetail) sourceDetail.textContent = "PARI API отвечает · проверка новых данных каждые 5 секунд";
     if (liveBadge) {
       liveBadge.textContent = count ? "LIVE-источник отвечает" : "API отвечает, матчей не найдено";
       liveBadge.className = "pill " + (count ? "success" : "warn");
@@ -1974,8 +1981,10 @@ async function refreshLiveMatches() {
           return {rank:{id:String(ev.id),tier:2,probability:null},html:liveMatchRenderFallback(ev)};
         }
       }) : [];
-      liveList.innerHTML=renderedMatchCards.length?renderedMatchCards.sort((a,b)=>window.PARIForecastCore.compareLiveMatches(a.rank,b.rank)).map(x=>x.html).join(''):
-        '<p class="muted">В текущем ответе нет подтверждённых баскетбольных LIVE-матчей.</p>';
+      liveQueueState=window.PARIForecastCore.stableLiveQueue(renderedMatchCards.map(x=>x.rank),liveQueueState,Date.now());
+      const cardsById=new Map(renderedMatchCards.map(x=>[x.rank.id,x]));
+      if(renderedMatchCards.length)patchLiveMatchCards(liveQueueState.ids.map(id=>cardsById.get(id)));
+      else{liveCardMarkup.clear();liveList.innerHTML='<p class="muted">В текущем ответе нет подтверждённых баскетбольных LIVE-матчей.</p>';}
       const priorityPanel=$("priorityForecasts");
       if(priorityPanel){
         priorityCards.sort((a,b)=>b.signal.probability-a.signal.probability||String(a.ev.id).localeCompare(String(b.ev.id)));
@@ -2011,12 +2020,17 @@ async function refreshLiveMatches() {
           if(ev)showSelectedMatch(ev);
         }));
       }
-      liveList.querySelectorAll(".live-match").forEach(el => el.addEventListener("click", () => {
+      liveList.querySelectorAll(".live-match").forEach(el => {el.onclick=() => {
         const ev = (window.pariLiveEvents || []).find(x => String(x.id) === el.dataset.eventId);
         if (ev) showSelectedMatch(ev);
-      }));
+      };});
     }
     $("feedStatus").textContent = count ? "PARI LIVE: найдено " + count + " матчей" : "PARI API отвечает; матчи не распознаны";
+    if(data.snapshot_stale){
+      if(liveBadge){liveBadge.textContent='Снимок устарел · обновляем';liveBadge.className='pill warn';}
+      if(liveMessage)liveMessage.textContent='Последний снимок устарел. Источник обновляется в фоне; время получения данных не подменяется.';
+    }
+    lastRenderedLiveStamp=data.checked_at_utc||null;
     if (userScrollIntentVersion === scrollIntentAtStart) {
       requestAnimationFrame(() => requestAnimationFrame(() => {
         if (userScrollIntentVersion !== scrollIntentAtStart) return;
