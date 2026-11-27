@@ -1,0 +1,99 @@
+{
+  "source": "ESPN historical replay",
+  "collection": {
+    "ncaa_m": {
+      "requested": 301,
+      "accepted_games": 178,
+      "failed_or_incomplete": 122,
+      "board_errors": 0
+    },
+    "ncaa_w": {
+      "requested": 300,
+      "accepted_games": 179,
+      "failed_or_incomplete": 121,
+      "board_errors": 0
+    },
+    "nba": {
+      "requested": 157,
+      "accepted_games": 130,
+      "failed_or_incomplete": 27,
+      "board_errors": 1
+    }
+  },
+  "models": {
+    "nba:match:core": {
+      "train_games": 71,
+      "calibration_games": 28,
+      "report": {
+        "games": 30,
+        "checkpoints": 270,
+        "mae": 4.404057086201634,
+        "bias": 0.6074855319498618,
+        "tempo_mae": 4.345913554741856,
+        "interval80_coverage": 0.8185185185185184
+      }
+    },
+    "nba:period:core": {
+      "train_games": 71,
+      "calibration_games": 28,
+      "report": {
+        "games": 30,
+        "checkpoints": 495,
+        "mae": 5.02970208986038,
+        "bias": -0.04573527372182433,
+        "tempo_mae": 5.881705060817953,
+        "interval80_coverage": 0.7683823529411764
+      }
+    },
+    "ncaa_m:match:core": {
+      "train_games": 115,
+      "calibration_games": 35,
+      "report": {
+        "games": 27,
+        "checkpoints": 215,
+        "mae": 4.222250388422149,
+        "bias": 0.45589001136455276,
+        "tempo_mae": 4.535457624450093,
+        "interval80_coverage": 0.798941798941799
+      }
+    },
+    "ncaa_m:period:core": {
+      "train_games": 115,
+      "calibration_games": 35,
+      "report": {
+        "games": 27,
+        "checkpoints": 437,
+        "mae": 5.480892513787819,
+        "bias": 2.5243462207215974,
+        "tempo_mae": 5.742529208392896,
+        "interval80_coverage": 0.8476307189542484
+      }
+    },
+    "ncaa_w:match:core": {
+      "train_games": 110,
+      "calibration_games": 37,
+      "report": {
+        "games": 32,
+        "checkpoints": 224,
+        "mae": 3.9426868006460576,
+        "bias": 0.264083377693757,
+        "tempo_mae": 4.342990154373792,
+        "interval80_coverage": 0.6964285714285714
+      }
+    },
+    "ncaa_w:period:core": {
+      "train_games": 110,
+      "calibration_games": 37,
+      "report": {
+        "games": 32,
+        "checkpoints": 522,
+        "mae": 3.6112274035176526,
+        "bias": 0.22008879551308214,
+        "tempo_mae": 4.2295111688833655,
+        "interval80_coverage": 0.8036232585139319
+      }
+    }
+  },
+  "exclusions": {},
+  "nba_source_season": "2025-11, retrospective only"
+}
