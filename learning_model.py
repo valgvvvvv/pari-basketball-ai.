@@ -33,11 +33,30 @@ def cohort(event):
     # NBA must be explicit. Do not confuse G-League, summer or esports with NBA.
     if str(event.get('league', '')).strip().casefold() in ('nba', 'сша. nba'):
         return ('nba', 4, 720)
+    count, length = event.get('period_count'), event.get('period_length_seconds')
+    if count in (2, 4) and number(length) and 0 < length <= 1800:
+        return ('universal', count, length)
     return None
 
 
 def features(s, profile='core'):
     """Same transformation for training and production; outcome is never read."""
+    if profile == 'universal':
+        required = ('current','overall_current','elapsed','remaining','period_elapsed','difference','duration','period_length')
+        if any(not number(s.get(k)) for k in required) or min(s['current'],s['overall_current'],s['elapsed'],s['remaining'],s['period_elapsed']) < 0 or s['duration'] <= 0 or s['period_length'] <= 0:
+            raise ValueError('Invalid universal model state')
+        rem = s['remaining']/60
+        rate = s['overall_current']/(s['elapsed']/60) if s['elapsed'] > 0 else 0
+        pr = s.get('period_current')
+        period_rate = pr/(s['period_elapsed']/60) if number(pr) and s['period_elapsed'] > 0 else rate
+        progress = s['elapsed']/s['duration']
+        recent = s.get('recent_rate')
+        return (['remaining_minutes','game_rate_horizon','recent_rate_horizon','period_rate_horizon',
+                 'progress_rate_horizon','difference_horizon','format_duration_horizon','period_length_horizon',
+                 'game_start','recent_missing'],
+                [rem,rem*rate,rem*(recent if number(recent) else rate),rem*period_rate,
+                 rem*rate*progress,rem*abs(s['difference'])/20,rem*s['duration']/2400,
+                 rem*s['period_length']/600,rem*int(s['elapsed']==0),rem*int(not number(recent))])
     required = ('current', 'overall_current', 'elapsed', 'remaining', 'period_elapsed', 'period_current', 'difference', 'duration')
     if any(not number(s.get(k)) for k in required):
         raise ValueError('Incomplete numeric state')
@@ -113,8 +132,13 @@ def center(model, state):
 
 def interval(model, state):
     p = center(model, state)
-    errors = model['calibration_errors']
+    errors = residuals(model, state)
     return [max(state['current'], p+quantile(errors, .1)), max(state['current'], p+quantile(errors, .9))]
+
+
+def residuals(m, state):
+    horizon = '0_2' if state['remaining'] <= 120 else '2_5' if state['remaining'] <= 300 else '5_10' if state['remaining'] <= 600 else '10_20' if state['remaining'] <= 1200 else '20_plus'
+    return m.get('horizon_errors', {}).get(horizon, m['calibration_errors'])
 
 
 def metrics(model, rows):
@@ -123,11 +147,14 @@ def metrics(model, rows):
         s, y = row['state'], row['actual']
         p = center(model, s)
         bounds = interval(model, s)
-        baseline = s['current']+(s['overall_current']/s['elapsed'])*s['remaining']
-        games[row['game_id']].append((abs(p-y), p-y, abs(baseline-y), float(bounds[0] <= y <= bounds[1])))
-    means = [[sum(x[i] for x in values)/len(values) for i in range(4)] for values in games.values()]
+        baseline = s['current']+(s['overall_current']/s['elapsed'])*s['remaining'] if s['elapsed'] > 0 else None
+        games[row['game_id']].append((abs(p-y), p-y, abs(baseline-y) if baseline is not None else None, float(bounds[0] <= y <= bounds[1])))
+    means = [[sum(x[i] for x in values if x[i] is not None)/sum(x[i] is not None for x in values) if any(x[i] is not None for x in values) else None for i in range(4)] for values in games.values()]
     result = dict(games=len(games), checkpoints=len(rows))
-    result.update(zip(('mae', 'bias', 'tempo_mae', 'interval80_coverage'), [sum(x[i] for x in means)/len(means) for i in range(4)]))
+    result.update(zip(('mae', 'bias', 'tempo_mae', 'interval80_coverage'), [sum(x[i] for x in means if x[i] is not None)/sum(x[i] is not None for x in means) if any(x[i] is not None for x in means) else None for i in range(4)]))
+    paired = [sum(x[0] for x in values if x[2] is not None)/sum(x[2] is not None for x in values) for values in games.values() if any(x[2] is not None for x in values)]
+    result['tempo_comparable_mae'] = sum(paired)/len(paired) if paired else None
+    result['tempo_comparable_checkpoints'] = sum(x[2] is not None for values in games.values() for x in values)
     return result
 
 
@@ -142,15 +169,21 @@ def train(rows):
             t, end = stamp(r['captured_at']), stamp(r['completed_at'])
             start = stamp(r['started_at'])
             if (t is None or end is None or start is None or not start <= t < end or r.get('target') not in ('match', 'period')
-                    or r.get('cohort') not in ('ncaa_m', 'ncaa_w', 'nba') or not number(r.get('actual'))
+                    or r.get('cohort') not in ('ncaa_m', 'ncaa_w', 'nba', 'universal') or not number(r.get('actual'))
                     or not float(r['actual']).is_integer() or r['actual'] < r['state']['current']):
                 raise ValueError('Outcome precedes forecast or score decreased')
-            features(r['state'])
+            features(r['state'], 'universal' if r['cohort'] == 'universal' else 'core')
             key = (r['cohort'], r['target'], r['game_id'], r['period'], int(r['state']['period_elapsed']//60))
             if key in seen:
                 continue
             seen.add(key)
             grouped[(r['cohort'], r['target'])].append(r)
+            if r['cohort'] == 'universal':
+                length = r['state'].get('period_length')
+                count = r['state']['duration']/length
+                fmt = {(4,600):'universal_4x10',(4,720):'universal_4x12',(2,1200):'universal_2x20'}.get((count,length))
+                if fmt:
+                    grouped[(fmt,r['target'])].append(r)
         except (ValueError, KeyError, TypeError):
             exclusions['invalid_or_unverified'] += 1
     models = {}
@@ -173,9 +206,9 @@ def train(rows):
         if any(len({r['game_id'] for r in p}) < n for p, n in zip(parts, (40, 10, 15))):
             exclusions[group+':'+target+':small_partition'] += 1
             continue
-        for profile in ('core', 'full'):
+        for profile in (('universal',) if group.startswith('universal') else ('core', 'full')):
             try:
-                selected = [[r for r in p if profile == 'core' or all(number((r['state'].get('statistics') or {}).get(k)) for k in METRICS)] for p in parts]
+                selected = [[r for r in p if profile in ('core','universal') or all(number((r['state'].get('statistics') or {}).get(k)) for k in METRICS)] for p in parts]
                 if any(len({r['game_id'] for r in p}) < n for p, n in zip(selected, (40, 10, 15))):
                     continue
                 model = fit(selected[0], profile)
@@ -184,6 +217,15 @@ def train(rows):
                 for r in selected[1]:
                     residuals[r['game_id']].append(r['actual']-center(model, r['state']))
                 model['calibration_errors'] = [quantile(v, q) for _, v in sorted(residuals.items()) for q in (.1, .3, .5, .7, .9)]
+                if profile == 'universal':
+                    horizon_rows = defaultdict(lambda: defaultdict(list))
+                    for r in selected[1]:
+                        left = r['state']['remaining']
+                        key = '0_2' if left <= 120 else '2_5' if left <= 300 else '5_10' if left <= 600 else '10_20' if left <= 1200 else '20_plus'
+                        horizon_rows[key][r['game_id']].append(r['actual']-center(model,r['state']))
+                    model['horizon_errors'] = {k:[quantile(v,q) for _,v in sorted(gs.items()) for q in (.1,.3,.5,.7,.9)] for k,gs in horizon_rows.items() if len(gs)>=10}
+                    model['source_cohorts'] = sorted({r.get('origin_cohort',r['cohort']) for p in selected for r in p})
+                    model['scope_validated_for_unseen_leagues'] = False
                 model['report'] = metrics(model, selected[2])
                 model['train_games'] = len({r['game_id'] for r in selected[0]})
                 model['calibration_games'] = len(residuals)
@@ -218,7 +260,7 @@ def load(path):
         raise ValueError('Unsupported or promoted model artifact')
     # Reject malformed/non-finite artifacts before they reach live calculations.
     for key, m in artifact['models'].items():
-        if key not in {g+':'+t+':'+p for g in ('ncaa_m','ncaa_w','nba') for t in ('match','period') for p in ('core','full')}:
+        if key not in ({g+':'+t+':'+p for g in ('ncaa_m','ncaa_w','nba') for t in ('match','period') for p in ('core','full')}|{g+':'+t+':universal' for g in ('universal','universal_4x10','universal_4x12','universal_2x20') for t in ('match','period')}):
             raise ValueError('Unknown model cohort')
         n = len(m['features'])
         if len(m['coefficients']) != n+1 or len(m['means']) != n or len(m['scales']) != n or not m['calibration_errors']:
