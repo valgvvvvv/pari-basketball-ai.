@@ -155,7 +155,7 @@ def train(rows):
             exclusions['invalid_or_unverified'] += 1
     models = {}
     for (group, target), samples in sorted(grouped.items()):
-        games = sorted({r['game_id'] for r in samples}, key=lambda g: min(stamp(r['started_at']) for r in samples if r['game_id'] == g))
+        games = sorted({r['game_id'] for r in samples}, key=lambda g: (min(stamp(r['started_at']) for r in samples if r['game_id'] == g), g))
         if len(games) < MIN_GAMES:
             exclusions[group+':'+target+':insufficient_games'] = len(games)
             continue
