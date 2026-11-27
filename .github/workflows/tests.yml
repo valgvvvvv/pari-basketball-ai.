@@ -24,6 +24,7 @@ jobs:
       - run: node tests/regime.test.cjs
       - run: node tests/possession.test.cjs
       - run: node tests/learning.test.cjs
+      - run: node tests/match-order.test.cjs
       - run: node --check scripts/replay_forecasts.cjs
       - run: node --check static/app.js
       - run: node --check .github/scripts/collect_live_with_models.cjs

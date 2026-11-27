@@ -1860,7 +1860,7 @@ async function refreshLiveMatches() {
     if (liveUpdated) liveUpdated.textContent = "Обновлено: " + new Date(data.checked_at_utc).toLocaleTimeString("ru-RU") + " · источник: " + (data.successful_source || data.source_url || "PARI");
     if (liveList) {
       const priorityCards=[],researchCards=[],allEvaluations=[],modelBlockers={};
-      liveList.innerHTML = count ? window.pariLiveEvents.map(ev => {
+      const renderedMatchCards = count ? window.pariLiveEvents.map(ev => {
         try {
           const teams = escapeHtml(ev.team1 || "Команда 1") + " — " + escapeHtml(ev.team2 || "Команда 2");
           const score = eventScore(ev);
@@ -1928,6 +1928,20 @@ async function refreshLiveMatches() {
           const quarterHighlight=periodHighlightInfo(ev);
       if(window.PARILearning)forecastHtml+=window.PARILearning.summary(ev);
           const evaluations=signalEvaluations(ev,forecast,quarterForecast);
+          const fmt=inferPeriodLengthForForecast(ev),clockMatch=/^(\d{1,2}):([0-5]\d)$/.exec(String(findLiveClock(ev)||''));
+          const left=clockMatch?Number(clockMatch[1])*60+Number(clockMatch[2]):null;
+          const nowMs=Date.now(),checkedAt=Date.parse(ev.feed_checked_at_utc||'');
+          const learningEstimates=(ev.verified_total_markets||[]).flatMap(m=>{
+            const p=ev.learning?.[m.target==='match'?'match':'period'];
+            const q=p?.status==='shadow'&&window.PARILearning?window.PARILearning.empirical(p,m.line):null;
+            return q?[{...q,target:m.target,line:m.line,source:'learning',calculationAvailable:true,reasonCodes:[]}]:[];
+          });
+          const sortRank=window.PARIForecastCore.rankLiveMatch({eventId:ev.id,nowMs,
+            ageSeconds:Number.isFinite(checkedAt)?(nowMs-checkedAt)/1000:null,timerVerified:ev.timer_semantics_verified===true,
+            scoreValid:validateScoreTimeline(ev,findLiveScore(ev),findLivePeriod(ev)).valid&&ev.clock_integrity?.valid!==false,
+            paused:ev.timer_paused===true,period:findLivePeriod(ev),periodCount:fmt?.periods,periodLengthSeconds:fmt?.seconds,
+            currentMatch:findLiveScore(ev)?.reduce((a,b)=>a+b,0),currentPeriod:quarterForecast.current??ev.learning?.period?.state?.current??null,
+            remainingSeconds:left,markets:ev.verified_total_markets||[],estimates:[...evaluations,...learningEstimates]});
           allEvaluations.push(...evaluations);
           for(const [target,f] of [["Матч",forecast],[isTwentyMinuteHalves(ev)?"Тайм":"Четверть",quarterForecast]]){
             if(!f.ready||f.kind==="market_reference"){
@@ -1950,16 +1964,18 @@ async function refreshLiveMatches() {
           for(const s of signals)priorityCards.push({ev,signal:s,teams});
           const researchTag=research.length?'<span class="research-signal">◉ Направление прошло сценарии риска · точность не проверена</span>':"";
           const highlightTag=signalTag+researchTag+(quarterHighlight?'<span class="quarter-window-note">Окно '+(quarterHighlight.half?'8–16 минут · тайм ':'4–8 минут Q')+quarterHighlight.period+' · прошло '+quarterHighlight.minute+':'+String(quarterHighlight.second).padStart(2,"0")+'</span>':"");
-          return '<button type="button" class="live-match'+(signals.length?' live-match-priority':research.length?' live-match-research':'')+'" data-event-id="' + escapeHtml(ev.id) + '">' +
-            highlightTag + '<span class="live-match-title">' + teams + '</span><span class="live-match-meta">' + (details || "Событие получено из LIVE API PARI") + '</span>' + forecastHtml + '</button>';
+          return {rank:sortRank,html:'<button type="button" class="live-match'+(signals.length?' live-match-priority':research.length?' live-match-research':'')+'" data-event-id="' + escapeHtml(ev.id) + '">' +
+            '<span class="live-match-meta">'+escapeHtml(sortRank.label)+'</span>'+highlightTag + '<span class="live-match-title">' + teams + '</span><span class="live-match-meta">' + (details || "Событие получено из LIVE API PARI") + '</span>' + forecastHtml + '</button>'};
   
         } catch (renderError) {
           // A failed forecast/AI submodel must not hide source facts from the card.
           // Keep the full exception in the browser diagnostic console.
           console.error("LIVE_MATCH_RENDER_ERROR", ev?.id, renderError);
-          return liveMatchRenderFallback(ev);
+          return {rank:{id:String(ev.id),tier:2,probability:null},html:liveMatchRenderFallback(ev)};
         }
-      }).join("") : '<p class="muted">В текущем ответе нет подтверждённых баскетбольных LIVE-матчей.</p>';
+      }) : [];
+      liveList.innerHTML=renderedMatchCards.length?renderedMatchCards.sort((a,b)=>window.PARIForecastCore.compareLiveMatches(a.rank,b.rank)).map(x=>x.html).join(''):
+        '<p class="muted">В текущем ответе нет подтверждённых баскетбольных LIVE-матчей.</p>';
       const priorityPanel=$("priorityForecasts");
       if(priorityPanel){
         priorityCards.sort((a,b)=>b.signal.probability-a.signal.probability||String(a.ev.id).localeCompare(String(b.ev.id)));

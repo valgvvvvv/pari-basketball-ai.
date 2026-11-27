@@ -34,6 +34,7 @@
       <div class="form-actions"><button class="btn-primary" type="button" id="refreshLiveMatches">Обновить матчи</button><span class="muted" id="liveFeedUpdated">Ожидание первого ответа…</span></div>
       <p class="muted" id="liveFeedMessage" aria-live="polite">Проверяем доступность API PARI.</p>
       <div id="priorityForecasts" class="priority-forecasts" aria-live="polite">Проверяем условия отбора прогнозов…</div>
+      <p class="muted">Порядок: открытые линии с оценкой модели — по убыванию оценки; затем линии без сопоставимого расчёта. Паузы, закрытые рынки и последняя минута цели — в конце. Оценки вероятности не калиброваны; открытость линии проверяется по последнему снимку PARI.</p>
       <div id="liveMatchList" class="live-match-list"></div>
     </section>
 
@@ -82,7 +83,7 @@ window.addEventListener("unhandledrejection", function(event) {
   if (message) message.textContent = "Ошибка выполнения страницы: " + String(event.reason || "неизвестная ошибка");
 });
 </script>
-<script src="/static/forecast-core.js?v=20261127-universal-v15"></script>
-<script src="/static/app.js?v=20261127-universal-v15" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
-<script src="/static/learning.js?v=20261127-universal-v15"></script>
+<script src="/static/forecast-core.js?v=20261127-match-order-v16"></script>
+<script src="/static/app.js?v=20261127-match-order-v16" onerror="document.getElementById('liveFeedMessage').textContent='Не загрузился файл /static/app.js';document.getElementById('liveFeedUpdated').textContent='Ошибка загрузки JavaScript';"></script>
+<script src="/static/learning.js?v=20261127-match-order-v16"></script>
 </body></html>
