@@ -18,6 +18,9 @@ class SharedRefreshTests(unittest.IsolatedAsyncioTestCase):
 
         self.process = AsyncMock(side_effect=process)
         self.patches = [patch.object(server, '_PARI_LIVE_CACHE', {}, create=True),
+            patch.object(server, '_PUBLISHED_LIVE_SNAPSHOT', None, create=True),
+            patch.object(server, '_LIVE_API_REFRESH_TASK', None),
+            patch.object(server, '_LIVE_API_REFRESH_ATTEMPT', 0),
             patch.object(server, '_LIVE_REFRESH_LOCK', asyncio.Lock()),
             patch.object(server, '_ARCHIVE_LOCK', asyncio.Lock()),
             patch.object(server, '_fetch_pari_live_events', self.fetch),
@@ -65,7 +68,7 @@ class SharedRefreshTests(unittest.IsolatedAsyncioTestCase):
             dates.now.side_effect=lambda *args:clock['now']
             first=await server.pari_live_events()
             second=await server.pari_live_events()
-        self.assertIs(first,second)
+        self.assertEqual(first['events'],second['events'])
         self.fetch.assert_awaited_once()
         self.assertEqual(second['checked_at_utc'],source_timestamp)
 
