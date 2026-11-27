@@ -148,6 +148,60 @@ class LearningTests(unittest.TestCase):
         payload['header']['competitions'][0]['competitors'][0]['score']='81'
         self.assertEqual(parse_game(payload,'ncaa_m'),[])
 
+    def test_universal_forecast_any_league_all_periods_and_game_start(self):
+        now=datetime.now(timezone.utc).isoformat()
+        for length,count in ((600,4),(720,4),(1200,2),(480,4)):
+            for period in range(1,count+1):
+                for elapsed in (0,60,length//2,length-1):
+                    previous=[[20,19] for _ in range(period-1)]
+                    current=[int(elapsed/30),int(elapsed/33)]
+                    score=[sum(q[j] for q in previous)+current[j] for j in (0,1)]
+                    left=length-elapsed
+                    e=dict(id='foreign',league='Unseen league',sport_id='foreign',period_count=count,period_length_seconds=length,
+                           period=period,clock=f'{left//60:02}:{left%60:02}',score=score,period_scores=previous+[current],timer_semantics_verified=True)
+                    for target in ('match','period'):
+                        p=service.predict(e,target,now)
+                        self.assertEqual(p['status'],'shadow',(length,count,period,elapsed,target,p.get('reason')))
+                        self.assertEqual(p['model_scope'],'universal_transfer')
+                        self.assertFalse(p['priority']);self.assertFalse(p['calibrated'])
+                        self.assertGreaterEqual(p['center'],p['state']['current'])
+                        self.assertTrue(p['interval80'][0]<=p['interval80'][1])
+
+    def test_known_league_early_phase_uses_universal_without_weakening_signals(self):
+        e=dict(id='early',sport_id='19166',period_count=2,period_length_seconds=1200,period=1,
+               clock='19:00',score=[3,2],period_scores=[[3,2]],timer_semantics_verified=True)
+        p=service.predict(e,'match',datetime.now(timezone.utc).isoformat())
+        self.assertEqual(p['status'],'shadow');self.assertEqual(p['profile'],'universal')
+        self.assertFalse(p['priority'])
+
+    def test_universal_does_not_fabricate_period_score_or_missing_clock(self):
+        now=datetime.now(timezone.utc).isoformat();e=self.event();e.update(sport_id='foreign',period_scores=[])
+        self.assertEqual(service.predict(e,'match',now)['status'],'shadow')
+        self.assertEqual(service.predict(e,'period',now)['status'],'waiting')
+        for change in (dict(clock=None),dict(timer_semantics_verified=False),dict(score_conflict=True),dict(score=None)):
+            self.assertEqual(service.predict({**e,**change},'match',now)['status'],'waiting')
+        self.assertEqual(service.predict(e,'match','2020-01-01T00:00:00Z')['status'],'waiting')
+
+    def test_expired_clock_is_observed_score_not_new_forecast(self):
+        e=self.event();e.update(sport_id='foreign',clock='00:00')
+        now=datetime.now(timezone.utc).isoformat()
+        for target,actual in (('match',110),('period',55)):
+            p=service.predict(e,target,now)
+            self.assertEqual(p['status'],'complete');self.assertEqual(p['center'],actual)
+            self.assertNotIn('market_prediction',p)
+
+    def test_learning_export_paginates_without_duplicate_residual_payloads(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {'LEARNING_STATE_PATH':tmp+'/l.sqlite3'}):
+            now=datetime.now(timezone.utc).isoformat()
+            for i in range(3):
+                e=self.event();e['id']='game'+str(i)
+                service.observe(e,now,{'match':service.predict(e,'match',now)})
+            first=service.export(limit=1)
+            rest=service.export(after_cursor=first[0]['capture_cursor'],limit=2)
+            self.assertEqual(len(first+rest),3)
+            self.assertEqual(len({r['id'] for r in first+rest}),3)
+            self.assertNotIn('residual_sample',first[0]['prediction'])
+
 
 if __name__ == '__main__':
     unittest.main()
