@@ -1,0 +1,49 @@
+name: Train and evaluate shadow learning model
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['learning_*.py', 'models/**', '.github/workflows/learning-model.yml', '.github/scripts/learning_checkpoint.py']
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: pari-learning-model
+  cancel-in-progress: false
+
+jobs:
+  learn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Restore private learning continuation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python .github/scripts/learning_checkpoint.py restore
+      - name: Reconcile two-source finals and train chronological challenger
+        run: python learning_pipeline.py --directory learning-checkpoint
+      - name: Preserve continuation before publishing weights
+        if: ${{ always() && hashFiles('learning-checkpoint/checkpoint.json.gz') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: learning-checkpoint
+          path: learning-checkpoint/
+          retention-days: 90
+          if-no-files-found: error
+      - name: Publish aggregate shadow weights
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python .github/scripts/learning_checkpoint.py publish

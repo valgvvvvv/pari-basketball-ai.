@@ -268,6 +268,12 @@ async def process(data, history):
     data['priority_signals'] = cards
     data['research_candidates'] = result.get('researchCandidates', [])
     data['signal_diagnostics'] = result.get('diagnostics', {})
+    for event in data.get('events', []):
+        event['learning_baselines'] = {
+            ('match' if row['decision']['target'] == 'match' else 'period'): row['prediction'].get('center')
+            for row in result['evaluations'] if str(row['event_id']) == str(event.get('id'))}
+        event['learning_markets'] = [row['decision'] for row in result['evaluations']
+                                     if str(row['event_id']) == str(event.get('id'))]
     STATUS.update(checked_at_utc=data.get('checked_at_utc'), cards=cards,
                   error='partial_model_errors' if result['errors'] else None,
                   calculation_errors=result['errors'],
