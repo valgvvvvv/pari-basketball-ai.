@@ -16,8 +16,8 @@ import signal_lifecycle as lifecycle
 
 logging.getLogger('httpx').setLevel(logging.WARNING)
 STATE_PATH = Path(os.environ.get('SIGNAL_STATE_PATH', str(Path(tempfile.gettempdir()) / 'pari_signal_state.sqlite3')))
-INTERVAL_SECONDS = 10
-STATUS = {'mode': 'server', 'delivery_version': '2026-11-26-watchlist-v3',
+INTERVAL_SECONDS = 5
+STATUS = {'mode': 'server', 'delivery_version': '2026-11-27-fast-delivery-v4',
           'interval_seconds': INTERVAL_SECONDS, 'checked_at_utc': None,
           'cards': [], 'error': None, 'sent': 0, 'commands_checked_at_utc': None}
 LOCK = asyncio.Lock()
@@ -26,8 +26,25 @@ PENDING = {}
 RETRY_AT = {}
 WAKE = asyncio.Event()
 RESULT_LOCK = asyncio.Lock()
+FINAL_CHECK_LOCK = asyncio.Lock()
 REPORT_LOCK = asyncio.Lock()
 RESULT_WAKE = asyncio.Event()
+_TELEGRAM_CLIENT = None
+_TELEGRAM_LOOP = None
+_TELEGRAM_RETRY_UNTIL = 0
+
+
+class TelegramRetryAfter(RuntimeError):
+    def __init__(self, seconds):
+        self.retry_after = seconds
+        super().__init__('Telegram rate limit; retry scheduled')
+
+
+async def close_transport():
+    global _TELEGRAM_CLIENT, _TELEGRAM_LOOP
+    if _TELEGRAM_CLIENT is not None:
+        await _TELEGRAM_CLIENT.aclose()
+    _TELEGRAM_CLIENT = _TELEGRAM_LOOP = None
 
 
 def enabled():
@@ -126,15 +143,32 @@ def audit_delivery(card, state, message_id=None):
 
 
 async def telegram(method, **payload):
+    global _TELEGRAM_CLIENT, _TELEGRAM_LOOP, _TELEGRAM_RETRY_UNTIL
+    if _TELEGRAM_RETRY_UNTIL > time.time():
+        raise TelegramRetryAfter(_TELEGRAM_RETRY_UNTIL-time.time())
     try:
-        async with httpx.AsyncClient(timeout=8) as client:
-            response = await client.post('https://api.telegram.org/bot' + os.environ['SIGNAL_BOT_TOKEN'] + '/' + method, json=payload)
-            data = response.json()
+        loop = asyncio.get_running_loop()
+        if _TELEGRAM_CLIENT is None or _TELEGRAM_CLIENT.is_closed or _TELEGRAM_LOOP is not loop:
+            _TELEGRAM_CLIENT = httpx.AsyncClient(timeout=httpx.Timeout(8, connect=3, pool=2))
+            _TELEGRAM_LOOP = loop
+        response = await _TELEGRAM_CLIENT.post('https://api.telegram.org/bot' + os.environ['SIGNAL_BOT_TOKEN'] + '/' + method, json=payload)
+        data = response.json()
+        if response.status_code == 429 or data.get('error_code') == 429:
+            try:
+                seconds = float((data.get('parameters') or {}).get('retry_after', 3))
+                if not math.isfinite(seconds) or seconds < 1:
+                    seconds = 3
+            except (TypeError, ValueError):
+                seconds = 3
+            _TELEGRAM_RETRY_UNTIL = time.time()+seconds
+            raise TelegramRetryAfter(seconds)
         if not data.get('ok'):
             if method == 'editMessageText' and 'message is not modified' in str(data.get('description', '')).lower():
                 return {'unchanged': True}
             raise RuntimeError('Telegram API rejected request')
         return data['result']
+    except TelegramRetryAfter:
+        raise
     except Exception:
         # Never include an HTTP exception or a token-bearing request URL.
         raise RuntimeError('Telegram API unavailable') from None
@@ -148,7 +182,10 @@ async def say(text):
 def public_status():
     checked = STATUS['checked_at_utc']
     age = (datetime.now(timezone.utc)-datetime.fromisoformat(checked)).total_seconds() if checked else None
-    return {**STATUS, 'daily_report_timezone': 'Europe/Moscow', 'daily_report_hour': 23, 'enabled': enabled(), 'notification_mode': notification_mode(), 'state_persistent': False,
+    return {**STATUS, 'delivery_trigger': 'new_snapshot_event', 'delivery_retry_check_seconds': 1,
+            'pending_notifications': len(PENDING),
+            'telegram_retry_after_seconds': round(max(0, _TELEGRAM_RETRY_UNTIL-time.time()), 1),
+            'daily_report_timezone': 'Europe/Moscow', 'daily_report_hour': 23, 'enabled': enabled(), 'notification_mode': notification_mode(), 'state_persistent': False,
             'age_seconds': round(age, 1) if age is not None else None,
             'detector_fresh': age is not None and 0 <= age <= 90,
             'limitation': 'Runs while the free Render service is awake; state is lost after ephemeral disk resets.'}
@@ -170,7 +207,7 @@ async def deliver(cards, current_only=False):
                             'period': card['signal']['period'], 'line': card['signal']['line'],
                             'direction': card['signal']['direction']}
                 decisions.append(decision)
-                if current_only and key not in PENDING:
+                if current_only and PENDING.get(key) is not card:
                     decision['state'] = 'replaced'
                     continue
                 if card['expires'] <= time.time()*1000:
@@ -187,6 +224,14 @@ async def deliver(cards, current_only=False):
                     decision['state'] = 'missing_saved_forecast'
                     continue
                 records = await asyncio.to_thread(lifecycle.rows)
+                # The source can replace a card while the database read awaits.
+                # Never send a superseded or newly expired queue item.
+                if current_only and PENDING.get(key) is not card:
+                    decision['state'] = 'replaced'
+                    continue
+                if card['expires'] <= time.time()*1000:
+                    decision['state'] = 'expired'
+                    continue
                 # Checkpoint receipts survive a reset of the delivery dedupe DB.
                 if any(key_for({**r['payload']}) == key for r in records):
                     decision['state'] = 'already_sent'
@@ -210,8 +255,8 @@ async def deliver(cards, current_only=False):
                         result = {'message_id': root['message_id'], 'date': sent_at}
                     else:
                         result = await say(message_text)
-                except Exception:
-                    RETRY_AT[key] = time.time() + 3
+                except Exception as exc:
+                    RETRY_AT[key] = time.time() + (exc.retry_after if isinstance(exc, TelegramRetryAfter) else 3)
                     decision['state'] = 'failed_retrying'
                     failures.append({'event': str(card['event']), 'target': card['signal']['target']})
                     try:
@@ -224,6 +269,7 @@ async def deliver(cards, current_only=False):
                 STATUS['sent'] += 1
                 decision['state'] = 'sent'
                 STATUS['last_sent_at_utc'] = datetime.now(timezone.utc).isoformat()
+                STATUS['last_delivery_queue_seconds'] = round(max(0, sent_at-card.get('queued_at', sent_at)), 3)
                 RETRY_AT.pop(key, None)
                 try:
                     lifecycle.register(card, result.get('message_id') if isinstance(result, dict) else None, message_for(card),
@@ -284,7 +330,8 @@ async def process(data, history):
     # Refresh the queue atomically. Disappeared/replaced lines are not retried
     # from an old snapshot, and Telegram latency cannot delay the next fetch.
     PENDING.clear()
-    PENDING.update({key_for(card): card for card in notifications})
+    queued_at = time.time()
+    PENDING.update({key_for(card): {**card, 'queued_at': queued_at} for card in notifications})
     for key in list(RETRY_AT):
         if key not in PENDING:
             RETRY_AT.pop(key, None)
@@ -293,7 +340,7 @@ async def process(data, history):
 
 async def delivery_loop():
     while True:
-        delay = max(.05, min(3, min(RETRY_AT.values(), default=time.time()+3) - time.time() + .01))
+        delay = max(.05, min(1, min(RETRY_AT.values(), default=time.time()+1) - time.time() + .01))
         try:
             await asyncio.wait_for(WAKE.wait(), timeout=delay)
         except asyncio.TimeoutError:
@@ -329,13 +376,19 @@ async def results_once():
         if STATUS.get('lifecycle_error') == 'delivery_receipt_not_saved':
             await asyncio.to_thread(restore_journal_receipts)
             STATUS.pop('lifecycle_error', None)
+    # Slow external final-result lookups must not hold the Telegram edit/send
+    # lock. Only rendering and editing shared match messages are serialized.
+    async with FINAL_CHECK_LOCK:
         await signal_results.check_finals()
-        records = await asyncio.to_thread(lifecycle.rows)
-        edit_failed = False
-        groups = {}
-        for row in records:
-            groups.setdefault(row['message_id'], []).append(row)
-        for message_id, group in groups.items():
+    records = await asyncio.to_thread(lifecycle.rows)
+    edit_failed = False
+    for message_id in dict.fromkeys(row['message_id'] for row in records):
+        async with RESULT_LOCK:
+            # A delivery may have appended a new line while finals were loading.
+            # Re-read under the edit lock so a result update cannot erase it.
+            group = [row for row in await asyncio.to_thread(lifecycle.rows) if row['message_id'] == message_id]
+            if not group:
+                continue
             text = lifecycle.group_text(group)
             if (len(group) == 1 and not group[0].get('result')
                     and text == group[0]['payload']['original_text']):
@@ -352,14 +405,14 @@ async def results_once():
                 edit_failed = True
                 STATUS['result_edit_error'] = 'Telegram edit failed; retry scheduled'
                 continue
-        if not edit_failed:
-            STATUS.pop('result_edit_error', None)
-        counts = {}
-        for row in records:
-            key = (row.get('result') or {}).get('state', 'pending')
-            counts[key] = counts.get(key, 0)+1
-        STATUS['result_counts'] = counts
-        STATUS['results_checked_at_utc'] = datetime.now(timezone.utc).isoformat()
+    if not edit_failed:
+        STATUS.pop('result_edit_error', None)
+    counts = {}
+    for row in await asyncio.to_thread(lifecycle.rows):
+        key = (row.get('result') or {}).get('state', 'pending')
+        counts[key] = counts.get(key, 0)+1
+    STATUS['result_counts'] = counts
+    STATUS['results_checked_at_utc'] = datetime.now(timezone.utc).isoformat()
 
 
 async def daily_report_once(now=None):
