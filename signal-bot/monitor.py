@@ -192,9 +192,12 @@ def check_server(opener=None, sleep=time.sleep, monotonic=time.monotonic, max_wa
         sleep(min(10, max(0, deadline-monotonic())))
 
 
-def run(config, once=False):
-    if once and check_server():
-        return
+def run(config, once=False, server_only=False):
+    if once or server_only:
+        if check_server():
+            return
+        if server_only:
+            raise RuntimeError('Server detector endpoint is unavailable; no second Telegram poller started')
     from playwright.sync_api import sync_playwright
     tg = Telegram(config['token'])
     DATA.mkdir(parents=True, exist_ok=True)
@@ -256,15 +259,16 @@ def run(config, once=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--once', action='store_true')
+    parser.add_argument('--server-only', action='store_true', help='Check the server detector without installing or launching a browser')
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     config = load_config()
     while True:
         try:
-            run(config, args.once)
+            run(config, args.once, args.server_only)
             break
         except Exception as exc:
             LOG.error('Restarting monitor (%s)', type(exc).__name__)
-            if args.once:
+            if args.once or args.server_only:
                 raise SystemExit(1)
             time.sleep(15)
