@@ -1027,6 +1027,7 @@ function showSelectedMatch(ev,options={}){
       '<details class="technical-details"><summary>Технические подробности</summary><p>σ остатка: '+(quarter.poisson?.variance!=null?Math.sqrt(quarter.poisson.variance).toFixed(2):'—')+' · диапазон 95%: '+quarter.low95+'–'+quarter.high95+' · метод: точное распределение без симуляций'+'</p><p>Исходный код таймера: '+escapeHtml(ev.clock_source||ev.external_live?.clock_source||"не указан")+'</p><p>'+escapeHtml((quarter.context_factors||[]).join(' · '))+'</p></details>'
     : '<p class="muted">'+escapeHtml(quarter.reason||"Недостаточно данных")+'</p>';
   if($("toolsRegistry"))$("toolsRegistry").innerHTML=unifiedToolsPanelHtml(ev,classicMatchModels,classicQuarterModels,matchForecast,quarter,lines);
+  if(window.PARILearning)window.PARILearning.render(ev,matchForecast,quarter);
   $("matchForecast").insertAdjacentHTML("beforeend",regimeMarkup(ev)+signalQualityMarkup(signalEvaluations(ev,matchForecast,quarter)));
   $("matchForecast").insertAdjacentHTML("beforeend",q4ModelComparisonMarkup(ev,matchForecast,quarter,matchLineValue));
   $("matchForecast").insertAdjacentHTML("beforeend",pariHistoryMarkup(ev));
@@ -1925,6 +1926,7 @@ async function refreshLiveMatches() {
               ' · коридор сценариев '+quarterForecast.scenarioRange[0]+'–'+quarterForecast.scenarioRange[1]+' · покрытие не проверено</span>'
             :quarterForecastMarkup(quarterForecast,ev);
           const quarterHighlight=periodHighlightInfo(ev);
+      if(window.PARILearning)forecastHtml+=window.PARILearning.summary(ev);
           const evaluations=signalEvaluations(ev,forecast,quarterForecast);
           allEvaluations.push(...evaluations);
           for(const [target,f] of [["Матч",forecast],[isTwentyMinuteHalves(ev)?"Тайм":"Четверть",quarterForecast]]){
