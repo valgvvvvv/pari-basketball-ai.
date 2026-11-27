@@ -36,10 +36,10 @@ def database():
     return db
 
 
-def state_from_event(event, target, checked):
+def state_from_event(event, target, checked, strict=True):
     fmt = model.cohort(event)
     if fmt is None:
-        raise ValueError('Для этой лиги модель ещё не обучена; веса других лиг не переносятся')
+        raise ValueError('Нет подтверждённого формата баскетбольного матча')
     group, count, length = fmt
     if event.get('period_count') != count or event.get('period_length_seconds') != length or event.get('timer_semantics_verified') is not True:
         raise ValueError('Не подтверждены формат или смысл таймера')
@@ -56,19 +56,20 @@ def state_from_event(event, target, checked):
         left = int(mm)*60+int(ss)
     except (ValueError, TypeError):
         raise ValueError('Нет точных часов') from None
-    if not 0 < left < length:
+    if not (0 < left < length if strict else 0 <= left <= length):
         raise ValueError('Перерыв или начало периода: ожидаем игровое время')
     pe = length-left
-    if target == 'match' and (period != count or pe < (720 if count == 2 else 120)):
+    if strict and target == 'match' and (period != count or pe < (720 if count == 2 else 120)):
         raise ValueError('Модель матча применяется в последнем периоде: четверть после 2 минут, тайм после 12 минут')
-    if target == 'period' and not ((480 <= pe <= 960) if count == 2 else (240 <= pe <= 480)):
+    if strict and target == 'period' and not ((480 <= pe <= 960) if count == 2 else (240 <= pe <= 480)):
         raise ValueError('Окно модели периода: 4–8 минут четверти или 8–16 минут тайма')
     periods = event.get('period_scores') or []
-    if len(periods) < period-1 or any(not isinstance(q, list) or len(q) != 2 or any(not model.number(v) or v < 0 for v in q) for q in periods[:period-1]):
-        raise ValueError('Не подтверждён счёт завершённых периодов')
-    previous = [sum(q[j] for q in periods[:period-1]) for j in (0, 1)]
-    ps = [a-b for a, b in zip(score, previous)]
-    if min(ps) < 0 or (len(periods) >= period and periods[period-1] != ps):
+    complete = len(periods) >= period-1 and all(isinstance(q,list) and len(q)==2 and all(model.number(v) and v>=0 for v in q) for q in periods[:period-1])
+    if not complete and (strict or target == 'period'):
+        raise ValueError('Не подтверждён счёт завершённых периодов; прогноз матча доступен отдельно')
+    previous = [sum(q[j] for q in periods[:period-1]) for j in (0, 1)] if complete else None
+    ps = [a-b for a, b in zip(score, previous)] if previous is not None else None
+    if ps is not None and (min(ps) < 0 or (len(periods) >= period and periods[period-1] != ps)):
         raise ValueError('Сумма периодов не согласована с общим счётом')
     elapsed = (period-1)*length+pe
     recent_rate = None
@@ -94,11 +95,13 @@ def state_from_event(event, target, checked):
         if model.number(r.get('home')) and model.number(r.get('away')):
             statistics[k] = r['home']+r['away']
     # Team fouls are NOT inferred from personal-foul totals or generic 'fouls'.
+    if (elapsed == 0 and sum(score) > 0) or (pe == 0 and ps is not None and sum(ps) > 0):
+        raise ValueError('Нулевой игровой таймер не согласован с набранными очками')
     state = dict(current=sum(score) if target == 'match' else sum(ps), overall_current=sum(score), elapsed=elapsed,
-                 remaining=count*length-elapsed if target == 'match' else left, period_elapsed=pe, period_current=sum(ps),
+                 remaining=count*length-elapsed if target == 'match' else left, period_elapsed=pe, period_current=sum(ps) if ps is not None else None,
                  difference=score[0]-score[1], duration=count*length,
-                 previous_rate=sum(previous)/((period-1)*length/60) if period > 1 else None,
-                 recent_rate=recent_rate, statistics=statistics)
+                 previous_rate=sum(previous)/((period-1)*length/60) if period > 1 and previous is not None else None,
+                 recent_rate=recent_rate, statistics=statistics, period_length=length)
     return group, state
 
 
@@ -106,14 +109,24 @@ def predict(event, target, checked):
     a = artifact()
     result = dict(status='waiting', target=target, calibrated=False, priority=False, model_version=a['version'])
     try:
-        group, state = state_from_event(event, target, checked)
+        group, state = state_from_event(event, target, checked, strict=False)
+        period, count = event['period'], event['period_count']
+        pe, length = state['period_elapsed'], event['period_length_seconds']
+        specialist_window = ((period == count and pe >= (720 if count == 2 else 120)) if target == 'match'
+                             else (480 <= pe <= 960) if count == 2 else (240 <= pe <= 480))
         profile = 'full' if all(model.number(state['statistics'].get(k)) for k in model.METRICS) and group+':'+target+':full' in a['models'] else 'core'
-        m = a['models'].get(group+':'+target+':'+profile)
+        m = a['models'].get(group+':'+target+':'+profile) if specialist_window and pe > 0 and state['period_current'] is not None else None
+        if m is not None and any(not m['support'][k][0]-60 <= state[k] <= m['support'][k][1]+60 for k in ('elapsed','remaining')):
+            m = None
         if m is None:
-            raise ValueError('Недостаточно подтверждённых матчей этой лиги для обучения')
+            format_group = {(4,600):'universal_4x10',(4,720):'universal_4x12',(2,1200):'universal_2x20'}.get((count,length),'universal')
+            m = a['models'].get(format_group+':'+target+':universal') or a['models'].get('universal:'+target+':universal')
+            group, profile = 'universal', 'universal'
+        if m is None:
+            raise ValueError('Общая модель ещё не загружена')
         if (model.stamp(checked) or 0) <= (model.stamp(m['trained_through']) or float('inf')):
             raise ValueError('Модель обучена позже снимка: исторический прогноз запрещён')
-        for k in ('elapsed', 'remaining'):
+        for k in ('elapsed', 'remaining') if profile != 'universal' else ():
             low, high = m['support'][k]
             if not low-60 <= state[k] <= high+60:
                 raise ValueError('Игровое время вне проверенного диапазона обучения')
@@ -125,12 +138,18 @@ def predict(event, target, checked):
                       evidence=m['evidence'], trained_through=m['trained_through'], state=state,
                       reason='Экспериментальная модель; точность в реальном лайве и преимущество не подтверждены')
         result['baseline_center'] = (event.get('learning_baselines') or {}).get(target)
-        result['residual_sample'] = m['calibration_errors']
+        result['residual_sample'] = model.residuals(m, state)
+        result['model_scope'] = 'universal_transfer' if profile == 'universal' else 'league_specialist'
+        result['source_cohorts'] = m.get('source_cohorts', [group])
+        if profile == 'universal':
+            result['reason'] = 'Общая обученная модель: учитывает текущую игру; точность для этой лиги и фазы отдельно не подтверждена'
+        if state['remaining'] == 0:
+            result.update(status='complete', center=state['current'], expected_remaining=0, interval80=[state['current'],state['current']], reason='Игровое время цели истекло; показан текущий счёт, окончательный исход ещё требует подтверждения')
         blocked = {'data', 'rules', 'overtime', 'prices', 'quote', 'suspended'}
         markets = [r for r in event.get('learning_markets') or []
                    if (r.get('target') == 'match') == (target == 'match') and model.number(r.get('line'))
                    and not blocked.intersection(r.get('reasonCodes') or [])]
-        if markets:
+        if markets and result['status'] == 'shadow':
             row = min(markets, key=lambda r: abs(r['line']-p))
             result['market_prediction'] = dict(line=row['line'], market=row['market'],
                 probabilities=model.empirical(round(p, 1), state['current'], m['calibration_errors'], row['line']))
@@ -154,8 +173,12 @@ def observe(event, checked, predictions):
             raw = origin.pop('raw') or {}
             origin['raw'] = {k: raw.get(k) for k in ('team1Id', 'team2Id')}
             origin['team_history'] = {'teams': [{k: t.get(k) for k in ('participant_id', 'name')} for t in (event.get('team_history') or {}).get('teams') or []]}
+            # Keep immutable numeric forecasts, not hundreds of repeated residuals
+            # and the same historical report on every minute of every game.
+            frozen = {k:p[k] for k in ('status','target','calibrated','priority','model_version','center','expected_remaining',
+                      'interval80','profile','cohort','state','baseline_center','market_prediction','model_scope') if k in p}
             row = dict(event_id=str(event['id']), captured_at=checked, period=event['period'], target=target,
-                       origin=origin, prediction=p)
+                       origin=origin, prediction=frozen)
             key = ':'.join([str(event['id']), target, str(event['period']), str(int(p['state']['period_elapsed']//60)), p['model_version']])
             db.execute('INSERT OR IGNORE INTO observations VALUES (?,?,?)', (key, model.stamp(checked), json.dumps(row, ensure_ascii=False)))
         periods = event.get('period_scores') or []
@@ -185,14 +208,16 @@ def attach(data, histories):
             event.pop('learning_baselines', None)
 
 
-def export():
+def export(after_cursor=0, limit=20000):
     db = database()
     try:
         since = time.time()-45*86400
         records = []
-        for identity, payload in db.execute('SELECT id,payload FROM observations WHERE captured>=? ORDER BY captured LIMIT 20000', (since,)):
+        limit = max(1,min(20000,int(limit)))
+        for cursor, identity, payload in db.execute('SELECT rowid,id,payload FROM observations WHERE captured>=? AND rowid>? ORDER BY rowid LIMIT ?', (since,max(0,int(after_cursor)),limit)):
             row = json.loads(payload)
             row['id'] = identity
+            row['capture_cursor'] = cursor
             row['primary_periods'] = {str(i): json.loads(p) for i, p in db.execute('SELECT period,payload FROM primary_evidence WHERE event=?', (row['event_id'],))}
             records.append(row)
         return records

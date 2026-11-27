@@ -16,7 +16,7 @@ LEAGUES = {'ncaa_m': ('mens-college-basketball', 2, 1200),
            'ncaa_w': ('womens-college-basketball', 4, 600), 'nba': ('nba', 4, 720)}
 
 
-def parse_game(payload, group):
+def parse_game(payload, group, all_times=False):
     slug, count, length = LEAGUES[group]
     header = payload.get('header') or {}
     comps = header.get('competitions') or []
@@ -79,7 +79,7 @@ def parse_game(payload, group):
     for point in points:
         elapsed, period = point['elapsed'], point['period']
         pe = elapsed-(period-1)*length
-        if pe < 180 or pe >= length or elapsed <= 0:
+        if (pe < 0 or pe >= length) if all_times else (pe < 180 or pe >= length or elapsed <= 0):
             continue
         previous_score = [sum(q[j] for q in periods[:period-1]) for j in (0, 1)]
         # Using completed previous periods is legitimate; current/future periods never enter features.
@@ -93,9 +93,9 @@ def parse_game(payload, group):
         for target in ('match', 'period'):
             remaining = count*length-elapsed if target == 'match' else length-pe
             # Train only supported prospective windows, with identical live gates.
-            if target == 'match' and (period != count or pe < (720 if count == 2 else 120)):
+            if not all_times and target == 'match' and (period != count or pe < (720 if count == 2 else 120)):
                 continue
-            if target == 'period' and not ((480 <= pe <= 960) if count == 2 else (240 <= pe <= 480)):
+            if not all_times and target == 'period' and not ((480 <= pe <= 960) if count == 2 else (240 <= pe <= 480)):
                 continue
             key = (target, period, int(pe//60))
             if key in used:
@@ -106,7 +106,9 @@ def parse_game(payload, group):
                          period_elapsed=pe, period_current=sum(period_score), difference=point['score'][0]-point['score'][1],
                          previous_rate=sum(previous_score)/((period-1)*length/60) if period > 1 else None,
                          recent_rate=recent_rate, duration=count*length, statistics={})
-            rows.append(dict(game_id='espn:'+slug+':'+str(header['id']), cohort=group, target=target,
+            if all_times:
+                state['period_length'] = length
+            rows.append(dict(game_id='espn:'+slug+':'+str(header['id']), cohort='universal' if all_times else group, origin_cohort=group, target=target,
                              period=period, started_at=started, captured_at=point['observed'], completed_at=completed,
                              actual=sum(regulation) if target == 'match' else sum(periods[period-1]), state=state,
                              provenance='espn_historical_replay', source_url=BASE+slug+'/summary?event='+str(header['id'])))

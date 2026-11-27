@@ -67,7 +67,7 @@ async def reconcile(observations, labels, cursor=0):
     ids = sorted({r['event_id'] for r in unresolved})
     if not ids:
         return cursor, {'pending_games':0, 'verified_checkpoints':0}
-    selected = (ids+ids)[cursor % len(ids):cursor % len(ids)+min(24, len(ids))]
+    selected = (ids+ids)[cursor % len(ids):cursor % len(ids)+min(96, len(ids))]
     now = datetime.now(timezone.utc).isoformat()
     cache, diagnostics = {}, dict(pending_games=len(ids), queried_games=len(selected), verified_checkpoints=0, unresolved=0)
     async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
@@ -78,67 +78,70 @@ async def reconcile(observations, labels, cursor=0):
                 response.raise_for_status()
                 cache[key] = response.json()
             return cache[key]
-        for identity in selected:
-            items = [r for r in unresolved if r['event_id'] == identity]
-            origin = items[0]['origin']
-            count = origin.get('period_count')
-            if count not in (2, 4):
-                continue
-            native, board_events, secondary = {}, [], None
-            try:
-                native = await get('https://line-vk01-w.pb06e2-resources.ru/events/event', {'eventId':identity, 'lang':'ru', 'scopeMarket':'2300'})
-            except (httpx.HTTPError, ValueError):
-                pass
-            group = items[0]['prediction']['cohort']
-            # ESPN linkage exists only for ID-verified NCAA aliases, not guessed translations.
-            if group in ('ncaa_m', 'ncaa_w'):
+        semaphore = asyncio.Semaphore(4)
+        async def check_identity(identity):
+            async with semaphore:
+                items = [r for r in unresolved if r['event_id'] == identity]
+                origin = items[0]['origin']
+                count = origin.get('period_count')
+                if count not in (2, 4):
+                    return
+                native, board_events, secondary = {}, [], None
                 try:
-                    day = datetime.fromtimestamp(float(origin['start_time']), timezone.utc).strftime('%Y%m%d')
-                    board_events = (await get(espn_college.BASE+SLUGS[group]+'/scoreboard', {'dates':day, 'groups':50, 'limit':500})).get('events') or []
-                    matched = [e for e in board_events if espn_college.match(origin, e) is not None]
-                    if len(matched) == 1:
-                        secondary = (matched[0], await get(espn_college.BASE+SLUGS[group]+'/summary', {'event':matched[0]['id']}))
-                except (httpx.HTTPError, ValueError, KeyError, TypeError, OverflowError):
+                    native = await get('https://line-vk01-w.pb06e2-resources.ru/events/event', {'eventId':identity, 'lang':'ru', 'scopeMarket':'2300'})
+                except (httpx.HTTPError, ValueError):
                     pass
-            # The existing independent Russian result protocol also covers other leagues.
-            result = None
-            try:
-                day = datetime.fromtimestamp(float(origin['start_time']), timezone.utc).astimezone(__import__('zoneinfo').ZoneInfo('Europe/Moscow')).date().isoformat()
-                key = 'scorebasket:'+day
-                if key not in cache:
-                    response = await client.get('https://scorebasketball.ru/matches/'+day+'/')
-                    response.raise_for_status()
-                    parser = ResultsParser(); parser.feed(response.text); cache[key] = parser.rows
-                result = cache[key].get(identity)
-            except (httpx.HTTPError, ValueError, TypeError, KeyError, OverflowError):
-                pass
-            for r in items:
-                period = 0 if r['target'] == 'match' else r['period']
-                fake = {'payload': {'event':identity, 'signal': {'target':'match' if period == 0 else 'half' if count == 2 else 'quarter', 'period':r['period']}, 'origin':origin}}
-                primary = primary_final_evidence(fake, native, 'PARI /events/event')
-                pair = primary['score'] if primary else None
-                if not pair and period > 0:
-                    pair = (r.get('primary_periods', {}).get(str(period)) or {}).get('score')
-                second, source = None, None
-                if secondary:
-                    second = second_espn(origin, *secondary, count, period)
-                    source = 'ESPN: '+espn_college.BASE+SLUGS[group]+'/summary?event='+str(secondary[0]['id'])
-                if second is None and result and result.get('final') is True:
+                group = (model.cohort(origin) or ('universal',))[0]
+                # ESPN linkage exists only for ID-verified NCAA aliases, not guessed translations.
+                if group in ('ncaa_m', 'ncaa_w'):
                     try:
-                        ps = result['periods']
-                        if (len(ps) >= count and all(len(q) == 2 and all(isinstance(v, int) and v >= 0 for v in q) for q in ps)
-                                and result['teams'] == [origin['team1'], origin['team2']]
-                                and [sum(q[j] for q in ps) for j in (0, 1)] == result['score']):
-                            second = [sum(q[j] for q in ps[:count]) for j in (0, 1)] if period == 0 else ps[period-1]
-                            source = 'ScoreBasketball: '+str(result.get('url'))
-                    except (KeyError, IndexError, TypeError):
+                        day = datetime.fromtimestamp(float(origin['start_time']), timezone.utc).strftime('%Y%m%d')
+                        board_events = (await get(espn_college.BASE+SLUGS[group]+'/scoreboard', {'dates':day, 'groups':50, 'limit':500})).get('events') or []
+                        matched = [e for e in board_events if espn_college.match(origin, e) is not None]
+                        if len(matched) == 1:
+                            secondary = (matched[0], await get(espn_college.BASE+SLUGS[group]+'/summary', {'event':matched[0]['id']}))
+                    except (httpx.HTTPError, ValueError, KeyError, TypeError, OverflowError):
                         pass
-                verified = verified_training_row(r, pair, second, ['PARI: exact completed protocol', source] if source else [], now)
-                if verified:
-                    labels[r['id']] = verified
-                    diagnostics['verified_checkpoints'] += 1
-                else:
-                    diagnostics['unresolved'] += 1
+                # The existing independent Russian result protocol also covers other leagues.
+                result = None
+                try:
+                    day = datetime.fromtimestamp(float(origin['start_time']), timezone.utc).astimezone(__import__('zoneinfo').ZoneInfo('Europe/Moscow')).date().isoformat()
+                    key = 'scorebasket:'+day
+                    if key not in cache:
+                        response = await client.get('https://scorebasketball.ru/matches/'+day+'/')
+                        response.raise_for_status()
+                        parser = ResultsParser(); parser.feed(response.text); cache[key] = parser.rows
+                    result = cache[key].get(identity)
+                except (httpx.HTTPError, ValueError, TypeError, KeyError, OverflowError):
+                    pass
+                for r in items:
+                    period = 0 if r['target'] == 'match' else r['period']
+                    fake = {'payload': {'event':identity, 'signal': {'target':'match' if period == 0 else 'half' if count == 2 else 'quarter', 'period':r['period']}, 'origin':origin}}
+                    primary = primary_final_evidence(fake, native, 'PARI /events/event')
+                    pair = primary['score'] if primary else None
+                    if not pair and period > 0:
+                        pair = (r.get('primary_periods', {}).get(str(period)) or {}).get('score')
+                    second, source = None, None
+                    if secondary:
+                        second = second_espn(origin, *secondary, count, period)
+                        source = 'ESPN: '+espn_college.BASE+SLUGS[group]+'/summary?event='+str(secondary[0]['id'])
+                    if second is None and result and result.get('final') is True:
+                        try:
+                            ps = result['periods']
+                            if (len(ps) >= count and all(len(q) == 2 and all(isinstance(v, int) and v >= 0 for v in q) for q in ps)
+                                    and result['teams'] == [origin['team1'], origin['team2']]
+                                    and [sum(q[j] for q in ps) for j in (0, 1)] == result['score']):
+                                second = [sum(q[j] for q in ps[:count]) for j in (0, 1)] if period == 0 else ps[period-1]
+                                source = 'ScoreBasketball: '+str(result.get('url'))
+                        except (KeyError, IndexError, TypeError):
+                            pass
+                    verified = verified_training_row(r, pair, second, ['PARI: exact completed protocol', source] if source else [], now)
+                    if verified:
+                        labels[r['id']] = verified
+                        diagnostics['verified_checkpoints'] += 1
+                    else:
+                        diagnostics['unresolved'] += 1
+        await asyncio.gather(*(check_identity(identity) for identity in selected))
     return (cursor+len(selected)) % len(ids), diagnostics
 
 
@@ -191,25 +194,38 @@ async def run(directory):
     path = root/'checkpoint.json.gz'
     state = json.loads(gzip.decompress(path.read_bytes())) if path.exists() else {'observations':{}, 'labels':{}, 'cursor':0}
     async with httpx.AsyncClient(timeout=45) as client:
-        response = await client.get(SITE+'/api/learning/export')
-        response.raise_for_status()
-        for line in response.text.splitlines():
-            r = json.loads(line)
-            if r['id'] not in state['observations']:
-                state['observations'][r['id']] = r
-            else:
-                # Only append later corroborating periods, never replace the original forecast.
-                old = state['observations'][r['id']]
-                for k, v in (r.get('primary_periods') or {}).items():
-                    if k in old.setdefault('primary_periods', {}) and old['primary_periods'][k]['score'] != v['score']:
-                        old['result_conflict'] = True
-                    else:
-                        old['primary_periods'][k] = v
+        cursor = 0
+        for _ in range(100):
+            response = await client.get(SITE+'/api/learning/export', params={'after_cursor':cursor,'limit':2000})
+            response.raise_for_status()
+            batch = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+            for r in batch:
+                if r['id'] not in state['observations']:
+                    state['observations'][r['id']] = r
+                else:
+                    # Only append corroboration, never replace the original forecast.
+                    old = state['observations'][r['id']]
+                    for k, v in (r.get('primary_periods') or {}).items():
+                        if k in old.setdefault('primary_periods', {}) and old['primary_periods'][k]['score'] != v['score']:
+                            old['result_conflict'] = True
+                        else:
+                            old['primary_periods'][k] = v
+            if len(batch) < 2000 or not batch[-1].get('capture_cursor'):
+                break
+            next_cursor = batch[-1]['capture_cursor']
+            if next_cursor <= cursor:
+                raise ValueError('Learning export cursor did not advance')
+            cursor = next_cursor
+        else:
+            raise ValueError('Learning backlog exceeds bounded collection; preserve checkpoint and investigate')
     eligible = {k:v for k, v in state['observations'].items() if not v.get('result_conflict')}
     state['cursor'], diagnostic = await reconcile(eligible, state['labels'], state['cursor'])
     path.write_bytes(gzip.compress(json.dumps(state, ensure_ascii=False, separators=(',', ':')).encode()))
     seed = json.loads(gzip.decompress((Path(__file__).parent/'models'/'learning-seed.json.gz').read_bytes()))
-    rows = seed+list(state['labels'].values())
+    universal_seed = json.loads(gzip.decompress((Path(__file__).parent/'models'/'learning-universal-seed.json.gz').read_bytes()))
+    fresh = [r for k,r in state['labels'].items() if not state['observations'].get(k,{}).get('result_conflict')]
+    universal_fresh = [{**r, 'cohort':'universal','origin_cohort':r['cohort']} for r in fresh if r['cohort'] != 'universal' and model.number(r['state'].get('period_length'))]
+    rows = seed+universal_seed+fresh+universal_fresh
     a = model.train(rows)
     a['prospective_report'] = prospective_report(state['labels'])
     a['collection'] = {**diagnostic, 'frozen_observations':len(state['observations']), 'independent_labeled_checkpoints':len(state['labels']), 'independent_games':len({r['game_id'] for r in state['labels'].values()})}

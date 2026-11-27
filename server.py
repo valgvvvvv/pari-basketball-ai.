@@ -5323,8 +5323,8 @@ def learning_status():
 
 
 @app.get('/api/learning/export')
-def learning_export():
-    return Response('\n'.join(json.dumps(r, ensure_ascii=False) for r in learning_service.export()),
+def learning_export(after_cursor: int = 0, limit: int = 20000):
+    return Response('\n'.join(json.dumps(r, ensure_ascii=False) for r in learning_service.export(after_cursor, limit)),
                     media_type='application/x-ndjson', headers={'Cache-Control':'no-store'})
 
 
