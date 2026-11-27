@@ -19,38 +19,27 @@ jobs:
     timeout-minutes: 9
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
       - name: Restore notification history
         uses: actions/cache/restore@v4
         with:
           path: .signal-state
           key: signal-state-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: signal-state-
-      - name: Restore browser
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: signal-playwright-1.58.0-ubuntu24
       - name: Restore outcomes and check daily report at 23 Moscow time
         env:
           SIGNAL_BOT_TOKEN: ${{ secrets.SIGNAL_BOT_TOKEN }}
           SIGNAL_CHAT_ID: ${{ secrets.SIGNAL_CHAT_ID }}
           SIGNAL_DATA_DIR: ${{ github.workspace }}/.signal-state
-        run: python signal-bot/lifecycle_sync.py
-      - name: Install monitor
-        run: |
-          pip install -r signal-bot/requirements.txt
-          python -m playwright install chromium
-      - name: Read detector and deliver new signals
+        run: python3 signal-bot/lifecycle_sync.py
+      - name: Wake and check the server delivery loop
         env:
           SIGNAL_BOT_TOKEN: ${{ secrets.SIGNAL_BOT_TOKEN }}
           SIGNAL_CHAT_ID: ${{ secrets.SIGNAL_CHAT_ID }}
-          SIGNAL_FIRST_RUN_BASELINE: '1'
           SIGNAL_DATA_DIR: ${{ github.workspace }}/.signal-state
           PYTHONUNBUFFERED: '1'
-        run: python signal-bot/monitor.py --once
+        # The in-process server detector sends each new snapshot immediately.
+        # This job only wakes/checks it; never start a second Telegram poller.
+        run: python3 signal-bot/monitor.py --server-only
       - name: Preserve notification history
         if: always()
         uses: actions/cache/save@v4
