@@ -5374,6 +5374,10 @@ async def _start_signal_commands():
     asyncio.create_task(server_signals.delivery_loop())
     asyncio.create_task(server_signals.daily_report_loop())
 
+@app.on_event('shutdown')
+async def _close_signal_transport():
+    await server_signals.close_transport()
+
 @app.get("/api/archive/status")
 def archive_status():
     conn=_archive_connect()

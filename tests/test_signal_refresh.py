@@ -48,8 +48,9 @@ class SharedRefreshTests(unittest.IsolatedAsyncioTestCase):
         await server.pari_live_events()
         self.process.assert_awaited_once()
 
-    async def test_cache_expires_at_the_new_ten_second_interval(self):
-        server._PARI_LIVE_CACHE = {'saved_at': datetime.now(timezone.utc).timestamp()-11,
+    async def test_cache_expires_at_the_new_five_second_interval(self):
+        self.assertEqual(server.server_signals.INTERVAL_SECONDS, 5)
+        server._PARI_LIVE_CACHE = {'saved_at': datetime.now(timezone.utc).timestamp()-6,
                                   'data': {'signal_diagnostics': {}, 'events': []}}
         await server.pari_live_events()
         self.fetch.assert_awaited_once()
