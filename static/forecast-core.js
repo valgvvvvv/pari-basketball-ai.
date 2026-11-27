@@ -341,6 +341,45 @@
     }
     return result.sort((a,b)=>b.probability-a.probability||(a.target<b.target?-1:a.target>b.target?1:0)||a.line-b.line);
   }
+  function rankLiveMatch(input){
+    const id=String(input.eventId??''),fallback=label=>({id,tier:2,probability:null,label,calibrated:false,priority:false});
+    const left=input.remainingSeconds,length=input.periodLengthSeconds,period=input.period,count=input.periodCount;
+    if(input.paused===true||left===length)return fallback('Пауза / начало периода');
+    if(!Number.isFinite(input.ageSeconds)||input.ageSeconds<0||input.ageSeconds>90||input.timerVerified!==true||input.scoreValid!==true||
+       !Number.isFinite(left)||!Number.isFinite(length)||left<=0||left>length||![2,4].includes(count)||!Number.isInteger(period)||period<1||period>count)
+      return fallback('Нет свежих согласованных данных');
+    const active=(input.markets||[]).filter(m=>{
+      const age=(input.nowMs-Date.parse(m.quotedAtUtc||''))/1000;
+      const current=m.target==='match'?input.currentMatch:input.currentPeriod;
+      return String(m.eventId)===id&&['match','quarter','half'].includes(m.target)&&
+        (m.target==='match'||m.period===period)&&m.suspended===false&&m.pricesVerified===true&&
+        [m.overOdds,m.underOdds].every(x=>typeof x==='number'&&Number.isFinite(x)&&x>1)&&
+        typeof m.line==='number'&&Number.isFinite(m.line)&&Number.isFinite(current)&&m.line>current&&Number.isFinite(age)&&age>=0&&age<=90;
+    });
+    const timely=active.filter(m=>m.target==='match'?(period<count||left>60):left>60);
+    if(!timely.length)return fallback(active.length?'Последняя минута · рынок в конце списка':'Нет подтверждённых открытых линий');
+    const candidates=[];
+    for(const target of ['quarter','half','match']){
+      const rows=timely.filter(m=>m.target===target).sort((a,b)=>a.line-b.line);
+      if(!rows.length)continue;
+      // Freeze a central OPEN line before comparing probabilities. An easy
+      // alternative with a tiny payout must not win the event ranking.
+      const m=rows[Math.floor((rows.length-1)/2)];
+      if(m.rulesConfirmed!==true||!m.ruleSource||m.includesOvertime!==false)continue;
+      const estimates=(input.estimates||[]).filter(x=>x.target===target&&x.line===m.line&&x.calculationAvailable===true&&
+        !(x.reasonCodes||[]).some(c=>['data','preliminary','probabilities','rules','overtime','prices','quote','suspended'].includes(c))&&
+        [x.pOver,x.pUnder,x.pPush??0].every(p=>typeof p==='number'&&Number.isFinite(p)&&p>=0&&p<=1)&&
+        Math.abs(x.pOver+x.pUnder+(x.pPush??0)-1)<.002);
+      const x=estimates.find(x=>x.source==='learning')||estimates[0];
+      if(!x)continue;
+      candidates.push({target,line:m.line,probability:Math.max(x.pOver,x.pUnder),direction:x.pOver>=x.pUnder?'ТБ':'ТМ',source:x.source||'primary'});
+    }
+    candidates.sort((a,b)=>b.probability-a.probability||(a.target<b.target?-1:a.target>b.target?1:0));
+    if(!candidates.length)return {id,tier:1,probability:null,label:'Линия открыта · нет сопоставимой оценки',calibrated:false,priority:false};
+    const best=candidates[0],target={match:'Матч',quarter:'Четверть',half:'Тайм'}[best.target];
+    return {id,tier:0,...best,label:target+' · '+best.direction+' '+best.line+' · оценка '+(best.probability*100).toFixed(1)+'%',calibrated:false,priority:false};
+  }
+  function compareLiveMatches(a,b){return a.tier-b.tier||((b.probability??-1)-(a.probability??-1))||(a.id<b.id?-1:a.id>b.id?1:0);}
   function selectPrioritySignals(input){return evaluateSignals(input).filter(x=>x.priority===true);}
   function selectCalculatedDirections(evaluations){
     const selected=[];
@@ -390,6 +429,6 @@
       automaticPriorityEnabled:false,calibrated:false,
       reasons:Object.entries(reasons).map(([code,lines])=>({code,lines,label:REASONS[code]||code})).sort((a,b)=>b.lines-a.lines||(a.code<b.code?-1:a.code>b.code?1:0))};
   }
-  return {selectCalculatedDirections,possessionRemainder,detectScoringRegime,regimeSensitivity,quarterPosterior,simulateQuarter,quarterSensitivity,assessSensitivity,selectResearchCandidates,
+  return {rankLiveMatch,compareLiveMatches,selectCalculatedDirections,possessionRemainder,detectScoringRegime,regimeSensitivity,quarterPosterior,simulateQuarter,quarterSensitivity,assessSensitivity,selectResearchCandidates,
     summarizeSignals,selectPrioritySignals,evaluateSignals,marketComparison,MODEL_VERSION};
 });
