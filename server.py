@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional
 import math, random, os, hashlib, re, asyncio, json, sqlite3, zlib, io, zipfile, pathlib, copy, traceback
@@ -24,6 +25,7 @@ import time
 import gzip
 
 app = FastAPI(title="PARI Basketball AI", version="0.2.0")
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=3)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 class _AssetParser(HTMLParser):

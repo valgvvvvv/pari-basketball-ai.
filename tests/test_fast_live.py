@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+import httpx
 from unittest.mock import AsyncMock, patch
 import server
 
@@ -32,6 +33,22 @@ class FastLiveTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(r['checked_at_utc'],data['checked_at_utc']);self.assertEqual(r['snapshot_age_seconds'],5)
             self.assertFalse(r['snapshot_stale']);load.assert_not_called()
             self.assertNotIn('refresh_pending',data,'read metadata must not mutate the frozen snapshot')
+
+    async def test_http_compression_preserves_complete_snapshot(self):
+        data={'ok':True,'checked_at_utc':'1970-01-01T00:16:35Z',
+              'events':[{'id':str(i),'statistics':{'source':'PARI','values':list(range(200))}}
+                        for i in range(13)],'recent_snapshots_by_event':{'a':[{'score':[40,41]}]}}
+        server._PUBLISHED_LIVE_SNAPSHOT={'saved_at':995,'data':data}
+        with patch.object(server.time,'time',return_value=1000):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=server.app),base_url='http://test') as client:
+                plain=await client.get('/api/pari/live',headers={'Accept-Encoding':'identity'})
+                compressed=await client.get('/api/pari/live',headers={'Accept-Encoding':'gzip'})
+        self.assertEqual(plain.status_code,200)
+        self.assertEqual(compressed.headers.get('content-encoding'),'gzip')
+        self.assertEqual(compressed.json(),plain.json())
+        self.assertEqual(compressed.json()['events'],data['events'])
+        self.assertLess(int(compressed.headers['content-length']),len(plain.content)//2)
+        self.assertIn('Accept-Encoding',compressed.headers['vary'])
 
     async def test_many_readers_share_one_background_refresh_and_keep_source_age(self):
         data={'ok':True,'checked_at_utc':'1970-01-01T00:15:00Z','events':[]}
