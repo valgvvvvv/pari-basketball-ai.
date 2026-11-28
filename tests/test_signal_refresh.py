@@ -11,7 +11,7 @@ class SharedRefreshTests(unittest.IsolatedAsyncioTestCase):
         self.fetch = AsyncMock(return_value={'ok': True, 'connected': True,
             'checked_at_utc': datetime.now(timezone.utc).isoformat(), 'events': [{'id': 'g'}]})
 
-        async def process(data, history):
+        async def process(data, history, publish=True):
             self.assertEqual(history, {'g': []})
             data['signal_diagnostics'] = {'evaluatedLines': 2}
             data['research_candidates'] = [{'event': 'g'}]
@@ -27,6 +27,7 @@ class SharedRefreshTests(unittest.IsolatedAsyncioTestCase):
             patch.object(server, '_archive_save_events', Mock(return_value=(1, 1))),
             patch.object(server, 'archive_recent', Mock(return_value={'events': {'g': []}})),
             patch.object(server.server_signals, 'process', self.process),
+            patch.object(server.server_signals, 'queue_notifications'),
             patch.object(server, 'emit_diagnostic')]
         for p in self.patches:
             p.start()
@@ -61,8 +62,8 @@ class SharedRefreshTests(unittest.IsolatedAsyncioTestCase):
         clock={'now':start}
         original_process=self.process.side_effect
         source_timestamp=self.fetch.return_value['checked_at_utc']
-        async def slow_process(data,history):
-            await original_process(data,history)
+        async def slow_process(data,history,publish=True):
+            await original_process(data,history,publish=publish)
             clock['now']=start+timedelta(seconds=35)
         self.process.side_effect=slow_process
         with patch.object(server,'datetime',wraps=datetime) as dates:
@@ -79,3 +80,13 @@ class SharedRefreshTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result['ok'])
         self.process.assert_not_awaited()
         self.assertEqual(server._PARI_LIVE_CACHE, {})
+
+    async def test_queue_is_published_after_challenger_attachment(self):
+        def attach(data,history):
+            self.assertFalse(self.process.await_args.kwargs['publish'])
+            data['events'][0]['learning']={'period':{'status':'shadow'}}
+        def queued(data):
+            self.assertEqual(data['events'][0]['learning']['period']['status'],'shadow')
+        with patch.object(server.learning_service,'attach',side_effect=attach),patch.object(server.server_signals,'queue_notifications',side_effect=queued) as publish:
+            await server._refresh_live_snapshot()
+            publish.assert_called_once()

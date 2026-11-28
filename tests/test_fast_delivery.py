@@ -80,6 +80,14 @@ class FastDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(delay,11)
         self.assertLessEqual(delay,12)
 
+    async def test_delivery_receipt_keeps_exact_entry_and_challenger(self):
+        self.card['entry_state']={'score':[40,39],'clock':'05:00','learning':{'model_version':'test-v1','center':41}}
+        self.card['delivery_review']={'available':True,'allow':True,'policy':'test'}
+        await signals.deliver([self.card])
+        saved=signals.lifecycle.rows()[0]['payload']
+        self.assertEqual(saved['entry_state'],self.card['entry_state'])
+        self.assertEqual(saved['delivery_review'],self.card['delivery_review'])
+
 
 class TransportTests(unittest.IsolatedAsyncioTestCase):
     async def test_shared_connection_and_rate_limit_no_secret_in_errors(self):
