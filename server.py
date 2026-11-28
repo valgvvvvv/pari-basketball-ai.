@@ -5333,8 +5333,10 @@ async def sync_signal_lifecycle(request: Request):
         async with server_signals.RESULT_LOCK:
             await asyncio.to_thread(server_signals.lifecycle.import_state, payload.get('state') or {})
         server_signals.STATUS['checkpoint_ready'] = True
-        await server_signals.results_once()
-        await server_signals.daily_report_once()
+        # A checkpoint is an import/export operation, not a synchronous scrape
+        # of every pending final. The existing background loop owns settlement
+        # and the daily report; slow providers must not time out this request.
+        server_signals.RESULT_WAKE.set()
         state = await asyncio.to_thread(server_signals.lifecycle.export_state)
         server_signals.STATUS['checkpoint_synced_at_utc'] = datetime.now(timezone.utc).isoformat()
         return state
