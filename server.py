@@ -5039,8 +5039,9 @@ async def _refresh_live_snapshot():
             try:
                 ids = ','.join(str(e.get('id')) for e in data.get('events', []))
                 history = await asyncio.to_thread(archive_recent, 10, ids)
-                await server_signals.process(data, history['events'])
+                await server_signals.process(data, history['events'], publish=False)
                 await asyncio.to_thread(learning_service.attach, data, history['events'])
+                server_signals.queue_notifications(data)
                 data['recent_snapshots_by_event'] = history['events']
             except Exception as exc:
                 server_signals.STATUS['error'] = type(exc).__name__
@@ -5298,6 +5299,11 @@ async def _archive_collector_loop():
 @app.get('/api/signals/status')
 def signal_status():
     return server_signals.public_status()
+
+@app.get('/api/signals/quality')
+def signals_quality():
+    import signal_review
+    return signal_review.summarize(server_signals.lifecycle.rows())
 
 
 @app.post('/internal/signals/lifecycle')
