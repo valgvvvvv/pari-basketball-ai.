@@ -71,6 +71,9 @@ def register(card, message_id, text, sent_at=None):
         raise ValueError('Invalid saved signal')
     payload = {'event': str(card['event']), 'teams': card['teams'], 'signal': s,
                'original_text': text, 'origin': card.get('origin', {}), 'update': bool(card.get('update'))}
+    for key in ('entry_state','delivery_review'):
+        if card.get(key) is not None:
+            payload[key] = card[key]
     db = connect()
     try:
         db.execute('INSERT OR IGNORE INTO messages VALUES (?,?,?,?,NULL,NULL)',

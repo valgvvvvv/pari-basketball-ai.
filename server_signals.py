@@ -17,7 +17,7 @@ import signal_lifecycle as lifecycle
 logging.getLogger('httpx').setLevel(logging.WARNING)
 STATE_PATH = Path(os.environ.get('SIGNAL_STATE_PATH', str(Path(tempfile.gettempdir()) / 'pari_signal_state.sqlite3')))
 INTERVAL_SECONDS = 5
-STATUS = {'mode': 'server', 'delivery_version': '2026-11-27-fast-delivery-v4',
+STATUS = {'mode': 'server', 'delivery_version': '2026-11-28-reviewed-delivery-v5',
           'interval_seconds': INTERVAL_SECONDS, 'checked_at_utc': None,
           'cards': [], 'error': None, 'sent': 0, 'commands_checked_at_utc': None}
 LOCK = asyncio.Lock()
@@ -96,11 +96,15 @@ def message_for(card):
                    '\nТолько ориентир для наблюдения: правила или цены рынка не подтверждены.')
     if 'overtime' in signal.get('reasonCodes', []):
         market_note = '\nТолько ориентир для наблюдения: рынок с ОТ, прогноз без ОТ. Для этого рынка не применять.'
+    review = card.get('delivery_review') or {}
+    model_note = ('\nОбучаемый расчёт согласен с направлением; точность для этой лиги отдельно не подтверждена.'
+                  if review.get('available') and review.get('allow') else
+                  '\nСопоставимая проверка обучаемой моделью недоступна.' if review else '')
     return lifecycle.clean_text((('🔄 Обновление · экспериментальный прогноз\n' if card.get('update') else
              '🔔 Сигнал · экспериментальный прогноз\n') + card['teams'] + '\n' + label +
             '\nНаправление сохраняется в сценариях риска. Это не проверенная вероятность выигрыша.' +
             '\n' + card.get('context', '') +
-            market_note +
+            market_note + model_note +
             '\nИзменение линии — обновление наблюдения, а не новый вход.' +
             '\n\nПредварительное направление. Вероятность и преимущество не подтверждены независимой проверкой.' +
             '\nhttps://pari-basketball-ai.onrender.com/\n⏳ Ожидает подтверждения результата.'))
@@ -139,7 +143,7 @@ def audit_delivery(card, state, message_id=None):
     import forecast_journal
     forecast_journal.record_notification(card['forecast_id'], state, message_id,
         notification_text=message_for(card) if state == 'sent' else None,
-        notification_card={k: card.get(k) for k in ('event', 'teams', 'signal', 'origin', 'update')} if state == 'sent' else None)
+        notification_card={k: card.get(k) for k in ('event', 'teams', 'signal', 'origin', 'update', 'entry_state', 'delivery_review')} if state == 'sent' else None)
 
 
 async def telegram(method, **payload):
@@ -289,7 +293,7 @@ async def deliver(cards, current_only=False):
             db.close()
 
 
-async def process(data, history):
+async def process(data, history, publish=True):
     import server_detector
     from copy import deepcopy
     snapshot = deepcopy(data)
@@ -325,7 +329,40 @@ async def process(data, history):
                   calculation_errors=result['errors'],
                   research_candidates=result.get('researchCandidates', []),
                   diagnostics=result.get('diagnostics', {}))
-    notifications = cards + [card for card in experimental_cards(result) if key_for(card) not in {key_for(x) for x in cards}]
+    if publish:
+        queue_notifications(data)
+
+
+def queue_notifications(data):
+    """Publish only after the same snapshot has its trained challenger attached."""
+    import signal_review
+    from copy import deepcopy
+    cards = data.get('priority_signals') or []
+    result = {'researchCandidates': data.get('research_candidates') or []}
+    candidates = cards + [card for card in experimental_cards(result) if key_for(card) not in {key_for(x) for x in cards}]
+    events = {str(event['id']):event for event in data.get('events') or []}
+    notifications, decisions = [], []
+    for card in candidates:
+        event = events.get(str(card['event']), {})
+        review = signal_review.review(card, event)
+        decision = {'event':str(card['event']), 'target':card['signal']['target'],
+                    'period':card['signal']['period'], 'line':card['signal']['line'], **review}
+        decisions.append(decision)
+        if card.get('experimental') and review['available'] and not review['allow']:
+            continue
+        predictions = event.get('learning') or {}
+        target = 'match' if card['signal']['target'] == 'match' else 'period'
+        prediction = predictions.get(target) or {}
+        entry = {k:deepcopy(event.get(k)) for k in ('score','clock','period','period_scores','period_count','period_length_seconds',
+                    'period_elapsed_seconds','period_remaining_seconds','match_elapsed_seconds','clock_source','score_source',
+                    'feed_checked_at_utc','statistics_quality','statistics_source','external_statistics','period_statistics',
+                    'timer_semantics_verified','timer_interpretation_status')}
+        entry['checked_at_utc'] = data.get('checked_at_utc')
+        entry['learning'] = {k:deepcopy(prediction.get(k)) for k in ('status','model_version','center','baseline_center','interval80','profile','cohort','state')}
+        notifications.append({**card, 'entry_state':entry, 'delivery_review':review})
+    STATUS['delivery_review_policy'] = signal_review.POLICY
+    STATUS['delivery_review_decisions'] = decisions
+    STATUS['challenger_disagreements'] = sum(r['available'] and not r['allow'] for r in decisions)
     STATUS['notification_candidates'] = len(notifications)
     # Refresh the queue atomically. Disappeared/replaced lines are not retried
     # from an old snapshot, and Telegram latency cannot delay the next fetch.
