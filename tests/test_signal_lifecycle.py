@@ -267,10 +267,13 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.save(); state = life.export_state()
         body = gzip.compress(json.dumps({'owner': '123', 'state': state}).encode()); ts = str(time.time())
         sig = hmac.new(b'test-key', ts.encode()+b'.'+body, hashlib.sha256).hexdigest()
-        with patch.object(signals, 'results_once', AsyncMock()), patch.object(signals, 'daily_report_once', AsyncMock()):
+        with patch.object(signals, 'results_once', AsyncMock(side_effect=AssertionError('checkpoint must not wait for external finals'))) as finals, patch.object(signals, 'daily_report_once', AsyncMock()) as report, patch.object(signals, 'RESULT_WAKE', asyncio.Event()) as wake:
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=server.app), base_url='http://test') as client:
                 response = await client.post('/internal/signals/lifecycle', content=body,
                     headers={'Content-Encoding': 'gzip', 'X-Signal-Timestamp': ts, 'X-Signal-Signature': sig})
+            finals.assert_not_awaited()
+            report.assert_not_awaited()
+            self.assertTrue(wake.is_set())
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()['rows']), 1)
 
